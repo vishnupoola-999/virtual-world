@@ -9,10 +9,12 @@
     "test:rules:run": "node --test --test-concurrency=1 tests/firestore.rules.test.mjs",
     "test:rules": "firebase emulators:exec --only firestore --project demo-virtual-world \"npm run test:rules:run\"",
     "copy:web": "node scripts/copy-web.mjs",
+    "check:auth": "node scripts/check-firebase-auth.mjs",
     "capacitor:copy:before": "node scripts/copy-web.mjs",
     "capacitor:sync:before": "node scripts/copy-web.mjs"
   },
   "dependencies": {
+    "@capacitor-firebase/authentication": "6.3.1",
     "@capacitor/android": "6.2.2",
     "@capacitor/core": "6.2.2"
   },
