@@ -6,3 +6,5 @@ h1{font-size:18px;margin:0 0 8px}#searchF{display:flex;gap:4px}#q{flex:1;padding
 .fam .nm{background:#000a;color:#fff;font-size:12px;padding:1px 6px;border-radius:8px;margin-top:2px;white-space:nowrap}
 .me{width:16px;height:16px;border-radius:50%;background:#1e88e5;border:3px solid #fff;box-shadow:0 0 0 6px #1e88e555}
 .famItem{margin:4px 0;padding:4px;background:#fafafa;border-radius:6px}
+#userChip{display:flex;align-items:center;gap:6px}#userPic{width:24px;height:24px;border-radius:50%}#agForm input,#agForm textarea{width:100%;box-sizing:border-box;margin:3px 0;padding:5px}#agForm .row input{width:auto}#agTitle{font-weight:600;margin:4px 0}.agent .av{font-size:20px;width:40px;height:40px}[hidden]{display:none!important}
+#agForm input[type=color]{width:44px;height:30px;padding:2px}

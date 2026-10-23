@@ -6,6 +6,12 @@
 <div id="map"></div>
 <div id="panel">
  <h1>🌍 Virtual World</h1>
+ <div class="row"><button id="signInBtn">🔐 Sign in with Google</button><span id="userChip" hidden><img id="userPic" alt=""><span id="userName"></span> <button id="signOutBtn">Sign out</button></span></div>
+ <div id="agentBox" hidden><b>🤖 My agent</b>
+  <div id="agView" hidden><div id="agTitle"></div><small id="agDesc"></small><div class="row"><button id="agGo">🎯 Go to</button><button id="agMove">📍 Move here</button><button id="agEdit">✏️ Edit</button></div></div>
+  <form id="agForm" hidden><input id="agName" placeholder="Agent name" maxlength="40"><div class="row"><input id="agEmoji" value="🤖" maxlength="4" size="3"><input id="agColor" type="color" value="#7e57c2"></div>
+  <textarea id="agPers" placeholder="Short personality, e.g. friendly study buddy" maxlength="300" rows="2"></textarea><button id="agSave"></button></form>
+  <small id="agMsg"></small></div><hr>
  <form id="searchF"><input id="q" placeholder="Search any place on Earth…" autocomplete="off"><button>🔎</button></form>
  <div id="results"></div>
  <div class="row"><button id="meBtn">📍 My location</button><button id="homeBtn">🏠 Hanamkonda</button><button id="globeBtn">🌐 Globe</button></div>

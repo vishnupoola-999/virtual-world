@@ -2,6 +2,7 @@ import {createMap,flyTo,search,HOME} from './map.js';
 import {connect,roomFromUrl,joinLink} from './family.js';
 import {familyLayer} from './family-layer.js';
 import {flightsLayer} from './flights.js';
+import {setupAgent} from './agent.js';
 const $=id=>document.getElementById(id);const status=t=>$('status').textContent=t;
 const map=createMap('map');window.__map=map;
 map.on('error',e=>console.warn('map:',e.error?.message||e));
@@ -31,3 +32,4 @@ function renderFam(fam){$('famN').textContent=fam.size;const L=$('famList');L.in
 const relay=connect(room,{onPresence:famL.update,onStatus:s=>$('famConn').textContent='('+s+')'});
 window.__vw={fam:famL.fam,relay,famUpdate:famL.update};
 if(new URLSearchParams(location.search).get('flights'))$('fltBtn').click();
+window.__vw.agent=setupAgent(map);
