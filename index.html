@@ -1,184 +1,20 @@
-<!doctype html><html><head><meta charset="utf-8"><link rel="icon" href="favicon.svg"><title>Virtual World – Prototype</title>
-<style>body{margin:0;overflow:hidden;font-family:system-ui,sans-serif}#hud{position:fixed;top:10px;left:10px;background:#000b;color:#fff;padding:10px 14px;border-radius:8px;font-size:13px;max-width:360px}
-#news{position:fixed;top:10px;right:10px;background:#fffe;padding:10px;border-radius:8px;font-size:12px;width:320px;max-height:45vh;overflow:auto;display:none}
-.lbl{position:fixed;transform:translate(-50%,-100%);background:#fff;border-radius:6px;padding:2px 6px;font-size:11px;white-space:nowrap;pointer-events:none;box-shadow:0 1px 3px #0005}
-.plbl{background:#0b3d91;color:#fff;font-size:10px}.place{background:#fff8d0;font-weight:600;font-size:12px}.flbl{background:#ff2d95;color:#fff;font-weight:700;font-size:14px;padding:4px 10px;border:2px solid #fff}
-#famList div{margin:4px 0;padding:4px 6px;background:#ffffff1a;border-radius:6px}button{margin:2px;cursor:pointer}a{color:#9cf}</style>
-<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script></head><body>
-<div id="hud"><b>🌍 Virtual World</b> <span id="place"></span><br>🕒 <b id="clock"></b> · speed <span id="spd">60</span>×
-<button onclick="S.speed*=2">⏩</button><button onclick="S.speed=Math.max(1,S.speed/2)">⏪</button><br>
-<button id="camBtn">Mode: Orbit</button><button id="newsBtn">📰 Arjun's News</button><button id="homeBtn">🏠 Original area</button><br>
-<button id="fltBtn">✈️ Live flights: OFF</button> radius <select id="fltR"><option>50</option><option selected>100</option><option>150</option><option>250</option></select> km <small id="fltMsg"></small><br>
-<span id="stats"></span><br>
-<b>👪 Family live: <span id="famN">0</span></b> <small id="famConn"></small><div id="famList"></div>
-<small id="msg"></small><br>
-<small>Orbit: drag/scroll. Fly: WASD + Q/E, drag to look. <a id="joinLink" href="join.html" target="_blank">Family: join</a></small><br><button id="shareBtn">🔗 Share join link</button> <small id="shareMsg"></small></div>
-<div id="news"><b>📰 Neighbourhood Daily – by Arjun</b><div id="newsLog"></div></div>
-<script type="module">
-import * as THREE from 'three';import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
-import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
-import {fetchWorld,project} from './world.js';
-import {connect,roomFromUrl,joinLink,STALE_MS} from './family.js';
-import {Brain} from './brain.js';
-const $=i=>document.getElementById(i);
-const Q=new URLSearchParams(location.search);
-const S=window.S={speed:+(Q.get('speed')||60),t:+(Q.get('t')||7.5)*3600,day:1};
-const msg=t=>$('msg').textContent=t;
-const scene=new THREE.Scene();scene.background=new THREE.Color(0xbfdfff);scene.fog=new THREE.Fog(0xbfdfff,2500,9000);
-const cam=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,1,20000);cam.position.set(600,700,900);
-const ren=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});ren.setSize(innerWidth,innerHeight);document.body.appendChild(ren.domElement);
-scene.add(new THREE.HemisphereLight(0xffffff,0x667755,1.1));const sun=new THREE.DirectionalLight(0xffffff,1.2);sun.position.set(500,1000,300);scene.add(sun);
-const grd=new THREE.Mesh(new THREE.PlaneGeometry(8000,8000),new THREE.MeshLambertMaterial({color:0xd8d2c0}));grd.rotation.x=-Math.PI/2;grd.position.y=-0.5;scene.add(grd);
-const edge=new THREE.Mesh(new THREE.RingGeometry(1495,1510,128),new THREE.MeshBasicMaterial({color:0xff2d95,transparent:true,opacity:.5,side:THREE.DoubleSide}));edge.rotation.x=-Math.PI/2;edge.position.y=1.5;scene.add(edge);
-const placeLbls=[];let W=null,world=new THREE.Group();scene.add(world);
-const MAP_R=1450;
-// ---------------- world building ----------------
-function buildWorld(w){W=w;scene.remove(world);world.traverse(o=>{o.geometry&&o.geometry.dispose();o.material&&o.material.map&&o.material.map.dispose();});world=new THREE.Group();scene.add(world);
- $('place').textContent='– '+W.center.name;
- const Z=16,n=2**Z,tx=lon=>(lon+180)/360*n,ty=lat=>{const r=lat*Math.PI/180;return (1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n};
- const cx=tx(W.center.lon),cy=ty(W.center.lat),tileM=40075016*Math.cos(W.center.lat*Math.PI/180)/n,loader=new THREE.TextureLoader();loader.crossOrigin='anonymous';const grp=world;
- for(let i=Math.floor(cx)-3;i<=Math.floor(cx)+3;i++)for(let j=Math.floor(cy)-3;j<=Math.floor(cy)+3;j++)loader.load(`https://tile.openstreetmap.org/${Z}/${i}/${j}.png`,tex=>{if(grp!==world)return;tex.colorSpace=THREE.SRGBColorSpace;
-  const m=new THREE.Mesh(new THREE.PlaneGeometry(tileM,tileM),new THREE.MeshBasicMaterial({map:tex,transparent:true,opacity:.85}));m.rotation.x=-Math.PI/2;m.position.set((i+.5-cx)*tileM,0,(j+.5-cy)*tileM);grp.add(m);});
- const geos=[];for(const b of W.buildings){if(b.pts.length<4)continue;const g=new THREE.ExtrudeGeometry(new THREE.Shape(b.pts.map(p=>new THREE.Vector2(p[0],-p[1]))),{depth:b.h,bevelEnabled:false});g.rotateX(-Math.PI/2);geos.push(g);}
- if(geos.length)world.add(new THREE.Mesh(mergeGeometries(geos),new THREE.MeshLambertMaterial({color:0xeeeae0})));geos.forEach(g=>g.dispose());
- const rpos=[];for(const r of W.roads)for(let k=0;k<r.pts.length-1;k++)rpos.push(r.pts[k][0],1,r.pts[k][1],r.pts[k+1][0],1,r.pts[k+1][1]);
- const rg=new THREE.BufferGeometry();rg.setAttribute('position',new THREE.Float32BufferAttribute(rpos,3));world.add(new THREE.LineSegments(rg,new THREE.LineBasicMaterial({color:0x555555})));
- for(const a of W.areas){if(!['park','garden','grass','playground','recreation_ground'].includes(a.type)||a.pts.length<4)continue;const g=new THREE.ShapeGeometry(new THREE.Shape(a.pts.map(p=>new THREE.Vector2(p[0],-p[1]))));g.rotateX(-Math.PI/2);const m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:0x6cbf5a}));m.position.y=.3;world.add(m);}
- for(const w of (W.water||[])){if(w.line){const pos=[];for(let k=0;k<w.pts.length-1;k++)pos.push(w.pts[k][0],.8,w.pts[k][1],w.pts[k+1][0],.8,w.pts[k+1][1]);const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));world.add(new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0x2f7fd8})));continue;}
-  if(w.pts.length<4)continue;const g=new THREE.ShapeGeometry(new THREE.Shape(w.pts.map(p=>new THREE.Vector2(p[0],-p[1]))));g.rotateX(-Math.PI/2);const m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:0x3d8fe0}));m.position.y=.5;world.add(m);}
- for(const e of placeLbls)e.el.remove();placeLbls.length=0;
- for(const l of (W.labels||[])){if(Math.hypot(...l.p)>3800)continue;const el=document.createElement('div');el.className='lbl place';document.body.appendChild(el);const o=new THREE.Object3D();o.position.set(l.p[0],0,l.p[1]);placeLbls.push({o,el,txt:(l.kind=='water'?'💧 ':['town','suburb','neighbourhood','quarter','hamlet','locality'].includes(l.kind)?'📍 ':'🏛️ ')+l.name});}
- buildGraph();initAgents();
- $('stats').textContent=`${W.buildings.length} buildings · ${W.roads.length} roads · ${A.length} agents`;}
-// ---------------- road graph ----------------
-let N,nodes,inner,shopPlaces,parkPlaces,school;
-const key=p=>p[0].toFixed(1)+','+p[1].toFixed(1);
-function buildGraph(){N=new Map();const walk=W.roads.filter(r=>!['motorway','motorway_link','trunk_link','construction','proposed'].includes(r.type));
- for(const r of walk)for(let k=0;k<r.pts.length;k++){const a=key(r.pts[k]);if(!N.has(a))N.set(a,{p:r.pts[k],e:[]});if(k){const b=key(r.pts[k-1]);N.get(a).e.push(b);N.get(b).e.push(a);}}
- let best=[],seen=new Set();for(const s of N.keys()){if(seen.has(s))continue;const c=[s];seen.add(s);for(let i=0;i<c.length;i++)for(const e of N.get(c[i]).e)if(!seen.has(e)){seen.add(e);c.push(e);}if(c.length>best.length)best=c;}
- nodes=best.length?best:[...N.keys()];if(!nodes.length){N.set('0,0',{p:[0,0],e:[]});nodes=['0,0'];}
- inner=nodes.filter(k=>Math.hypot(...N.get(k).p)<1300);if(!inner.length)inner=nodes;
- const place=(name,p)=>({name,node:nearest(p)});
- const shops=W.shops.filter(s=>Math.hypot(...s.p)<1300),parks=W.parks.filter(s=>Math.hypot(...s.p)<1300);
- shopPlaces=(shops.length?shops:[{p:[0,0],name:'Market'}]).map(s=>place(s.name,s.p));
- parkPlaces=(parks.length?parks:[{p:[300,300],name:'Park'}]).map(s=>place(s.name,s.p));school=place('School',[-400,200]);}
-const nearest=p=>{let b=nodes[0],d=1e18;for(const k of nodes){const q=N.get(k).p,dd=(q[0]-p[0])**2+(q[1]-p[1])**2;if(dd<d){d=dd;b=k}}return b};
-function path(a,b){const prev=new Map([[a,null]]),Qu=[a];for(let i=0;i<Qu.length;i++){const u=Qu[i];if(u==b)break;for(const v of N.get(u).e)if(!prev.has(v)){prev.set(v,u);Qu.push(v);}}
- if(!prev.has(b))return[N.get(a).p];const out=[];for(let u=b;u;u=prev.get(u))out.unshift(N.get(u).p);return out;}
-let seed=42;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647,pick=a=>a[Math.floor(rnd()*a.length)];
-// ---------------- agents ----------------
-const SPEC=[['Ravi',0xe53935,'shopkeeper'],['Meera',0x8e24aa,'teacher'],['Arjun',0x1e88e5,'reporter'],['Priya',0xfdd835],['Kiran',0x43a047],['Lakshmi',0xfb8c00],['Sai',0x00acc1],['Anil',0x6d4c41]];
-let A=[];
-function initAgents(){for(const a of A){scene.remove(a.g);a.el.remove();}seed=42;
- A=SPEC.map(([name,color,role])=>{const g=new THREE.Group();const body=new THREE.Mesh(new THREE.CylinderGeometry(4,4,12,10),new THREE.MeshLambertMaterial({color}));body.position.y=6;
-  const head=new THREE.Mesh(new THREE.SphereGeometry(4,12,10),new THREE.MeshLambertMaterial({color:0xf1c27d}));head.position.y=15;g.add(body,head);g.scale.setScalar(1.8);scene.add(g);
-  const el=document.createElement('div');el.className='lbl';document.body.appendChild(el);const home=pick(inner);
-  return {name,role,g,el,home:{name:'home',node:home},cur:home,route:[],ri:0,status:'',say:'',sayT:0,goal:null};});
- A[0].shop={...shopPlaces[0],name:shopPlaces[0].name+" (Ravi's)"};
- A.forEach(a=>{const p=N.get(a.cur).p;a.g.position.set(p[0],0,p[1]);a.gen=a.role?null:{shop:pick(shopPlaces),park:pick(parkPlaces),wake:6+rnd()*3,out:16+rnd()*3};});
- brain.reset(A,{shopPlaces,parkPlaces,school});}
-function goTo(a,dest,status){if(a.goal===dest){a.status=(a.ri<a.route.length&&!status.startsWith('Walking'))?'🚶 Going: '+status:status;return;}a.goal=dest;a.status=status;a.route=path(a.cur,dest.node);a.ri=0;}
-const hr=()=>(S.t/3600)%24;
-function plan(a){const h=hr();
- if(a.role=='shopkeeper'){if(h>=7.3&&h<21)goTo(a,a.shop,(h>=8&&a.ri>=a.route.length)?'🏪 Shop open':'Walking to open shop');else goTo(a,a.home,h>=21&&h<21.5?'Closed shop, heading home':'😴 Home');}
- else if(a.role=='teacher'){if(h>=8&&h<13)goTo(a,school,'📚 Teaching class');else if(h>=16.5&&h<19)goTo(a,parkPlaces[0],'✏️ Tutoring at '+parkPlaces[0].name);else goTo(a,a.home,'Home');}
- else if(a.role=='reporter'){if(h>=7&&h<21){if(!a.route.length||a.ri>=a.route.length){const t=pick(A.filter(x=>x!==a));a.goal=null;goTo(a,{name:t.name,node:nearest([t.g.position.x,t.g.position.z])},'🎤 Looking for '+t.name);}}else goTo(a,a.home,'Writing up news');}
- else{const g=a.gen,alt=brain.override(a,h);if(alt){goTo(a,alt.dest,alt.status);return;}
-  if(h<g.wake||h>=22)goTo(a,a.home,'😴 Sleeping');else if(h<12)goTo(a,g.shop,'🛒 Shopping at '+g.shop.name);else if(h<g.out)goTo(a,a.home,'🏠 At home');else goTo(a,g.park,'🌳 Walk in '+g.park.name);}}
-const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const log=[];function addNews(s){log.unshift(`<div>Day ${S.day} ${clockStr()} – ${esc(s)}</div>`);if(log.length>80)log.pop();$('newsLog').innerHTML=log.join('');}
-function clockStr(){const h=Math.floor(hr()),m=Math.floor((S.t/60)%60);return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');}
-const brain=window.brain=new Brain({addNews,clock:()=>({h:hr(),day:S.day,str:clockStr()})});
-// ---------------- family avatars ----------------
-const fam=new Map();
-function famAvatar(d){const color=new THREE.Color().setHSL((d.id.split('').reduce((s,c)=>s+c.charCodeAt(0),0)%360)/360,.9,.55);
- const g=new THREE.Group();const mat=new THREE.MeshLambertMaterial({color,emissive:color,emissiveIntensity:.35});
- const body=new THREE.Mesh(new THREE.CylinderGeometry(7,9,40,16),mat);body.position.y=20;
- const head=new THREE.Mesh(new THREE.SphereGeometry(9,16,12),new THREE.MeshLambertMaterial({color:0xf1c27d}));head.position.y=50;
- const beam=new THREE.Mesh(new THREE.CylinderGeometry(4,10,600,16,1,true),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.35,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));beam.position.y=300;
- const ring=new THREE.Mesh(new THREE.RingGeometry(18,26,32),new THREE.MeshBasicMaterial({color,side:THREE.DoubleSide}));ring.rotation.x=-Math.PI/2;ring.position.y=2;
- const arrow=new THREE.Mesh(new THREE.ConeGeometry(25,70,4),new THREE.MeshBasicMaterial({color:0xff2d95}));arrow.rotation.z=-Math.PI/2;arrow.position.set(60,40,0);
- const arrowG=new THREE.Group();arrowG.add(arrow);g.add(body,head,beam,ring,arrowG);scene.add(g);
- const el=document.createElement('div');el.className='lbl flbl';document.body.appendChild(el);
- return {g,beam,arrowG,el};}
-function famUpdate(d){if(d.stop){const f=fam.get(d.id);if(f){scene.remove(f.g);f.el.remove();fam.delete(d.id);renderFamList();}return;}
- if(!(d.lat&&d.lon))return;if(Date.now()-(d.ts||0)>STALE_MS)return;
- let f=fam.get(d.id);if(!f){f=famAvatar(d);fam.set(d.id,f);}Object.assign(f,{data:d});renderFamList();}
-const distTxt=m=>m<1000?Math.round(m)+' m':(m/1000).toFixed(1)+' km';
-function famPlace(f){const [x,z]=project(W,f.data.lat,f.data.lon),dist=Math.hypot(x,z),out=dist>MAP_R;f.dist=dist;f.out=out;
- const s=out?MAP_R/dist:1;f.g.position.set(x*s,0,z*s);f.arrowG.visible=out;if(out)f.arrowG.rotation.y=Math.atan2(-z,x);
- f.label=`👤 ${f.data.name}`+(out?`, ${distTxt(dist)} away ➜`:'');}
-function renderFamList(){$('famN').textContent=fam.size;const L=$('famList');L.innerHTML='';
- for(const [id,f] of fam){const div=document.createElement('div');if(W)famPlace(f);
-  div.innerHTML=`<b>${f.data.name.replace(/</g,'')}</b> <small>${f.out?distTxt(f.dist)+' away':'on map'}</small><br>`;
-  const b1=document.createElement('button');b1.textContent='🎯 Go to';b1.onclick=()=>flyTo(f.g.position);
-  const b2=document.createElement('button');b2.textContent='🗺️ Build world here';b2.onclick=()=>recenter(f.data);div.append(b1,b2);L.appendChild(div);}}
-setInterval(()=>{for(const [id,f] of fam)if(Date.now()-(f.data.ts||0)>STALE_MS)famUpdate({id,stop:true});renderFamList();},10000);
-const room=roomFromUrl();$('joinLink').href=joinLink(room);
-$('shareBtn').onclick=async()=>{const l=joinLink(room);try{if(navigator.share)await navigator.share({title:'Join our Virtual World',url:l});else{await navigator.clipboard.writeText(l);}$('shareMsg').textContent='✅ Link copied – send it only to family';}catch{prompt('Copy this link and send it to family:',l);}};
-const relay=connect(room,{onPresence:famUpdate,onStatus:s=>$('famConn').textContent='('+s+')'});
-window.__vw={fam,relay,famUpdate};
-// ---------------- camera ----------------
-const orbit=new OrbitControls(cam,ren.domElement);orbit.maxPolarAngle=1.45;orbit.maxDistance=5000;
-let fly=false,keys={},yaw=0,pitch=-.3,drag=false,tween=null;const btn=$('camBtn');
-const setFly=v=>{fly=v;orbit.enabled=!fly;btn.textContent='Mode: '+(fly?'Fly':'Orbit');if(fly){const d=new THREE.Vector3();cam.getWorldDirection(d);yaw=Math.atan2(-d.x,-d.z);pitch=Math.asin(d.y);}};
-btn.onclick=()=>setFly(!fly);
-function flyTo(p){setFly(false);const t0=orbit.target.clone(),c0=cam.position.clone(),t1=new THREE.Vector3(p.x,20,p.z),c1=t1.clone().add(new THREE.Vector3(140,160,200));tween={t0,c0,t1,c1,s:performance.now()};}
-window.flyTo=flyTo;
-$('newsBtn').onclick=()=>{const n=$('news');n.style.display=n.style.display=='block'?'none':'block';};
-async function recenter(d){try{msg('⏳ Building the world around '+d.name+'…');const w=await fetchWorld(d.lat,d.lon,`around ${d.name} (${d.lat.toFixed(4)}, ${d.lon.toFixed(4)})`,msg);
-  if(w.buildings.length+w.roads.length===0)throw new Error('no OSM data there');buildWorld(w);renderFamList();cam.position.set(600,700,900);orbit.target.set(0,0,0);msg(`✅ Built ${w.buildings.length} buildings, ${w.roads.length} roads around ${d.name}`);}
- catch(e){msg('❌ Could not build: '+e.message);}}
-window.recenter=recenter;
-$('homeBtn').onclick=async()=>{buildWorld(await (await fetch('data/world.json')).json());renderFamList();msg('');};
-addEventListener('keydown',e=>keys[e.key.toLowerCase()]=1);addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
-ren.domElement.addEventListener('mousedown',()=>drag=true);addEventListener('mouseup',()=>drag=false);
-addEventListener('mousemove',e=>{if(fly&&drag){yaw-=e.movementX*.004;pitch=Math.max(-1.5,Math.min(1.5,pitch-e.movementY*.004));}});
-addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();ren.setSize(innerWidth,innerHeight);});
-// ---------------- live flights (adsb.lol via Render proxy) ----------------
-// Radar-style: horizontal positions are scaled so the chosen radius fits ~3 km of the scene; altitude is scaled the same way ×3.
-const FLT_URL='https://virtual-world-ai.onrender.com/flights';const FLT={on:false,timer:null,planes:new Map(),grp:new THREE.Group()};scene.add(FLT.grp);
-const fltGeo=new THREE.ConeGeometry(14,48,8);fltGeo.rotateX(Math.PI/2);const fltMat=new THREE.MeshLambertMaterial({color:0x1155ff,emissive:0x112266});
-let fltRing=null;
-function fltScale(){return 3000/(+$('fltR').value*1000);}
-function fltDrawRing(){if(fltRing)FLT.grp.remove(fltRing);fltRing=new THREE.Mesh(new THREE.RingGeometry(2990,3010,128),new THREE.MeshBasicMaterial({color:0x1155ff,transparent:true,opacity:.4,side:THREE.DoubleSide}));fltRing.rotation.x=-Math.PI/2;fltRing.position.y=2;FLT.grp.add(fltRing);}
-async function fltFetch(){if(!FLT.on||!W)return;const rkm=+$('fltR').value;$('fltMsg').textContent='⏳ fetching…';
- try{const r=await fetch(`${FLT_URL}?lat=${W.center.lat.toFixed(4)}&lon=${W.center.lon.toFixed(4)}&r=${Math.round(rkm/1.852)}`);if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();
-  const s=fltScale(),seen=new Set();
-  for(const a of j.ac){const p=project(W,a.lat,a.lon);if(Math.hypot(p[0],p[1])>rkm*1000)continue;seen.add(a.hex);let P=FLT.planes.get(a.hex);
-   if(!P){const m=new THREE.Mesh(fltGeo,fltMat);const el=document.createElement('div');el.className='lbl plbl';document.body.appendChild(el);P={g:m,el};FLT.grp.add(m);FLT.planes.set(a.hex,P);}
-   P.g.position.set(p[0]*s,40+(a.alt||0)*0.3048*s*3,p[1]*s);P.g.rotation.y=Math.PI-(a.trk||0)*Math.PI/180;
-   P.txt=`✈️ ${a.cs||a.hex}${a.t?' '+a.t:''} · ${a.alt?Math.round(a.alt).toLocaleString()+' ft':'ground'} · ${Math.round(Math.hypot(...p)/1000)} km`;}
-  for(const [k,P] of FLT.planes)if(!seen.has(k)){FLT.grp.remove(P.g);P.el.remove();FLT.planes.delete(k);}
-  $('fltMsg').textContent=`${seen.size} aircraft within ${rkm} km (${j.src||'adsb'}) · ${new Date().toLocaleTimeString()}`+(seen.size?'':' (none overhead right now)');window.__flights=seen.size;}
- catch(e){$('fltMsg').textContent='⚠️ flights unavailable (proxy waking up? retrying)';window.__flights=-1;}}
-function fltClear(){for(const P of FLT.planes.values()){FLT.grp.remove(P.g);P.el.remove();}FLT.planes.clear();}
-$('fltBtn').onclick=()=>{FLT.on=!FLT.on;$('fltBtn').textContent='✈️ Live flights: '+(FLT.on?'ON':'OFF');FLT.grp.visible=FLT.on;clearInterval(FLT.timer);
- if(FLT.on){fltDrawRing();fltFetch();FLT.timer=setInterval(fltFetch,12000);}else{fltClear();$('fltMsg').textContent='';}};
-$('fltR').onchange=()=>{if(FLT.on){fltClear();fltDrawRing();fltFetch();}};
-// ---------------- main loop ----------------
-buildWorld(await (await fetch('data/world.json')).json());
-if(Q.get('flights'))$('fltBtn').click();
-if(Q.get('lat')&&Q.get('lon'))await recenter({name:Q.get('name')||'here',lat:+Q.get('lat'),lon:+Q.get('lon')});
-const v=new THREE.Vector3();let last=performance.now(),lastH=-1;
-function lab(obj,el,txt,up=40){v.copy(obj.position);v.y+=up;v.project(cam);if(v.z>1||Math.abs(v.x)>1.1||Math.abs(v.y)>1.1){el.style.display='none';return;}el.style.display='';el.style.left=(v.x+1)/2*innerWidth+'px';el.style.top=(1-v.y)/2*innerHeight+'px';el.textContent=txt;}
-function loop(now){const dt=Math.min(.1,(now-last)/1000);last=now;S.t+=dt*S.speed;if(S.t>=86400*S.day)S.day++;
- const h=Math.floor(hr());if(h!==lastH){lastH=h;brain.onHour(h,{parkName:parkPlaces[0].name});}
- for(const a of A){plan(a);let move=1.4*S.speed*dt*(a.role=='reporter'?1.3:1);
-  while(move>0&&a.ri<a.route.length){const t=a.route[a.ri],dx=t[0]-a.g.position.x,dz=t[1]-a.g.position.z,d=Math.hypot(dx,dz);
-   if(d<=move){a.g.position.x=t[0];a.g.position.z=t[1];move-=d;a.ri++;}else{a.g.position.x+=dx/d*move;a.g.position.z+=dz/d*move;a.g.rotation.y=Math.atan2(dx,dz);move=0;}}
-  if(a.ri>=a.route.length&&a.goal)a.cur=a.goal.node;if(a.sayT>0)a.sayT-=dt;}
- for(let i=0;i<A.length;i++)for(let j=i+1;j<A.length;j++){const a=A[i],b=A[j];if(a.g.position.distanceTo(b.g.position)<15)brain.meet(a,b);}
- brain.tick(dt);
- if(tween){const k=Math.min(1,(now-tween.s)/1500),e=k*k*(3-2*k);orbit.target.lerpVectors(tween.t0,tween.t1,e);cam.position.lerpVectors(tween.c0,tween.c1,e);if(k>=1)tween=null;}
- if(fly){const s=(keys.shift?600:200)*dt,f=new THREE.Vector3(-Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch)),r=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw));
-  if(keys.w)cam.position.addScaledVector(f,s);if(keys.s)cam.position.addScaledVector(f,-s);if(keys.d)cam.position.addScaledVector(r,s);if(keys.a)cam.position.addScaledVector(r,-s);if(keys.e)cam.position.y+=s;if(keys.q)cam.position.y-=s;
-  cam.lookAt(cam.position.clone().add(f));}else orbit.update();
- for(const a of A)lab(a.g,a.el,`${a.name}${a.role?' ('+a.role+')':''}: ${a.sayT>0?'💬 '+a.say:a.status}`);
- const pulse=.25+.15*Math.sin(now/300);
- for(const f of fam.values()){famPlace(f);f.beam.material.opacity=pulse;lab(f.g,f.el,f.label,70);}
- for(const l of placeLbls)lab(l.o,l.el,l.txt,10);
- if(FLT.on)for(const P of FLT.planes.values())lab(P.g,P.el,P.txt,30);
- $('clock').textContent='Day '+S.day+' '+clockStr();$('spd').textContent=S.speed;
- ren.render(scene,cam);requestAnimationFrame(loop);}
-window.__ready=true;requestAnimationFrame(loop);
-</script></body></html>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="favicon.svg"><title>Virtual World</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+<link rel="stylesheet" href="src/style.css">
+</head><body>
+<div id="map"></div>
+<div id="panel">
+ <h1>🌍 Virtual World</h1>
+ <form id="searchF"><input id="q" placeholder="Search any place on Earth…" autocomplete="off"><button>🔎</button></form>
+ <div id="results"></div>
+ <div class="row"><button id="meBtn">📍 My location</button><button id="homeBtn">🏠 Hanamkonda</button><button id="globeBtn">🌐 Globe</button></div>
+ <div class="row"><button id="fltBtn">✈️ Flights: OFF</button><small id="fltMsg"></small></div>
+ <hr><b>👪 Family</b> <span id="famN">0</span> live <small id="famConn"></small>
+ <div class="row"><button id="shareBtn">🔗 Share join link</button><a id="joinLink" target="_blank">Join myself</a></div>
+ <small id="shareMsg"></small><div id="famList"></div>
+ <small id="status"></small>
+</div>
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script type="module" src="src/main.js"></script>
+</body></html>

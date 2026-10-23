@@ -1,49 +1,39 @@
-# Virtual World – prototype
+# 🌍 Virtual World
 
-A browser-based 3D model of the neighbourhood around **100 Feet Road (Vaddepally Road), Manikanta Colony, Hanamkonda, Warangal** (18.00577, 79.53190), with 8 simulated AI agents and an opt-in family layer.
+A real, worldwide 3D map where people (and soon their personal AI agents) appear at their real locations.
 
-> "Manikanta Colony" isn't in OpenStreetMap yet, so the centre is the geocoded 100 Feet Road (Vaddepally Road) in Hanamkonda, next to Vaddepally Lake. To move it, change `LAT/LON` in `tools_convert.py`, re-fetch with Overpass, and run the script again.
+**Live:** https://vishnupoola-999.github.io/virtual-world/ · family join page: `join.html`
 
-## Run
-```bash
-cd virtual-world
-python3 -m http.server 8000
-# open http://localhost:8000/            (world)
-# open http://localhost:8000/join.html   (family opt-in)
-# optional: ?t=8&speed=300  -> start at 08:00, 300x speed
+## What works now (Milestone 1: World map)
+- Whole-Earth **globe → street level** 3D map (MapLibre GL JS v5 globe projection).
+- **OpenFreeMap** vector tiles (OpenStreetMap data, keyless) with extruded **3D buildings**.
+- **Terrain + hillshade** from AWS/Mapzen Terrarium elevation tiles (keyless).
+- Default view: 100 Feet Road, Hanamkonda (18.00577, 79.53190), tilted 3D. URL hash keeps your view.
+- **Search** any place (Nominatim) and opt-in **📍 My location** (stays in your browser).
+- **Family layer:** opt-in live location sharing via `join.html` (private random room over ntfy.sh) → avatar markers at real coordinates with 🎯 Go to.
+- **✈️ Flights** optional toggle (off by default) via the Render proxy `/flights`.
+
+## Code layout
 ```
-No build step and no API keys. It loads Three.js from unpkg and OSM tiles from tile.openstreetmap.org, so it can go on GitHub Pages as it is.
+index.html            app shell
+join.html             consent page for sharing your location with family
+src/main.js           wires UI together
+src/map.js            MapLibre map, globe, terrain, 3D buildings, search
+src/family.js         ntfy.sh presence relay + private rooms
+src/family-layer.js   family avatar markers
+src/flights.js        optional live flights layer
+src/style.css
+proxy/server.js       Render service: /flights + rate-limited Gemini /chat (will power user agents)
+```
 
-## Files
-- `index.html` – the scene: extruded buildings (uses `height`, then `building:levels`×3.2 m, otherwise 6–12 m), roads, parks, OSM ground tiles, agents, clock, HUD, and orbit/fly camera
-- `join.html` – family opt-in page with a consent checkbox, Start/Stop buttons, and live `navigator.geolocation`
-- `data/raw.json` – raw Overpass response (OSM data ©OpenStreetMap contributors, ODbL); `data/world.json` – the same data converted to local metres
-- `tools_convert.py` – converts raw.json into world.json
+## Roadmap
+1. ✅ **World map**: accurate worldwide 3D map.
+2. **Accounts + personal agent**: sign in (Google/phone); your agent spawns at your exact location.
+3. **Talk to your agent**: chat with it on the map (Gemini via `proxy/`).
+4. **Tasks + integrations**: meeting stand-in, Gmail/Calendar/WhatsApp etc. Free to create and experiment, subscription for real work.
+5. **Growth hooks**: agent-to-agent invites ("Vishnu's agent is waiting for you") and an hours-saved card to share.
 
-## Agents
-They walk along a graph built from the OSM roads (BFS shortest path).
-- **Ravi (shopkeeper)**: walks to his shop, opens it at 08:00, greets passers-by and closes at 21:00.
-- **Meera (teacher)**: teaches at school 08:00–13:00 and tutors at the park 16:30–19:00.
-- **Arjun (reporter)**: wanders from 07:00 to 21:00 looking for other agents, collects gossip, and writes the "📰 Arjun's News" log shown in the HUD.
-- Priya, Kiran, Lakshmi, Sai and Anil follow generic home → shop → home → park routines.
+## Privacy
+Location is only ever shared from `join.html` after explicit consent, only while that page is open, and only to the room link holders. "My location" is never sent anywhere.
 
-## Camera
-Orbit: drag, right-drag and scroll. Fly: press the Mode button, then WASD, Q/E for down/up, Shift to go faster, and drag to look.
-
-## Family layer (opt-in only)
-- `join.html?room=<code>`: name + consent checkbox → shares position **every 5 s while the page is open**; **Stop** removes the avatar immediately; viewers drop anyone silent for **>2 min**.
-- Relay: **ntfy.sh** (free, keyless, HTTPS, CORS). Joiners POST JSON to topic `vw1-<room>`; the world page subscribes via Server-Sent Events with `since=150s`, so it sees everyone already live. Code: `family.js`. Each viewer gets a **random private room code** on first visit (saved in localStorage); press **🔗 Share join link** to copy `join.html?room=<code>` and send it to family.
-- Avatars: tall glowing figure + light beam + name label. If they're outside the 1.5 km map, they're clamped to the pink edge ring with an arrow and “Dad, 4.2 km away”. HUD: **🎯 Go to** (camera flies there) and **🗺️ Build world here** (fetches OSM live from Overpass in the browser for 1.5 km around them and rebuilds the world + agents). URL shortcut: `index.html?lat=..&lon=..&name=..`.
-- Privacy: no background/covert tracking; anyone who knows the room code can read positions on the public relay, so share the link only with family. For real privacy later: Firebase Realtime Database + Auth with per-family rules.
-
-## AI characters (`brain.js`)
-- Rule-based by default: needs (hunger/social/energy) change plans, per-agent memory, relationships, gossip that spreads between agents, Arjun's news log + 20:00 headline.
-- Pluggable LLM hook (OpenAI-style `{messages}` → `{choices[0].message.content}`), rate-limited, always falls back to rules. **No key in the site.** Live proxy: `proxy/server.js` on Render (`https://virtual-world-ai.onrender.com`, Gemini `gemini-flash-lite-latest`, key only in Render env `GEMINI_API_KEY`). Limits: Origin allow-list, 6 req/min/IP, 60/hour, 600/day, 300 output tokens. The site batches up to 4 encounters per call, ≤1 call/30 s, ≤1 AI line per agent per 3 min; AI lines are marked ✨. `?llm=off` disables.
-
-## Known limits
-- The location is approximate (see the note above).
-- It has about 8k buildings and runs fine on a normal GPU but is slow under software rendering.
-- The agents are scripted, not LLM-driven. Agents that "live" 24/7 would need a server.
-
-## Live flights
-Click **✈️ Live flights** to show real aircraft (from [adsb.lol](https://adsb.lol), via the Render proxy's `GET /flights` because adsb.lol has no CORS) within 50–250 km. It refreshes every 12 s. It's a radar-style view: the chosen radius is shrunk to fit about 3 km of the scene, and altitude is shown at 3× that scale. Add `?flights=1` to the URL to turn it on at load.
+Map data © OpenStreetMap contributors, OpenFreeMap, OpenMapTiles; terrain © Mapzen/AWS Terrain Tiles.

@@ -8,7 +8,7 @@
 <button id="startB">Start sharing</button> <button id="stopB" disabled>Stop sharing</button>
 <p id="st">Not sharing.</p><p><small id="conn">connecting…</small></p>
 <script type="module">
-import {connect,roomFromUrl} from './family.js';
+import {connect,roomFromUrl} from './src/family.js';
 const $=i=>document.getElementById(i);const name=$('nm'),start=$('startB'),stop=$('stopB'),ok=$('ok'),st=$('st'),conn=$('conn'),roomc=$('roomc');
 if(!new URLSearchParams(location.search).get('room')&&!localStorage.getItem('vw-room')){document.body.insertAdjacentHTML('afterbegin','<p style="background:#ffe0b2;padding:8px;border-radius:8px">⚠️ Open this page from the <b>Share join link</b> your family sent you, otherwise you will be in an empty room.</p>');}
 const room=roomFromUrl();roomc.textContent=room;
