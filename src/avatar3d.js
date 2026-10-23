@@ -8,7 +8,8 @@ let gltfP=null;const loadGltf=()=>gltfP||=new GLTFLoader().loadAsync(new URL('..
 export function avatarLayer(map){
   let agent=null,renderer,scene,camera,model,mixer,baseH=1,tint=[];const clock=new THREE.Clock();
   const label=document.createElement('div');label.className='agLabel';label.hidden=true;map.getContainer().appendChild(label);
-  let topPx=null,elevC=null,raf=0;
+  let topPx=null,elevC=null,raf=0,lastT=0;const M=new THREE.Matrix4(),MM=new THREE.Matrix4(),SM=new THREE.Matrix4(),V=new THREE.Vector4();
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden){clock.getDelta();map.triggerRepaint();}});
   const mpp=()=>40075016.686*Math.cos(agent.lat*Math.PI/180)/(512*2**map.getZoom());
   const sizeM=()=>Math.max(REAL_H,MIN_PX*mpp());
   // Bounds checks are unreliable on a pitched globe and made the character blink; the GPU clips it off-screen anyway.
@@ -33,14 +34,13 @@ export function avatarLayer(map){
     render(gl,args){if(!visible()){topPx=null;return;}
       mixer?.update(Math.min(clock.getDelta(),.1));
       const s=sizeM()/baseH,elev=elevation();
-      const M=new THREE.Matrix4().fromArray(args.defaultProjectionData.mainMatrix)
-        .multiply(new THREE.Matrix4().fromArray(map.transform.getMatrixForModel([agent.lon,agent.lat],elev)))
-        .multiply(new THREE.Matrix4().makeScale(s,s,s));
+      M.fromArray(args.defaultProjectionData.mainMatrix).multiply(MM.fromArray(map.transform.getMatrixForModel([agent.lon,agent.lat],elev))).multiply(SM.makeScale(s,s,s));
       camera.projectionMatrix=M;
-      const v=new THREE.Vector4(0,baseH*1.02,0,1).applyMatrix4(M);if(v.w>0){const c=map.getCanvas();topPx=[(v.x/v.w+1)/2*c.clientWidth,(1-v.y/v.w)/2*c.clientHeight];}renderer.resetState();renderer.render(scene,camera);
+      const v=V.set(0,baseH*1.02,0,1).applyMatrix4(M);if(v.w>0){const c=map.getCanvas();topPx=[(v.x/v.w+1)/2*c.clientWidth,(1-v.y/v.w)/2*c.clientHeight];}renderer.resetState();renderer.render(scene,camera);
       // ~30 fps idle animation, only while the character is on screen (saves phone battery)
       // keep the idle animation running smoothly while the character is on screen
-      if(!raf)raf=requestAnimationFrame(()=>{raf=0;map.triggerRepaint();});}};
+      // ~30 fps, stopped while the app is in the background
+      if(!raf&&!document.hidden)raf=setTimeout(()=>{raf=0;map.triggerRepaint();},Math.max(0,33-(performance.now()-lastT)));lastT=performance.now();}};
   function applyLook(){if(!agent)return;const c=new THREE.Color(agent.look?.color||'#7e57c2');for(const m of tint)m.color.copy(c);
     label.textContent=`${agent.look?.emoji||'🤖'} ${agent.name}`;}
   const ensure=()=>{if(!map.getLayer('agent-3d'))map.addLayer(layer);};
