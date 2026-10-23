@@ -1,0 +1,225 @@
+// Firestore security rules for agents/{uid}. Run only through the emulator:
+//   npm run test:rules
+// which is `firebase emulators:exec --only firestore`.
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { after, before, beforeEach, describe, test } from 'node:test';
+import { assertFails, assertSucceeds, initializeTestEnvironment } from '@firebase/rules-unit-testing';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  serverTimestamp,
+  setDoc,
+  setLogLevel,
+  Timestamp,
+} from 'firebase/firestore';
+
+setLogLevel('silent');
+
+const PROJECT_ID = 'demo-virtual-world';
+const ALICE = 'alice';
+const BOB = 'bob';
+
+if (!process.env.FIRESTORE_EMULATOR_HOST) {
+  throw new Error('FIRESTORE_EMULATOR_HOST is not set. Run `npm run test:rules` so firebase emulators:exec starts the emulator.');
+}
+
+/** @type {import('@firebase/rules-unit-testing').RulesTestEnvironment} */
+let testEnv;
+
+function db(uid) {
+  const context = uid ? testEnv.authenticatedContext(uid) : testEnv.unauthenticatedContext();
+  return context.firestore();
+}
+
+function agentRef(uid, owner = uid) {
+  return doc(db(owner), 'agents', uid);
+}
+
+function agent(overrides = {}) {
+  return {
+    name: 'Ada',
+    look: { color: '#7e57c2', emoji: '🤖' },
+    personality: 'friendly study buddy',
+    ownerName: 'Vishnu',
+    lat: 18.00577,
+    lon: 79.5319,
+    approx: { lat: 18.01, lon: 79.53 },
+    preciseVisibility: 'private',
+    updatedAt: serverTimestamp(),
+    ...overrides,
+  };
+}
+
+function minimal(overrides = {}) {
+  return {
+    name: 'A',
+    look: { color: '#fff', emoji: '🤖' },
+    lat: 0,
+    lon: 0,
+    preciseVisibility: 'private',
+    updatedAt: serverTimestamp(),
+    ...overrides,
+  };
+}
+
+async function seed(uid, data) {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'agents', uid), data);
+  });
+}
+
+describe('agents/{uid} rules', { concurrency: false }, () => {
+  before(async () => {
+    const [host, port] = process.env.FIRESTORE_EMULATOR_HOST.split(':');
+    testEnv = await initializeTestEnvironment({
+      projectId: PROJECT_ID,
+      firestore: {
+        rules: readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8'),
+        host,
+        port: Number(port),
+      },
+    });
+  });
+
+  after(async () => {
+    await testEnv.cleanup();
+  });
+
+  beforeEach(async () => {
+    await testEnv.clearFirestore();
+  });
+
+  test('owner can create a full agent document', async () => {
+    const snap = await assertSucceeds(setDoc(agentRef(ALICE), agent()));
+    assert.equal(snap, undefined);
+    const stored = await assertSucceeds(getDoc(agentRef(ALICE)));
+    assert.equal(stored.exists(), true);
+    assert.equal(stored.get('name'), 'Ada');
+    assert.equal(stored.get('preciseVisibility'), 'private');
+    assert.equal(stored.get('look.emoji'), '🤖');
+    assert.deepEqual(stored.get('approx'), { lat: 18.01, lon: 79.53 });
+  });
+
+  test('owner can create a minimal agent without optional fields', async () => {
+    await assertSucceeds(setDoc(agentRef(ALICE), minimal()));
+    const stored = await assertSucceeds(getDoc(agentRef(ALICE)));
+    assert.equal(stored.get('name'), 'A');
+    assert.equal(stored.get('personality'), undefined);
+    assert.equal(stored.get('ownerName'), undefined);
+    assert.equal(stored.get('approx'), undefined);
+  });
+
+  test('owner can read, update, and delete their agent', async () => {
+    await seed(ALICE, agent());
+    const before = await assertSucceeds(getDoc(agentRef(ALICE)));
+    assert.equal(before.get('name'), 'Ada');
+
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({ name: 'Ada Lovelace', lat: -90, lon: 180 })));
+    const after = await assertSucceeds(getDoc(agentRef(ALICE)));
+    assert.equal(after.get('name'), 'Ada Lovelace');
+    assert.equal(after.get('lat'), -90);
+    assert.equal(after.get('lon'), 180);
+
+    await assertSucceeds(deleteDoc(agentRef(ALICE)));
+    const gone = await assertSucceeds(getDoc(agentRef(ALICE)));
+    assert.equal(gone.exists(), false);
+  });
+
+  test('accepts boundary lengths and coordinates', async () => {
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({
+      name: 'n'.repeat(40),
+      personality: 'p'.repeat(300),
+      ownerName: 'o'.repeat(80),
+      look: { color: '#12345678', emoji: 'e'.repeat(16) },
+      lat: 90,
+      lon: -180,
+    })));
+  });
+
+  test('signed-out users cannot read, write, or delete an agent', async () => {
+    await seed(ALICE, agent());
+    const guest = db(null);
+    await assertFails(getDoc(doc(guest, 'agents', ALICE)));
+    await assertFails(setDoc(doc(guest, 'agents', ALICE), agent()));
+    await assertFails(deleteDoc(doc(guest, 'agents', ALICE)));
+  });
+
+  test('another signed-in user cannot read, write, or delete the agent', async () => {
+    await seed(ALICE, agent());
+    await assertFails(getDoc(agentRef(ALICE, BOB)));
+    await assertFails(setDoc(agentRef(ALICE, BOB), agent()));
+    await assertFails(deleteDoc(agentRef(ALICE, BOB)));
+  });
+
+  test('the owner cannot list every agent', async () => {
+    await seed(ALICE, agent());
+    await seed(BOB, agent({ name: 'Bob' }));
+    await assertFails(getDocs(collection(db(ALICE), 'agents')));
+    await assertSucceeds(getDoc(agentRef(ALICE)));
+  });
+
+  test('owner writes are rejected when the document is invalid', async () => {
+    /** @type {{name: string, data: Record<string, unknown>}[]} */
+    const cases = [
+      { name: 'empty name', data: agent({ name: '' }) },
+      { name: 'name longer than 40', data: agent({ name: 'n'.repeat(41) }) },
+      { name: 'missing name', data: omit(agent(), 'name') },
+      { name: 'extra field', data: agent({ email: 'ada@example.com' }) },
+      { name: 'lat above 90', data: agent({ lat: 90.1 }) },
+      { name: 'lat below -90', data: agent({ lat: -90.1 }) },
+      { name: 'lon above 180', data: agent({ lon: 180.1 }) },
+      { name: 'lon below -180', data: agent({ lon: -180.1 }) },
+      { name: 'lat is a string', data: agent({ lat: '18' }) },
+      { name: 'preciseVisibility public', data: agent({ preciseVisibility: 'public' }) },
+      { name: 'missing preciseVisibility', data: omit(agent(), 'preciseVisibility') },
+      { name: 'updatedAt is not request.time', data: agent({ updatedAt: Timestamp.fromMillis(0) }) },
+      { name: 'missing updatedAt', data: omit(agent(), 'updatedAt') },
+      { name: 'look has an extra key', data: agent({ look: { color: '#7e57c2', emoji: '🤖', hat: true } }) },
+      { name: 'color longer than 9', data: agent({ look: { color: '#123456789', emoji: '🤖' } }) },
+      { name: 'emoji longer than 16', data: agent({ look: { color: '#fff', emoji: 'e'.repeat(17) } }) },
+      { name: 'missing look.color', data: agent({ look: { emoji: '🤖' } }) },
+      { name: 'personality longer than 300', data: agent({ personality: 'p'.repeat(301) }) },
+      { name: 'personality is not a string', data: agent({ personality: 12 }) },
+      { name: 'ownerName longer than 80', data: agent({ ownerName: 'o'.repeat(81) }) },
+      { name: 'approx missing lon', data: agent({ approx: { lat: 1 } }) },
+      { name: 'approx lat is a string', data: agent({ approx: { lat: '1', lon: 2 } }) },
+    ];
+
+    const failures = [];
+    for (const c of cases) {
+      await testEnv.clearFirestore();
+      try {
+        await assertFails(setDoc(agentRef(ALICE), c.data));
+      } catch (err) {
+        failures.push(`${c.name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    assert.deepEqual(failures, [], `invalid documents were not all denied:\n${failures.join('\n')}`);
+  });
+
+  test('an invalid stored agent can still be deleted by its owner', async () => {
+    await seed(ALICE, { name: '' });
+    await assertSucceeds(deleteDoc(agentRef(ALICE)));
+  });
+
+  test('other paths are denied, including agent subcollections', async () => {
+    const alice = db(ALICE);
+    const guest = db(null);
+    await assertFails(getDoc(doc(alice, 'users', ALICE)));
+    await assertFails(setDoc(doc(alice, 'users', ALICE), { name: 'Ada' }));
+    await assertFails(getDoc(doc(guest, 'users', ALICE)));
+    await assertFails(setDoc(doc(guest, 'profiles', ALICE), agent()));
+    await assertFails(getDoc(doc(alice, 'agents', ALICE, 'notes', 'secret')));
+    await assertFails(setDoc(doc(alice, 'agents', ALICE, 'notes', 'secret'), { text: 'nope' }));
+  });
+});
+
+function omit(data, key) {
+  const copy = { ...data };
+  delete copy[key];
+  return copy;
+}

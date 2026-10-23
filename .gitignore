@@ -1,2 +1,12 @@
 screenshot.png
 __pycache__/
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+.firebase/
+
