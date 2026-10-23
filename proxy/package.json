@@ -1,0 +1,1 @@
+{"name":"virtual-world-ai-proxy","type":"module","scripts":{"start":"node server.js"}}

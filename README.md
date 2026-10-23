@@ -30,14 +30,15 @@ They walk along a graph built from the OSM roads (BFS shortest path).
 ## Camera
 Orbit: drag, right-drag and scroll. Fly: press the Mode button, then WASD, Q/E for down/up, Shift to go faster, and drag to look.
 
-## Family layer (consent first)
-Someone opens `join.html`, ticks the consent box and presses **Start sharing**. Their position goes through `localStorage` and `BroadcastChannel`, so for now it only works **in the same browser on the same device**. **Stop sharing**, or closing the page, removes the marker. There's no hidden or background tracking.
+## Family layer (opt-in only)
+- `join.html?room=<code>`: name + consent checkbox → shares position **every 5 s while the page is open**; **Stop** removes the avatar immediately; viewers drop anyone silent for **>2 min**.
+- Relay: **ntfy.sh** (free, keyless, HTTPS, CORS). Joiners POST JSON to topic `vw1-<room>`; the world page subscribes via Server-Sent Events with `since=150s`, so it sees everyone already live. Code: `family.js`. Default room `poola-family-7f3k`; use `?room=` on both pages for a private code.
+- Avatars: tall glowing figure + light beam + name label. If they're outside the 1.5 km map, they're clamped to the pink edge ring with an arrow and “Dad, 4.2 km away”. HUD: **🎯 Go to** (camera flies there) and **🗺️ Build world here** (fetches OSM live from Overpass in the browser for 1.5 km around them and rebuilds the world + agents). URL shortcut: `index.html?lat=..&lon=..&name=..`.
+- Privacy: no background/covert tracking; anyone who knows the room code can read positions on the public relay, so share the link only with family. For real privacy later: Firebase Realtime Database + Auth with per-family rules.
 
-**Backend needed for real use across phones (later):** Firebase Realtime Database or Firestore, plus Firebase Auth for family accounts.
-- Each user writes only to `family/{uid}` with lat, lon, name and ts. Security rules let only family-group members read.
-- Delete the entry on Stop, and treat entries older than about 2 minutes as offline.
-- Serve the site over HTTPS (GitHub Pages does this), because phone browsers require it for geolocation.
-- Supabase Realtime or a small WebSocket server would also work.
+## AI characters (`brain.js`)
+- Rule-based by default: needs (hunger/social/energy) change plans, per-agent memory, relationships, gossip that spreads between agents, Arjun's news log + 20:00 headline.
+- Pluggable LLM hook (OpenAI-style `{messages}` → `{choices[0].message.content}`), rate-limited, always falls back to rules. **No key in the site.** Enable by deploying `proxy/server.js` (Gemini, key in env `GEMINI_API_KEY`) and setting `LLM_PROXY` in `brain.js`, or test with `?llm=https://<proxy>/chat`.
 
 ## Known limits
 - The location is approximate (see the note above).

@@ -80,7 +80,7 @@ function plan(a){const h=hr();
  else if(a.role=='reporter'){if(h>=7&&h<21){if(!a.route.length||a.ri>=a.route.length){const t=pick(A.filter(x=>x!==a));a.goal=null;goTo(a,{name:t.name,node:nearest([t.g.position.x,t.g.position.z])},'🎤 Looking for '+t.name);}}else goTo(a,a.home,'Writing up news');}
  else{const g=a.gen,alt=brain.override(a,h);if(alt){goTo(a,alt.dest,alt.status);return;}
   if(h<g.wake||h>=22)goTo(a,a.home,'😴 Sleeping');else if(h<12)goTo(a,g.shop,'🛒 Shopping at '+g.shop.name);else if(h<g.out)goTo(a,a.home,'🏠 At home');else goTo(a,g.park,'🌳 Walk in '+g.park.name);}}
-const log=[];function addNews(s){log.unshift(`<div>Day ${S.day} ${clockStr()} – ${s}</div>`);if(log.length>80)log.pop();$('newsLog').innerHTML=log.join('');}
+const esc=t=>String(t).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));const log=[];function addNews(s){log.unshift(`<div>Day ${S.day} ${clockStr()} – ${esc(s)}</div>`);if(log.length>80)log.pop();$('newsLog').innerHTML=log.join('');}
 function clockStr(){const h=Math.floor(hr()),m=Math.floor((S.t/60)%60);return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');}
 const brain=window.brain=new Brain({addNews,clock:()=>({h:hr(),day:S.day,str:clockStr()})});
 // ---------------- family avatars ----------------
