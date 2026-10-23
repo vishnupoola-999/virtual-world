@@ -1,7 +1,7 @@
 import {signIn,logOut,onUser,loadAgent,saveAgent,authMsg,redirectResult} from './firebase.js';
 import {flyTo} from './map.js';
 import {avatarLayer} from './avatar3d.js';
-import {toast,openSheet} from './ui.js';
+import {toast} from './ui.js';
 const $=id=>document.getElementById(id);
 export function setupAgent(map){let user=null,agent=null,loadSeq=0;const av=avatarLayer(map);const msg=t=>{$('agMsg').textContent=t;};
   const getPos=()=>new Promise((ok,no)=>navigator.geolocation?navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:true,timeout:20000}):no(new Error('Location not supported')));
