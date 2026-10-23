@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "38479190061",
+    "project_id": "virtual-world-8ac82",
+    "storage_bucket": "virtual-world-8ac82.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:38479190061:android:933f072d2d7dd164de80a4",
+        "android_client_info": {
+          "package_name": "com.vishnupoola.virtualworld"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "38479190061-8ue9el3ee7djab7vvjecbavej1ke5926.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.vishnupoola.virtualworld",
+            "certificate_hash": "dafa6987d151b0899523991cab80242b1647da5b"
+          }
+        },
+        {
+          "client_id": "38479190061-s49v0u8j2ijm0gvmo380t5pvdinnu74d.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCuNeDP8Fo2Gr7u2KTdEqzHm3UoS6PKAtI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "38479190061-s49v0u8j2ijm0gvmo380t5pvdinnu74d.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
