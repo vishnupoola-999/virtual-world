@@ -10,6 +10,7 @@
 <script type="module">
 import {connect,roomFromUrl} from './family.js';
 const $=i=>document.getElementById(i);const name=$('nm'),start=$('startB'),stop=$('stopB'),ok=$('ok'),st=$('st'),conn=$('conn'),roomc=$('roomc');
+if(!new URLSearchParams(location.search).get('room')&&!localStorage.getItem('vw-room')){document.body.insertAdjacentHTML('afterbegin','<p style="background:#ffe0b2;padding:8px;border-radius:8px">⚠️ Open this page from the <b>Share join link</b> your family sent you, otherwise you will be in an empty room.</p>');}
 const room=roomFromUrl();roomc.textContent=room;
 const fam=connect(room,{onStatus:s=>conn.textContent='relay: '+s});
 const id=localStorage.getItem('vw-me')||crypto.randomUUID().slice(0,12);localStorage.setItem('vw-me',id);

@@ -4,7 +4,12 @@
 // Anyone whose last update is older than STALE_MS is dropped by the viewer.
 export const RELAY='https://ntfy.sh';
 export const STALE_MS=120000;
-export function roomFromUrl(){const q=new URLSearchParams(location.search);const r=q.get('room')||localStorage.getItem('vw-room')||'poola-family-7f3k';localStorage.setItem('vw-room',r);return r.replace(/[^a-zA-Z0-9_-]/g,'');}
+// Private family room: ?room= wins, else the one saved on this device, else a new random 16-char code.
+export function roomFromUrl(){const q=new URLSearchParams(location.search);const clean=s=>(s||'').replace(/[^a-zA-Z0-9_-]/g,'');
+ let r=clean(q.get('room'))||clean(localStorage.getItem('vw-room'));
+ if(!r){const b=crypto.getRandomValues(new Uint8Array(12));r=btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').slice(0,16);}
+ localStorage.setItem('vw-room',r);return r;}
+export const joinLink=room=>new URL('join.html?room='+encodeURIComponent(room),location.href).href;
 export function connect(room,{onPresence,onStatus}={}){
   const topic=`${RELAY}/vw1-${room}`;let es;
   const open=()=>{es=new EventSource(`${topic}/sse?since=150s`);

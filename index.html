@@ -11,13 +11,13 @@
 <span id="stats"></span><br>
 <b>👪 Family live: <span id="famN">0</span></b> <small id="famConn"></small><div id="famList"></div>
 <small id="msg"></small><br>
-<small>Orbit: drag/scroll. Fly: WASD + Q/E, drag to look. <a id="joinLink" href="join.html" target="_blank">Family: join</a></small></div>
+<small>Orbit: drag/scroll. Fly: WASD + Q/E, drag to look. <a id="joinLink" href="join.html" target="_blank">Family: join</a></small><br><button id="shareBtn">🔗 Share join link</button> <small id="shareMsg"></small></div>
 <div id="news"><b>📰 Neighbourhood Daily – by Arjun</b><div id="newsLog"></div></div>
 <script type="module">
 import * as THREE from 'three';import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {fetchWorld,project} from './world.js';
-import {connect,roomFromUrl,STALE_MS} from './family.js';
+import {connect,roomFromUrl,joinLink,STALE_MS} from './family.js';
 import {Brain} from './brain.js';
 const $=i=>document.getElementById(i);
 const Q=new URLSearchParams(location.search);
@@ -108,7 +108,8 @@ function renderFamList(){$('famN').textContent=fam.size;const L=$('famList');L.i
   const b1=document.createElement('button');b1.textContent='🎯 Go to';b1.onclick=()=>flyTo(f.g.position);
   const b2=document.createElement('button');b2.textContent='🗺️ Build world here';b2.onclick=()=>recenter(f.data);div.append(b1,b2);L.appendChild(div);}}
 setInterval(()=>{for(const [id,f] of fam)if(Date.now()-(f.data.ts||0)>STALE_MS)famUpdate({id,stop:true});renderFamList();},10000);
-const room=roomFromUrl();$('joinLink').href='join.html?room='+room;
+const room=roomFromUrl();$('joinLink').href=joinLink(room);
+$('shareBtn').onclick=async()=>{const l=joinLink(room);try{if(navigator.share)await navigator.share({title:'Join our Virtual World',url:l});else{await navigator.clipboard.writeText(l);}$('shareMsg').textContent='✅ Link copied – send it only to family';}catch{prompt('Copy this link and send it to family:',l);}};
 const relay=connect(room,{onPresence:famUpdate,onStatus:s=>$('famConn').textContent='('+s+')'});
 window.__vw={fam,relay,famUpdate};
 // ---------------- camera ----------------

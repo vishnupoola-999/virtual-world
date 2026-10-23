@@ -32,13 +32,13 @@ Orbit: drag, right-drag and scroll. Fly: press the Mode button, then WASD, Q/E f
 
 ## Family layer (opt-in only)
 - `join.html?room=<code>`: name + consent checkbox → shares position **every 5 s while the page is open**; **Stop** removes the avatar immediately; viewers drop anyone silent for **>2 min**.
-- Relay: **ntfy.sh** (free, keyless, HTTPS, CORS). Joiners POST JSON to topic `vw1-<room>`; the world page subscribes via Server-Sent Events with `since=150s`, so it sees everyone already live. Code: `family.js`. Default room `poola-family-7f3k`; use `?room=` on both pages for a private code.
+- Relay: **ntfy.sh** (free, keyless, HTTPS, CORS). Joiners POST JSON to topic `vw1-<room>`; the world page subscribes via Server-Sent Events with `since=150s`, so it sees everyone already live. Code: `family.js`. Each viewer gets a **random private room code** on first visit (saved in localStorage); press **🔗 Share join link** to copy `join.html?room=<code>` and send it to family.
 - Avatars: tall glowing figure + light beam + name label. If they're outside the 1.5 km map, they're clamped to the pink edge ring with an arrow and “Dad, 4.2 km away”. HUD: **🎯 Go to** (camera flies there) and **🗺️ Build world here** (fetches OSM live from Overpass in the browser for 1.5 km around them and rebuilds the world + agents). URL shortcut: `index.html?lat=..&lon=..&name=..`.
 - Privacy: no background/covert tracking; anyone who knows the room code can read positions on the public relay, so share the link only with family. For real privacy later: Firebase Realtime Database + Auth with per-family rules.
 
 ## AI characters (`brain.js`)
 - Rule-based by default: needs (hunger/social/energy) change plans, per-agent memory, relationships, gossip that spreads between agents, Arjun's news log + 20:00 headline.
-- Pluggable LLM hook (OpenAI-style `{messages}` → `{choices[0].message.content}`), rate-limited, always falls back to rules. **No key in the site.** Enable by deploying `proxy/server.js` (Gemini, key in env `GEMINI_API_KEY`) and setting `LLM_PROXY` in `brain.js`, or test with `?llm=https://<proxy>/chat`.
+- Pluggable LLM hook (OpenAI-style `{messages}` → `{choices[0].message.content}`), rate-limited, always falls back to rules. **No key in the site.** Live proxy: `proxy/server.js` on Render (`https://virtual-world-ai.onrender.com`, Gemini `gemini-flash-lite-latest`, key only in Render env `GEMINI_API_KEY`). Limits: Origin allow-list, 6 req/min/IP, 60/hour, 600/day, 300 output tokens. The site batches up to 4 encounters per call, ≤1 call/30 s, ≤1 AI line per agent per 3 min; AI lines are marked ✨. `?llm=off` disables.
 
 ## Known limits
 - The location is approximate (see the note above).
