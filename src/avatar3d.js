@@ -14,6 +14,7 @@ export function avatarLayer(map){
   const sizeM=()=>Math.max(REAL_H,MIN_PX*mpp());
   // Bounds checks are unreliable on a pitched globe and made the character blink; the GPU clips it off-screen anyway.
   const visible=()=>agent&&model&&map.getZoom()>=10;
+  const onScreen=()=>{const q=map.project([agent.lon,agent.lat]),c=map.getCanvas(),m=200;return q.x>-m&&q.y>-m&&q.x<c.clientWidth+m&&q.y<c.clientHeight+m;};
   // Terrain tiles load and unload while the camera moves, so elevation briefly reads 0 and the robot sank under the ground. Keep the last good value.
   const elevation=()=>{const e=map.queryTerrainElevation?.([agent.lon,agent.lat]);if(e!=null&&isFinite(e)&&(e!==0||elevC==null))elevC=elevC==null?e:elevC+(e-elevC)*.3;return elevC||0;};
   // Label sits just above the character's head: projected from the 3D model each frame, else from the map point.
@@ -37,10 +38,9 @@ export function avatarLayer(map){
       M.fromArray(args.defaultProjectionData.mainMatrix).multiply(MM.fromArray(map.transform.getMatrixForModel([agent.lon,agent.lat],elev))).multiply(SM.makeScale(s,s,s));
       camera.projectionMatrix=M;
       const v=V.set(0,baseH*1.02,0,1).applyMatrix4(M);if(v.w>0){const c=map.getCanvas();topPx=[(v.x/v.w+1)/2*c.clientWidth,(1-v.y/v.w)/2*c.clientHeight];}renderer.resetState();renderer.render(scene,camera);
-      // ~30 fps idle animation, only while the character is on screen (saves phone battery)
-      // keep the idle animation running smoothly while the character is on screen
-      // ~30 fps, stopped while the app is in the background
-      if(!raf&&!document.hidden)raf=setTimeout(()=>{raf=0;map.triggerRepaint();},Math.max(0,33-(performance.now()-lastT)));lastT=performance.now();}};
+      // Idle animation at ~30 fps, only while the character is on screen and the app is in the foreground.
+      if(!raf&&!document.hidden&&onScreen())raf=requestAnimationFrame(tick);}};
+  function tick(t){if(t-lastT<33){raf=requestAnimationFrame(tick);return;}raf=0;lastT=t;map.triggerRepaint();}
   function applyLook(){if(!agent)return;const c=new THREE.Color(agent.look?.color||'#7e57c2');for(const m of tint)m.color.copy(c);
     label.textContent=`${agent.look?.emoji||'🤖'} ${agent.name}`;}
   const ensure=()=>{if(!map.getLayer('agent-3d'))map.addLayer(layer);};
