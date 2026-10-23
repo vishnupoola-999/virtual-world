@@ -2,12 +2,13 @@
 <style>body{margin:0;overflow:hidden;font-family:system-ui,sans-serif}#hud{position:fixed;top:10px;left:10px;background:#000b;color:#fff;padding:10px 14px;border-radius:8px;font-size:13px;max-width:360px}
 #news{position:fixed;top:10px;right:10px;background:#fffe;padding:10px;border-radius:8px;font-size:12px;width:320px;max-height:45vh;overflow:auto;display:none}
 .lbl{position:fixed;transform:translate(-50%,-100%);background:#fff;border-radius:6px;padding:2px 6px;font-size:11px;white-space:nowrap;pointer-events:none;box-shadow:0 1px 3px #0005}
-.flbl{background:#ff2d95;color:#fff;font-weight:700;font-size:14px;padding:4px 10px;border:2px solid #fff}
+.plbl{background:#0b3d91;color:#fff;font-size:10px}.place{background:#fff8d0;font-weight:600;font-size:12px}.flbl{background:#ff2d95;color:#fff;font-weight:700;font-size:14px;padding:4px 10px;border:2px solid #fff}
 #famList div{margin:4px 0;padding:4px 6px;background:#ffffff1a;border-radius:6px}button{margin:2px;cursor:pointer}a{color:#9cf}</style>
 <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script></head><body>
 <div id="hud"><b>🌍 Virtual World</b> <span id="place"></span><br>🕒 <b id="clock"></b> · speed <span id="spd">60</span>×
 <button onclick="S.speed*=2">⏩</button><button onclick="S.speed=Math.max(1,S.speed/2)">⏪</button><br>
 <button id="camBtn">Mode: Orbit</button><button id="newsBtn">📰 Arjun's News</button><button id="homeBtn">🏠 Original area</button><br>
+<button id="fltBtn">✈️ Live flights: OFF</button> radius <select id="fltR"><option>50</option><option selected>100</option><option>150</option><option>250</option></select> km <small id="fltMsg"></small><br>
 <span id="stats"></span><br>
 <b>👪 Family live: <span id="famN">0</span></b> <small id="famConn"></small><div id="famList"></div>
 <small id="msg"></small><br>
@@ -23,13 +24,13 @@ const $=i=>document.getElementById(i);
 const Q=new URLSearchParams(location.search);
 const S=window.S={speed:+(Q.get('speed')||60),t:+(Q.get('t')||7.5)*3600,day:1};
 const msg=t=>$('msg').textContent=t;
-const scene=new THREE.Scene();scene.background=new THREE.Color(0xbfdfff);scene.fog=new THREE.Fog(0xbfdfff,2000,5000);
-const cam=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,1,10000);cam.position.set(600,700,900);
+const scene=new THREE.Scene();scene.background=new THREE.Color(0xbfdfff);scene.fog=new THREE.Fog(0xbfdfff,2500,9000);
+const cam=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,1,20000);cam.position.set(600,700,900);
 const ren=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});ren.setSize(innerWidth,innerHeight);document.body.appendChild(ren.domElement);
 scene.add(new THREE.HemisphereLight(0xffffff,0x667755,1.1));const sun=new THREE.DirectionalLight(0xffffff,1.2);sun.position.set(500,1000,300);scene.add(sun);
 const grd=new THREE.Mesh(new THREE.PlaneGeometry(8000,8000),new THREE.MeshLambertMaterial({color:0xd8d2c0}));grd.rotation.x=-Math.PI/2;grd.position.y=-0.5;scene.add(grd);
 const edge=new THREE.Mesh(new THREE.RingGeometry(1495,1510,128),new THREE.MeshBasicMaterial({color:0xff2d95,transparent:true,opacity:.5,side:THREE.DoubleSide}));edge.rotation.x=-Math.PI/2;edge.position.y=1.5;scene.add(edge);
-let W=null,world=new THREE.Group();scene.add(world);
+const placeLbls=[];let W=null,world=new THREE.Group();scene.add(world);
 const MAP_R=1450;
 // ---------------- world building ----------------
 function buildWorld(w){W=w;scene.remove(world);world.traverse(o=>{o.geometry&&o.geometry.dispose();o.material&&o.material.map&&o.material.map.dispose();});world=new THREE.Group();scene.add(world);
@@ -43,6 +44,10 @@ function buildWorld(w){W=w;scene.remove(world);world.traverse(o=>{o.geometry&&o.
  const rpos=[];for(const r of W.roads)for(let k=0;k<r.pts.length-1;k++)rpos.push(r.pts[k][0],1,r.pts[k][1],r.pts[k+1][0],1,r.pts[k+1][1]);
  const rg=new THREE.BufferGeometry();rg.setAttribute('position',new THREE.Float32BufferAttribute(rpos,3));world.add(new THREE.LineSegments(rg,new THREE.LineBasicMaterial({color:0x555555})));
  for(const a of W.areas){if(!['park','garden','grass','playground','recreation_ground'].includes(a.type)||a.pts.length<4)continue;const g=new THREE.ShapeGeometry(new THREE.Shape(a.pts.map(p=>new THREE.Vector2(p[0],-p[1]))));g.rotateX(-Math.PI/2);const m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:0x6cbf5a}));m.position.y=.3;world.add(m);}
+ for(const w of (W.water||[])){if(w.line){const pos=[];for(let k=0;k<w.pts.length-1;k++)pos.push(w.pts[k][0],.8,w.pts[k][1],w.pts[k+1][0],.8,w.pts[k+1][1]);const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));world.add(new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0x2f7fd8})));continue;}
+  if(w.pts.length<4)continue;const g=new THREE.ShapeGeometry(new THREE.Shape(w.pts.map(p=>new THREE.Vector2(p[0],-p[1]))));g.rotateX(-Math.PI/2);const m=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color:0x3d8fe0}));m.position.y=.5;world.add(m);}
+ for(const e of placeLbls)e.el.remove();placeLbls.length=0;
+ for(const l of (W.labels||[])){if(Math.hypot(...l.p)>3800)continue;const el=document.createElement('div');el.className='lbl place';document.body.appendChild(el);const o=new THREE.Object3D();o.position.set(l.p[0],0,l.p[1]);placeLbls.push({o,el,txt:(l.kind=='water'?'💧 ':['town','suburb','neighbourhood','quarter','hamlet','locality'].includes(l.kind)?'📍 ':'🏛️ ')+l.name});}
  buildGraph();initAgents();
  $('stats').textContent=`${W.buildings.length} buildings · ${W.roads.length} roads · ${A.length} agents`;}
 // ---------------- road graph ----------------
@@ -129,8 +134,30 @@ addEventListener('keydown',e=>keys[e.key.toLowerCase()]=1);addEventListener('key
 ren.domElement.addEventListener('mousedown',()=>drag=true);addEventListener('mouseup',()=>drag=false);
 addEventListener('mousemove',e=>{if(fly&&drag){yaw-=e.movementX*.004;pitch=Math.max(-1.5,Math.min(1.5,pitch-e.movementY*.004));}});
 addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();ren.setSize(innerWidth,innerHeight);});
+// ---------------- live flights (adsb.lol via Render proxy) ----------------
+// Radar-style: horizontal positions are scaled so the chosen radius fits ~3 km of the scene; altitude is scaled the same way ×3.
+const FLT_URL='https://virtual-world-ai.onrender.com/flights';const FLT={on:false,timer:null,planes:new Map(),grp:new THREE.Group()};scene.add(FLT.grp);
+const fltGeo=new THREE.ConeGeometry(14,48,8);fltGeo.rotateX(Math.PI/2);const fltMat=new THREE.MeshLambertMaterial({color:0x1155ff,emissive:0x112266});
+let fltRing=null;
+function fltScale(){return 3000/(+$('fltR').value*1000);}
+function fltDrawRing(){if(fltRing)FLT.grp.remove(fltRing);fltRing=new THREE.Mesh(new THREE.RingGeometry(2990,3010,128),new THREE.MeshBasicMaterial({color:0x1155ff,transparent:true,opacity:.4,side:THREE.DoubleSide}));fltRing.rotation.x=-Math.PI/2;fltRing.position.y=2;FLT.grp.add(fltRing);}
+async function fltFetch(){if(!FLT.on||!W)return;const rkm=+$('fltR').value;$('fltMsg').textContent='⏳ fetching…';
+ try{const r=await fetch(`${FLT_URL}?lat=${W.center.lat.toFixed(4)}&lon=${W.center.lon.toFixed(4)}&r=${Math.round(rkm/1.852)}`);if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();
+  const s=fltScale(),seen=new Set();
+  for(const a of j.ac){const p=project(W,a.lat,a.lon);if(Math.hypot(p[0],p[1])>rkm*1000)continue;seen.add(a.hex);let P=FLT.planes.get(a.hex);
+   if(!P){const m=new THREE.Mesh(fltGeo,fltMat);const el=document.createElement('div');el.className='lbl plbl';document.body.appendChild(el);P={g:m,el};FLT.grp.add(m);FLT.planes.set(a.hex,P);}
+   P.g.position.set(p[0]*s,40+(a.alt||0)*0.3048*s*3,p[1]*s);P.g.rotation.y=Math.PI-(a.trk||0)*Math.PI/180;
+   P.txt=`✈️ ${a.cs||a.hex}${a.t?' '+a.t:''} · ${a.alt?Math.round(a.alt).toLocaleString()+' ft':'ground'} · ${Math.round(Math.hypot(...p)/1000)} km`;}
+  for(const [k,P] of FLT.planes)if(!seen.has(k)){FLT.grp.remove(P.g);P.el.remove();FLT.planes.delete(k);}
+  $('fltMsg').textContent=`${seen.size} aircraft within ${rkm} km · ${new Date().toLocaleTimeString()}`+(seen.size?'':' (none overhead right now)');window.__flights=seen.size;}
+ catch(e){$('fltMsg').textContent='⚠️ flights unavailable (proxy waking up? retrying)';window.__flights=-1;}}
+function fltClear(){for(const P of FLT.planes.values()){FLT.grp.remove(P.g);P.el.remove();}FLT.planes.clear();}
+$('fltBtn').onclick=()=>{FLT.on=!FLT.on;$('fltBtn').textContent='✈️ Live flights: '+(FLT.on?'ON':'OFF');FLT.grp.visible=FLT.on;clearInterval(FLT.timer);
+ if(FLT.on){fltDrawRing();fltFetch();FLT.timer=setInterval(fltFetch,12000);}else{fltClear();$('fltMsg').textContent='';}};
+$('fltR').onchange=()=>{if(FLT.on){fltClear();fltDrawRing();fltFetch();}};
 // ---------------- main loop ----------------
 buildWorld(await (await fetch('data/world.json')).json());
+if(Q.get('flights'))$('fltBtn').click();
 if(Q.get('lat')&&Q.get('lon'))await recenter({name:Q.get('name')||'here',lat:+Q.get('lat'),lon:+Q.get('lon')});
 const v=new THREE.Vector3();let last=performance.now(),lastH=-1;
 function lab(obj,el,txt,up=40){v.copy(obj.position);v.y+=up;v.project(cam);if(v.z>1||Math.abs(v.x)>1.1||Math.abs(v.y)>1.1){el.style.display='none';return;}el.style.display='';el.style.left=(v.x+1)/2*innerWidth+'px';el.style.top=(1-v.y)/2*innerHeight+'px';el.textContent=txt;}
@@ -149,6 +176,8 @@ function loop(now){const dt=Math.min(.1,(now-last)/1000);last=now;S.t+=dt*S.spee
  for(const a of A)lab(a.g,a.el,`${a.name}${a.role?' ('+a.role+')':''}: ${a.sayT>0?'💬 '+a.say:a.status}`);
  const pulse=.25+.15*Math.sin(now/300);
  for(const f of fam.values()){famPlace(f);f.beam.material.opacity=pulse;lab(f.g,f.el,f.label,70);}
+ for(const l of placeLbls)lab(l.o,l.el,l.txt,10);
+ if(FLT.on)for(const P of FLT.planes.values())lab(P.g,P.el,P.txt,30);
  $('clock').textContent='Day '+S.day+' '+clockStr();$('spd').textContent=S.speed;
  ren.render(scene,cam);requestAnimationFrame(loop);}
 window.__ready=true;requestAnimationFrame(loop);

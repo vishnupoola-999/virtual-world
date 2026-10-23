@@ -62,7 +62,7 @@ export class Brain{
   if((this.aiCool.get(a.name)||0)>now||(this.aiCool.get(b.name)||0)>now||this.pending.some(p=>p.includes(a)||p.includes(b)))return;
   this.pending.push([a,b]);if(this.pending.length>4)this.pending.shift();}
  async flushAI(){if(!this.pending.length||this.llm.busy||performance.now()<this.llm.next)return;const batch=this.pending.splice(0,4),c=this.env.clock();
-  const sys='You write very short, friendly street dialogue for characters in a simulated Hyderabad neighbourhood. Light Telugu/Hindi words ok. Family-friendly. For EACH numbered encounter return an item. Reply ONLY with a JSON array: [{"a":"<line by first person>","b":"<reply by second>","fact":"<one short neighbourhood news item or empty>"}]. Max 14 words per line.';
+  const sys='You write very short, friendly street dialogue for characters in a simulated Hanamkonda (Warangal) neighbourhood. Light Telugu/Hindi words ok. Family-friendly. For EACH numbered encounter return an item. Reply ONLY with a JSON array: [{"a":"<line by first person>","b":"<reply by second>","fact":"<one short neighbourhood news item or empty>"}]. Max 14 words per line.';
   const desc=p=>`${p.name} (${p.persona}; now: ${p.status.replace(/[^\w\s:'-]/g,'').trim()}; remembers: ${p.mem.slice(0,2).join(' / ')||'nothing'})`;
   const u=`Time ${c.str}.\n`+batch.map(([a,b],i)=>`${i+1}. ${desc(a)} meets ${desc(b)}.`).join('\n');
   const out=await this.chat([{role:'system',content:sys},{role:'user',content:u}],60+70*batch.length);if(!out)return; // rules already spoke; nothing lost

@@ -1,8 +1,8 @@
 # Virtual World – prototype
 
-A browser-based 3D model of the neighbourhood around **100 Feet Road, Ayyappa Society / Madhapur, Hyderabad** (17.44729, 78.39499), with 8 simulated AI agents and an opt-in family layer.
+A browser-based 3D model of the neighbourhood around **100 Feet Road (Vaddepally Road), Manikanta Colony, Hanamkonda, Warangal** (18.00577, 79.53190), with 8 simulated AI agents and an opt-in family layer.
 
-> "Manikanta Colony" isn't in OpenStreetMap yet, so the centre is the most plausible geocoded match for "100 Feet Road" in Hyderabad. To move it, change `LAT/LON` in `tools_convert.py`, re-fetch with Overpass, and run the script again.
+> "Manikanta Colony" isn't in OpenStreetMap yet, so the centre is the geocoded 100 Feet Road (Vaddepally Road) in Hanamkonda, next to Vaddepally Lake. To move it, change `LAT/LON` in `tools_convert.py`, re-fetch with Overpass, and run the script again.
 
 ## Run
 ```bash
@@ -44,3 +44,6 @@ Orbit: drag, right-drag and scroll. Fly: press the Mode button, then WASD, Q/E f
 - The location is approximate (see the note above).
 - It has about 8k buildings and runs fine on a normal GPU but is slow under software rendering.
 - The agents are scripted, not LLM-driven. Agents that "live" 24/7 would need a server.
+
+## Live flights
+Click **✈️ Live flights** to show real aircraft (from [adsb.lol](https://adsb.lol), via the Render proxy's `GET /flights` because adsb.lol has no CORS) within 50–250 km. It refreshes every 12 s. It's a radar-style view: the chosen radius is shrunk to fit about 3 km of the scene, and altitude is shown at 3× that scale. Add `?flights=1` to the URL to turn it on at load.
