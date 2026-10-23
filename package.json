@@ -1,0 +1,16 @@
+{
+  "name": "virtual-world",
+  "private": true,
+  "scripts": {
+    "copy:web": "node scripts/copy-web.mjs",
+    "capacitor:copy:before": "node scripts/copy-web.mjs",
+    "capacitor:sync:before": "node scripts/copy-web.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "6.2.2",
+    "@capacitor/core": "6.2.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "6.2.2"
+  }
+}
