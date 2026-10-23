@@ -42,11 +42,24 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Check web popup path and native id-token path
+        run: npm run check:auth
+
       - name: Copy static site into Capacitor webDir
         run: npm run copy:web
 
       - name: Sync Capacitor Android project
         run: npx cap sync android
+
+      - name: Print stable debug certificate fingerprints
+        working-directory: android
+        run: |
+          sha1=$(keytool -list -v -keystore app/debug.keystore -alias androiddebugkey -storepass android | awk -F'SHA1: ' '/SHA1:/{print $2; exit}')
+          sha256=$(keytool -list -v -keystore app/debug.keystore -alias androiddebugkey -storepass android | awk -F'SHA256: ' '/SHA256:/{print $2; exit}')
+          echo "SHA1: $sha1"
+          echo "SHA256: $sha256"
+          test "$sha1" = "DA:FA:69:87:D1:51:B0:89:95:23:99:1C:AB:80:24:2B:16:47:DA:5B"
+          test "$sha256" = "04:63:58:67:E3:0B:0F:51:0C:E8:06:8B:F2:EA:3E:BA:85:64:2E:4D:9C:3A:92:38:5B:62:9A:77:C3:2F:15:2A"
 
       - name: Build debug APK
         working-directory: android

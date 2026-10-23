@@ -5,7 +5,7 @@
 // "redirect best practices" Option 1 is to use signInWithPopup everywhere; we only fall back to redirect if the popup is blocked.
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {initializeAuth,indexedDBLocalPersistence,browserLocalPersistence,browserPopupRedirectResolver,GoogleAuthProvider,
-  signInWithPopup,signInWithRedirect,getRedirectResult,onAuthStateChanged,signOut} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+  signInWithPopup,signInWithRedirect,signInWithCredential,getRedirectResult,onAuthStateChanged,signOut} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {getFirestore,doc,getDoc,setDoc,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 const app=initializeApp({apiKey:'AIzaSyCfA2MaUKk-B9L4GNpM-QJiOXp3E6UUZdM',authDomain:'virtual-world-8ac82.firebaseapp.com',projectId:'virtual-world-8ac82',storageBucket:'virtual-world-8ac82.firebasestorage.app',messagingSenderId:'38479190061',appId:'1:38479190061:web:749e619be467e076de80a4',measurementId:'G-MXK91TZGGZ'});
 export const auth=initializeAuth(app,{persistence:[indexedDBLocalPersistence,browserLocalPersistence],popupRedirectResolver:browserPopupRedirectResolver});
@@ -14,17 +14,59 @@ const provider=()=>{const p=new GoogleAuthProvider();p.setCustomParameters({prom
 const FRIENDLY={'auth/popup-closed-by-user':'Sign-in window was closed before finishing.','auth/cancelled-popup-request':'Sign-in already in progress.',
  'auth/unauthorized-domain':'This site is not in Firebase Authorized domains.','auth/network-request-failed':'Network problem, check your connection.',
  'auth/web-storage-unsupported':'This browser blocks storage (private mode?). Try normal Chrome/Safari.','auth/internal-error':'Google sign-in internal error, please retry.',
- 'auth/user-disabled':'This account has been disabled.','auth/too-many-requests':'Too many attempts, wait a minute.'};
+ 'auth/user-disabled':'This account has been disabled.','auth/too-many-requests':'Too many attempts, wait a minute.',
+ 'auth/native-not-configured':'Native Google sign-in needs android/app/google-services.json. See the README.',
+ 'auth/native-developer-error':'Google rejected this app (status 10). Add the debug SHA-1 and Web client ID in Firebase. See the README.',
+ 'auth/native-cancelled':'Google sign-in was cancelled.',
+ 'auth/missing-id-token':'Google did not return an id token. Check the debug SHA-1 and Web client ID.'};
 export const authMsg=e=>(FRIENDLY[e?.code]||'Sign-in failed')+(e?.code?` (${e.code})`:` (${e?.message||e})`);
 // Must always be checked once on load, in case we fell back to redirect last time.
 export const redirectResult=getRedirectResult(auth).then(r=>{sessionStorage.removeItem('vw-redirect');return r;})
   .catch(e=>{sessionStorage.removeItem('vw-redirect');throw e;});
 let busy=false;
-export async function signIn(){if(busy)return;busy=true;
+// Android WebView rejects Google OAuth (403 disallowed_useragent). The Capacitor bridge is injected
+// only in the native app, so browsers never enter this path. skipNativeAuth returns a Google id token;
+// the Firebase JS SDK signs in with it and Firestore keeps using the same web user.
+function nativeCap(){
+  const cap=globalThis.Capacitor;
+  return cap&&typeof cap.isNativePlatform==='function'&&cap.isNativePlatform()?cap:null;
+}
+function nativeAuthError(e){
+  const code=e?.code||'',message=e?.message||String(e??'Native Google sign-in failed');
+  const text=`${code} ${message}`;
+  if(/UNIMPLEMENTED|not implemented|plugin is not|FirebaseApp is not initialized|google-services/i.test(text)){
+    const err=new Error(FRIENDLY['auth/native-not-configured']);err.code='auth/native-not-configured';return err;}
+  if(/\b12501\b|SIGN_IN_CANCELLED/.test(text)){
+    const err=new Error(FRIENDLY['auth/native-cancelled']);err.code='auth/native-cancelled';return err;}
+  if(/\b10:|DEVELOPER_ERROR|WILL_BE_OVERRIDDEN/.test(text)){
+    const err=new Error(FRIENDLY['auth/native-developer-error']);err.code='auth/native-developer-error';return err;}
+  if(FRIENDLY[code])return e;
+  return Object.assign(new Error(message),{cause:e});
+}
+async function signInNative(cap){
+  if(typeof cap.nativePromise!=='function')throw nativeAuthError({code:'UNIMPLEMENTED',message:'Capacitor bridge has no nativePromise'});
+  let result;
+  try{result=await cap.nativePromise('FirebaseAuthentication','signInWithGoogle',{skipNativeAuth:true});}
+  catch(e){throw nativeAuthError(e);}
+  const idToken=result?.credential?.idToken;
+  if(!idToken)throw Object.assign(new Error(FRIENDLY['auth/missing-id-token']),{code:'auth/missing-id-token'});
+  return signInWithCredential(auth,GoogleAuthProvider.credential(idToken));
+}
+export async function signIn(){
+  const cap=nativeCap();
+  if(cap){if(busy)return;busy=true;try{return await signInNative(cap);}finally{busy=false;}}
+  if(busy)return;busy=true;
   try{return await signInWithPopup(auth,provider());}
   catch(e){if(e.code==='auth/popup-blocked'||e.code==='auth/operation-not-supported-in-environment'){sessionStorage.setItem('vw-redirect','1');return signInWithRedirect(auth,provider());}throw e;}
   finally{busy=false;}}
-export const logOut=()=>signOut(auth);
+export async function logOut(){
+  const cap=nativeCap();
+  if(cap&&typeof cap.nativePromise==='function'){
+    try{await cap.nativePromise('FirebaseAuthentication','signOut',{});}
+    catch(e){console.warn('native signOut:',e?.message||e);}
+  }
+  return signOut(auth);
+}
 export const onUser=cb=>onAuthStateChanged(auth,cb);
 export async function loadAgent(uid){const s=await getDoc(doc(db,'agents',uid));return s.exists()?s.data():null;}
 // ~1 km grid (0.01°) for the future friends phase; exact coords stay owner-only.

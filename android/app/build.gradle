@@ -16,7 +16,21 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Committed debug key so CI and local debug APKs share one SHA-1.
+    // store/key password and alias are the standard Android debug values.
+    // Do not use this keystore for a Play release.
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
@@ -44,11 +58,15 @@ dependencies {
 
 apply from: 'capacitor.build.gradle'
 
+// google-services.json is produced by the Firebase console (Android app + SHA-1).
+// CI does not have it; applying the plugin without the file fails the debug APK build.
 try {
     def servicesJSON = file('google-services.json')
     if (servicesJSON.text) {
         apply plugin: 'com.google.gms.google-services'
+    } else {
+        logger.warn('android/app/google-services.json is empty. Google Services plugin not applied. Native Google sign-in will not work until the real file is added (see README).')
     }
 } catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+    logger.warn('android/app/google-services.json not found. Google Services plugin not applied. Native Google sign-in will not work until the file is added (see README). Debug APK build continues.')
 }
