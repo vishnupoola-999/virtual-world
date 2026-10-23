@@ -1,0 +1,8 @@
+{
+  "appId": "com.vishnupoola.virtualworld",
+  "appName": "Virtual World",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}
