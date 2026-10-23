@@ -149,7 +149,7 @@ async function fltFetch(){if(!FLT.on||!W)return;const rkm=+$('fltR').value;$('fl
    P.g.position.set(p[0]*s,40+(a.alt||0)*0.3048*s*3,p[1]*s);P.g.rotation.y=Math.PI-(a.trk||0)*Math.PI/180;
    P.txt=`✈️ ${a.cs||a.hex}${a.t?' '+a.t:''} · ${a.alt?Math.round(a.alt).toLocaleString()+' ft':'ground'} · ${Math.round(Math.hypot(...p)/1000)} km`;}
   for(const [k,P] of FLT.planes)if(!seen.has(k)){FLT.grp.remove(P.g);P.el.remove();FLT.planes.delete(k);}
-  $('fltMsg').textContent=`${seen.size} aircraft within ${rkm} km · ${new Date().toLocaleTimeString()}`+(seen.size?'':' (none overhead right now)');window.__flights=seen.size;}
+  $('fltMsg').textContent=`${seen.size} aircraft within ${rkm} km (${j.src||'adsb'}) · ${new Date().toLocaleTimeString()}`+(seen.size?'':' (none overhead right now)');window.__flights=seen.size;}
  catch(e){$('fltMsg').textContent='⚠️ flights unavailable (proxy waking up? retrying)';window.__flights=-1;}}
 function fltClear(){for(const P of FLT.planes.values()){FLT.grp.remove(P.g);P.el.remove();}FLT.planes.clear();}
 $('fltBtn').onclick=()=>{FLT.on=!FLT.on;$('fltBtn').textContent='✈️ Live flights: '+(FLT.on?'ON':'OFF');FLT.grp.visible=FLT.on;clearInterval(FLT.timer);

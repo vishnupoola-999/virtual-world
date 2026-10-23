@@ -8,14 +8,17 @@ const ipHits=new Map();const fcache=new Map();
 async function flights(u){const lat=+u.searchParams.get('lat'),lon=+u.searchParams.get('lon'),r=Math.min(250,Math.max(5,+u.searchParams.get('r')||80));
   if(!isFinite(lat)||!isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)throw new Error('bad');
   const k=lat.toFixed(2)+','+lon.toFixed(2)+','+Math.round(r),c=fcache.get(k);if(c&&Date.now()-c.t<8000)return c.v;
-  const j=await (await fetch(`https://api.adsb.lol/v2/point/${lat}/${lon}/${Math.round(r)}`,{headers:{'User-Agent':'virtual-world-proxy'}})).json();
-  const v=JSON.stringify({now:j.now,ac:(j.ac||[]).filter(a=>a.lat!=null).map(a=>({hex:a.hex,cs:(a.flight||a.r||a.hex||'').trim(),t:a.t,lat:a.lat,lon:a.lon,alt:a.alt_baro==='ground'?0:(a.alt_geom??a.alt_baro??0),gs:a.gs,trk:a.track}))});
+  const R=Math.round(r),srcs=[['adsb.lol',`https://api.adsb.lol/v2/point/${lat}/${lon}/${R}`],['adsb.fi',`https://opendata.adsb.fi/api/v2/lat/${lat}/lon/${lon}/dist/${R}`]];let j,src,errs=[];
+  for(const [n,url] of srcs){try{const x=await fetch(url,{headers:{'User-Agent':'virtual-world-proxy (github.com/vishnupoola-999/virtual-world)','Accept':'application/json'},signal:AbortSignal.timeout(8000)});
+    if(!x.ok)throw new Error(n+' HTTP '+x.status);j=await x.json();j.ac=j.ac||j.aircraft;src=n;break;}catch(e){errs.push(String(e.message||e));}}
+  if(!j){console.error('flights failed',errs);throw new Error(errs.join('; '));}
+  const v=JSON.stringify({src,now:j.now,ac:(j.ac||[]).filter(a=>a.lat!=null).map(a=>({hex:a.hex,cs:(a.flight||a.r||a.hex||'').trim(),t:a.t,lat:a.lat,lon:a.lon,alt:a.alt_baro==='ground'?0:(a.alt_geom??a.alt_baro??0),gs:a.gs,trk:a.track}))});
   if(fcache.size>200)fcache.clear();fcache.set(k,{t:Date.now(),v});return v;}let hour=[],day=[];
 http.createServer(async(req,res)=>{
   const origin=req.headers.origin||'';const ok=ORIGINS.includes(origin);
   if(ok){res.setHeader('Access-Control-Allow-Origin',origin);res.setHeader('Vary','Origin');res.setHeader('Access-Control-Allow-Headers','Content-Type');res.setHeader('Access-Control-Allow-Methods','GET, POST, OPTIONS');}
   if(req.method==='OPTIONS'){res.statusCode=ok?204:403;return res.end();}
-  if(req.method==='GET'&&req.url.startsWith('/flights')){try{res.setHeader('Content-Type','application/json');return res.end(await flights(new URL(req.url,'http://x')));}catch(e){res.statusCode=502;return res.end('{"error":"flights unavailable"}');}}
+  if(req.method==='GET'&&req.url.startsWith('/flights')){try{res.setHeader('Content-Type','application/json');return res.end(await flights(new URL(req.url,'http://x')));}catch(e){res.statusCode=502;return res.end(JSON.stringify({error:'flights unavailable',detail:String(e.message||e).slice(0,300)}));}}
   if(req.method==='GET'){return res.end('ok');} // health / wake-up
   if(req.method!=='POST'||!req.url.startsWith('/chat')){res.statusCode=404;return res.end();}
   if(!ok){res.statusCode=403;return res.end('{"error":"origin not allowed"}');}
