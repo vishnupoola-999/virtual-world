@@ -31,8 +31,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # v3 still installs the removed "tools" package and fails with
+      # "Failed to find package 'tools'". v4 installs platform-tools only.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install Android SDK packages
         run: sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
