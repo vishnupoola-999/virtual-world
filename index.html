@@ -1,26 +1,55 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="icon" href="favicon.svg"><title>Virtual World</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1e88e5"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Virtual World">
+<link rel="manifest" href="manifest.json"><link rel="icon" href="favicon.svg"><link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Virtual World</title>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
 <link rel="stylesheet" href="src/style.css">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
 </head><body>
 <div id="map"></div>
-<div id="panel">
- <h1>🌍 Virtual World</h1>
- <div class="row"><button id="signInBtn">🔐 Sign in with Google</button><span id="userChip" hidden><img id="userPic" alt=""><span id="userName"></span> <button id="signOutBtn">Sign out</button></span></div>
- <div id="agentBox" hidden><b>🤖 My agent</b>
-  <div id="agView" hidden><div id="agTitle"></div><small id="agDesc"></small><div class="row"><button id="agGo">🎯 Go to</button><button id="agMove">📍 Move here</button><button id="agEdit">✏️ Edit</button></div></div>
-  <form id="agForm" hidden><input id="agName" placeholder="Agent name" maxlength="40"><div class="row"><input id="agEmoji" value="🤖" maxlength="4" size="3"><input id="agColor" type="color" value="#7e57c2"></div>
-  <textarea id="agPers" placeholder="Short personality, e.g. friendly study buddy" maxlength="300" rows="2"></textarea><button id="agSave"></button></form>
-  <small id="agMsg"></small></div><hr>
- <form id="searchF"><input id="q" placeholder="Search any place on Earth…" autocomplete="off"><button>🔎</button></form>
- <div id="results"></div>
- <div class="row"><button id="meBtn">📍 My location</button><button id="homeBtn">🏠 Hanamkonda</button><button id="globeBtn">🌐 Globe</button></div>
- <div class="row"><button id="fltBtn">✈️ Flights: OFF</button><small id="fltMsg"></small></div>
- <hr><b>👪 Family</b> <span id="famN">0</span> live <small id="famConn"></small>
- <div class="row"><button id="shareBtn">🔗 Share join link</button><a id="joinLink" target="_blank">Join myself</a></div>
- <small id="shareMsg"></small><div id="famList"></div>
- <small id="status"></small>
-</div>
+<header id="topbar"><span class="brand">🌍 Virtual World</span><button id="acctBtn" class="fab sm" data-open="account" aria-label="Account">👤</button></header>
+<nav id="fabs" aria-label="Tools">
+ <button class="fab" data-open="search" aria-label="Search" title="Search">🔎</button>
+ <button class="fab" id="meBtn" aria-label="My location" title="My location">📍</button>
+ <button class="fab" data-open="agent" aria-label="My agent" title="My agent">🤖</button>
+ <button class="fab" data-open="family" aria-label="Family" title="Family">👪<span id="famN" class="badge">0</span></button>
+ <button class="fab" data-open="layers" aria-label="Layers" title="Layers">🗂️</button>
+</nav>
+<section id="sheet" hidden>
+ <div id="sheetHead"><div class="grab"></div><b id="sheetTitle"></b><button id="sheetClose" aria-label="Close">✕</button></div>
+ <div class="body">
+ <div data-sec="search" data-title="Search">
+  <form id="searchF"><input id="q" placeholder="Search any place on Earth…" autocomplete="off" enterkeyhint="search"><button>🔎</button></form>
+  <div id="results"></div>
+  <div class="row"><button id="homeBtn">🏠 Hanamkonda</button><button id="globeBtn">🌐 Globe</button></div>
+ </div>
+ <div data-sec="agent" data-title="My agent">
+  <button id="agSignIn" class="primary">🔐 Sign in with Google to create your agent</button>
+  <div id="agentBox" hidden>
+   <div id="agView" hidden><div id="agTitle"></div><small id="agDesc"></small><div class="row"><button id="agGo">🎯 Go to</button><button id="agMove">📍 Move here</button><button id="agEdit">✏️ Edit</button></div></div>
+   <form id="agForm" hidden><input id="agName" placeholder="Agent name" maxlength="40"><div class="row"><label>Emoji <input id="agEmoji" value="🤖" maxlength="4" size="3"></label><label>Colour <input id="agColor" type="color" value="#7e57c2"></label></div>
+   <textarea id="agPers" placeholder="Short personality, e.g. friendly study buddy" maxlength="300" rows="2"></textarea><button id="agSave" class="primary"></button></form>
+  </div><small id="agMsg"></small>
+ </div>
+ <div data-sec="family" data-title="Family">
+  <div><span id="famN2">0</span> live <small id="famConn"></small></div>
+  <div class="row"><button id="shareBtn">🔗 Share join link</button><a id="joinLink" target="_blank">Join myself</a></div>
+  <small id="shareMsg"></small><div id="famList"></div>
+ </div>
+ <div data-sec="layers" data-title="Layers">
+  <div class="row"><button id="fltBtn">✈️ Flights: OFF</button></div><small id="fltMsg"></small>
+ </div>
+ <div data-sec="account" data-title="Account">
+  <button id="signInBtn" class="primary">🔐 Sign in with Google</button>
+  <div id="userChip" hidden><div><b id="userName"></b><br><small id="userMail"></small></div><button id="signOutBtn">Sign out</button></div>
+  <p class="tip">📲 Install: in Chrome tap ⋮ → <i>Add to Home screen</i>; on iPhone Safari tap Share → <i>Add to Home Screen</i>.</p>
+ </div>
+ </div>
+</section>
+<div id="toast" hidden role="status"></div>
+<small id="status" hidden></small>
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script type="module" src="src/main.js"></script>
 </body></html>

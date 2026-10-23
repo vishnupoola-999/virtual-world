@@ -37,3 +37,8 @@ proxy/server.js       Render service: /flights + rate-limited Gemini /chat (will
 Location is only ever shared from `join.html` after explicit consent, only while that page is open, and only to the room link holders. "My location" is never sent anywhere.
 
 Map data © OpenStreetMap contributors, OpenFreeMap, OpenMapTiles; terrain © Mapzen/AWS Terrain Tiles.
+
+## Phase 2b (mobile-first app shell, 3D agent, sign-in fix)
+- **Sign-in:** Google sign-in now always uses a popup (Firebase "redirect best practices", option 1). Redirect sign-in silently failed in browsers that partition third-party storage (Chrome 115+, Safari/iOS, Firefox) because the site (github.io) and `authDomain` (firebaseapp.com) differ. Redirect is only a fallback when the popup is blocked; `getRedirectResult` is always checked; auth errors show in a toast with their code. Persistence: IndexedDB → localStorage.
+- **3D agent:** animated RobotExpressive character (CC0, Tomás Laulhé, via three.js examples, `assets/robot.glb`) rendered in a MapLibre custom layer with three.js, tinted with the agent colour; never smaller than ~56 px on screen.
+- **UI:** full-screen map, floating buttons, dismissible bottom sheet (side panel ≥768 px), toasts. Installable PWA (`manifest.json`, `sw.js`, `icons/`).

@@ -2,14 +2,22 @@
   "name": "virtual-world",
   "private": true,
   "type": "module",
-  "description": "Dev tooling for the static Virtual World site. GitHub Pages serves the HTML/JS as-is and does not run these scripts.",
+  "description": "Static Virtual World site. GitHub Pages serves the HTML and JS as-is. npm scripts are for CI and the Capacitor Android wrapper.",
   "scripts": {
     "lint": "eslint .",
     "test:smoke": "playwright test",
     "test:rules:run": "node --test --test-concurrency=1 tests/firestore.rules.test.mjs",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-virtual-world \"npm run test:rules:run\""
+    "test:rules": "firebase emulators:exec --only firestore --project demo-virtual-world \"npm run test:rules:run\"",
+    "copy:web": "node scripts/copy-web.mjs",
+    "capacitor:copy:before": "node scripts/copy-web.mjs",
+    "capacitor:sync:before": "node scripts/copy-web.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "6.2.2",
+    "@capacitor/core": "6.2.2"
   },
   "devDependencies": {
+    "@capacitor/cli": "6.2.2",
     "@eslint/js": "^10.0.1",
     "@firebase/rules-unit-testing": "^6.0.0",
     "@playwright/test": "^1.64.1",

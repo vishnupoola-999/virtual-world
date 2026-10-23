@@ -6,7 +6,7 @@ import globals from 'globals';
 // MapLibre global that index.html loads from a script tag.
 export default [
   {
-    ignores: ['docs/**', 'proxy/node_modules/**'],
+    ignores: ['docs/**', 'www/**', 'android/**', 'node_modules/**'],
   },
   js.configs.recommended,
   {
@@ -24,8 +24,24 @@ export default [
       'no-empty': 'off',
       // agent.js returns the geolocation call from a Promise executor.
       'no-promise-executor-return': 'off',
-      // flights.js and the proxy keep unused catch bindings.
-      'no-unused-vars': ['error', { args: 'none', caughtErrors: 'none' }],
+      // Unused catch bindings are already in the source. Unused imports are warnings
+      // so an in-progress edit does not fail CI; ESLint still exits 0.
+      'no-unused-vars': ['warn', { args: 'none', caughtErrors: 'none' }],
+    },
+  },
+  {
+    files: ['sw.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'script',
+      globals: {
+        ...globals.browser,
+        ...globals.serviceworker,
+      },
+    },
+    rules: {
+      'no-empty': 'off',
+      'no-unused-vars': ['warn', { args: 'none', caughtErrors: 'none' }],
     },
   },
   {

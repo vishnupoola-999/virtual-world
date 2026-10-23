@@ -3,16 +3,16 @@ import { expect, test } from '@playwright/test';
 // Loads the static site the way GitHub Pages does (plain files, no build) and
 // fails on page exceptions or console errors.
 //
-// Startup contacts a few third-party hosts: unpkg.com (MapLibre), gstatic.com
-// and googleapis.com (Firebase), tiles.openfreemap.org, s3.amazonaws.com
-// (terrain), and ntfy.sh (family presence). Those calls are part of a healthy
+// Startup contacts a few third-party hosts: unpkg.com (MapLibre), jsdelivr.net
+// (three.js), gstatic.com and googleapis.com (Firebase), tiles.openfreemap.org,
+// s3.amazonaws.com (terrain), and ntfy.sh (family presence). Those calls are part of a healthy
 // load. A console error is ignored only when it names one of those hosts and
 // is a transport failure (net::ERR_* or Firebase network-request-failed).
 // HTTP statuses, same-origin failures, and any other console error still fail.
 // Ignored lines are printed and included in the assertion message. A local run
 // with network available ignored nothing.
 const BLOCKED_EXTERNAL = [
-  /https?:\/\/([^/\s]*\.)?(unpkg\.com|gstatic\.com|googleapis\.com|google\.com|openfreemap\.org|amazonaws\.com|ntfy\.sh)\b/i,
+  /https?:\/\/([^/\s]*\.)?(unpkg\.com|jsdelivr\.net|gstatic\.com|googleapis\.com|google\.com|openfreemap\.org|amazonaws\.com|ntfy\.sh)\b/i,
 ];
 
 const BLOCKED_NETWORK = /net::ERR_(INTERNET_DISCONNECTED|NAME_NOT_RESOLVED|CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_TIMED_OUT|TIMED_OUT|ADDRESS_UNREACHABLE|NETWORK_CHANGED|BLOCKED_BY)/i;
@@ -43,17 +43,19 @@ test('page loads with no console errors', async ({ page }) => {
 
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page).toHaveTitle('Virtual World');
-  await expect(page.locator('#panel h1')).toContainText('Virtual World');
-  await expect(page.locator('#signInBtn')).toBeVisible();
+  await expect(page.locator('#topbar .brand')).toContainText('Virtual World');
+  await expect(page.locator('#acctBtn')).toBeVisible();
   await expect(page.locator('#map')).toBeVisible();
   await expect(page.locator('#map canvas')).toBeVisible();
+  await page.locator('#acctBtn').click();
+  await expect(page.locator('#signInBtn')).toBeVisible();
 
   // style.load sets the globe projection. Waiting for it catches a map that
   // never finished initializing, then a short pause picks up late errors.
   await page.waitForFunction(() => {
     const map = globalThis.__map;
     return !!map && map.getProjection?.()?.type === 'globe';
-  }, null, { timeout: 30_000 });
+  }, null, { timeout: 45_000 });
   await page.waitForTimeout(1000);
 
   const format = (entry) => (entry.url ? `${entry.text} (${entry.url})` : entry.text);

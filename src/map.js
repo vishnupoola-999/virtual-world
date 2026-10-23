@@ -4,7 +4,7 @@ const STYLE='https://tiles.openfreemap.org/styles/liberty';
 const DEM='https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 export function createMap(container,{center=HOME,zoom=16.3,pitch=60,bearing=-20}={}){
   const map=new maplibregl.Map({container,style:STYLE,center:[center.lng,center.lat],zoom,pitch,bearing,maxPitch:85,hash:true,attributionControl:{compact:true}});
-  map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-right');
+  map.addControl(new maplibregl.NavigationControl({visualizePitch:true,showZoom:innerWidth>=768}),'top-right');
   map.addControl(new maplibregl.ScaleControl(),'bottom-right');
   // Some Liberty POI icons are missing from its sprite; supply a blank so the console stays clean.
   map.on('styleimagemissing',e=>{if(!map.hasImage(e.id))map.addImage(e.id,{width:1,height:1,data:new Uint8Array(4)});});
