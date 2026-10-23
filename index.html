@@ -11,12 +11,18 @@
 <div id="map"></div>
 <header id="topbar"><span class="brand">🌍 Virtual World</span><button id="acctBtn" class="fab sm" data-open="account" aria-label="Account">👤</button></header>
 <nav id="fabs" aria-label="Tools">
+ <button class="fab" id="chatBtn" aria-label="Chat with my agent" title="Chat">💬</button>
  <button class="fab" data-open="search" aria-label="Search" title="Search">🔎</button>
  <button class="fab" id="meBtn" aria-label="My location" title="My location">📍</button>
  <button class="fab" data-open="agent" aria-label="My agent" title="My agent">🤖</button>
  <button class="fab" data-open="family" aria-label="Family" title="Family">👪<span id="famN" class="badge">0</span></button>
  <button class="fab" data-open="layers" aria-label="Layers" title="Layers">🗂️</button>
 </nav>
+<section id="chat" hidden>
+ <header><button id="chatBack" aria-label="Back to map">←</button><b id="chatTitle">My agent</b><small id="chatSub"></small></header>
+ <div id="chatLog"></div>
+ <form id="chatF"><input id="chatIn" placeholder="Message your agent…" autocomplete="off" enterkeyhint="send" maxlength="1000"><button aria-label="Send">➤</button></form>
+</section>
 <section id="sheet" hidden>
  <div id="sheetHead"><div class="grab"></div><b id="sheetTitle"></b><button id="sheetClose" aria-label="Close">✕</button></div>
  <div class="body">
@@ -35,7 +41,8 @@
  </div>
  <div data-sec="family" data-title="Family">
   <div><span id="famN2">0</span> live <small id="famConn"></small></div>
-  <div class="row"><button id="shareBtn">🔗 Share join link</button><a id="joinLink" target="_blank">Join myself</a></div>
+  <div class="row"><button id="liveBtn" class="primary">📡 Share my live location</button><button id="shareBtn">🔗 Invite family</button></div>
+  <small class="tip">Your location is shared only while this app is open, and only with people who have your family link.</small>
   <small id="shareMsg"></small><div id="famList"></div>
  </div>
  <div data-sec="layers" data-title="Layers">

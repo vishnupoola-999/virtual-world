@@ -33,3 +33,12 @@ button.primary{background:#1e88e5;color:#fff;border-color:#1e88e5;width:100%;pad
 #agTitle{font-weight:600;margin:4px 0}.tip{color:#666;font-size:13px}#agMsg{display:block;margin-top:6px}
 [hidden]{display:none!important}
 @media (max-width:767px){body.sheet-open #fabs{display:none}}
+
+#chat{position:absolute;inset:0;z-index:5;background:#f4f5fb;display:flex;flex-direction:column;padding:var(--safe-t) 0 var(--safe-b)}
+#chat header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fff;box-shadow:0 1px 4px #0002}#chat header small{color:#888;margin-left:auto;font-size:12px}
+#chatBack{border:none;background:none;font-size:22px}
+#chatLog{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
+.msg{max-width:80%;padding:8px 12px;border-radius:16px;font-size:15px;line-height:1.35;white-space:pre-wrap;word-wrap:break-word}
+.msg.me{align-self:flex-end;background:#1e88e5;color:#fff;border-bottom-right-radius:4px}.msg.ag{align-self:flex-start;background:#fff;box-shadow:0 1px 3px #0002;border-bottom-left-radius:4px}.msg.typing{color:#888}
+#chatF{display:flex;gap:6px;padding:8px;background:#fff}#chatIn{flex:1;padding:10px 14px;font-size:16px;border:1px solid #ccd;border-radius:20px}#chatF button{width:44px;border:none;border-radius:50%;background:#1e88e5;color:#fff;font-size:18px}
+#liveBtn.on{background:#e53935;color:#fff}
