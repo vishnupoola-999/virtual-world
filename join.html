@@ -1,20 +1,27 @@
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><link rel="icon" href="favicon.svg"><title>Join the Virtual World</title>
-<style>body{font-family:system-ui;max-width:520px;margin:30px auto;padding:0 16px}button{font-size:18px;padding:10px 18px;margin:6px 0}#stop{background:#e53935;color:#fff}</style></head><body>
+<style>body{font-family:system-ui;max-width:520px;margin:30px auto;padding:0 16px}button{font-size:18px;padding:10px 18px;margin:6px 0}#stopB{background:#e53935;color:#fff}.note{background:#f3f3f3;padding:8px 12px;border-radius:8px;font-size:13px}</style></head><body>
 <h2>👪 Join the family layer</h2>
-<p>If you agree, this page shares <b>your phone/browser location</b> with the Virtual World map <b>while this page stays open</b>. You can press <b>Stop sharing</b> at any time and your marker is removed.</p>
-<p><small>Prototype: the location only stays in this browser (localStorage/BroadcastChannel). It isn't sent to any server yet.</small></p>
-<label>Your name: <input id="name" placeholder="e.g. Dad"></label><br>
-<label><input type="checkbox" id="ok"> I agree to share my live location with the family world, and I know I can stop at any time.</label><br>
-<button id="start">Start sharing</button> <button id="stop" disabled>Stop sharing</button>
-<p id="st">Not sharing.</p>
-<script>
-const ch=new BroadcastChannel('vw-family');let id=localStorage.getItem('vw-me')||crypto.randomUUID();localStorage.setItem('vw-me',id);let watch=null;
-const st=document.getElementById('st');
-function save(d){const all=JSON.parse(localStorage.getItem('vw-family')||'{}');if(d.stop)delete all[id];else all[id]=d;localStorage.setItem('vw-family',JSON.stringify(all));ch.postMessage(d);}
-start.onclick=()=>{if(!ok.checked){st.textContent='Please tick the consent box first.';return;}if(!navigator.geolocation){st.textContent='Geolocation not supported.';return;}
- const nm=document.getElementById('name').value||'Family member';
- watch=navigator.geolocation.watchPosition(p=>{save({id,name:nm,lat:p.coords.latitude,lon:p.coords.longitude,ts:Date.now()});st.textContent='✅ Sharing: '+p.coords.latitude.toFixed(5)+', '+p.coords.longitude.toFixed(5);},e=>st.textContent='Error: '+e.message,{enableHighAccuracy:true});
- start.disabled=true;stop.disabled=false;};
-stop.onclick=()=>{if(watch!==null)navigator.geolocation.clearWatch(watch);watch=null;save({id,stop:true});st.textContent='⛔ Stopped. Your marker was removed.';start.disabled=false;stop.disabled=true;};
-addEventListener('pagehide',()=>{if(watch!==null)save({id,stop:true});});
+<p>If you agree, this page shares <b>your location</b> with the family's Virtual World <b>every 5 seconds while this page is open</b>. Press <b>Stop sharing</b> any time and your avatar is removed right away. If the page closes, you disappear after 2 minutes.</p>
+<div class="note"><b>Privacy:</b> nothing runs in the background or without this page open. Your name, position and time go through a free public relay (ntfy.sh) under the family code <code id="roomc"></code>. Anyone who knows that code could see them, so share the link only with family. No other data is collected, and nothing is kept after you stop.</div>
+<p><label>Your name: <input id="nm" placeholder="e.g. Dad" maxlength="24"></label></p>
+<p><label><input type="checkbox" id="ok"> I agree to share my live location with my family's world, and I know I can stop at any time.</label></p>
+<button id="startB">Start sharing</button> <button id="stopB" disabled>Stop sharing</button>
+<p id="st">Not sharing.</p><p><small id="conn">connecting…</small></p>
+<script type="module">
+import {connect,roomFromUrl} from './family.js';
+const $=i=>document.getElementById(i);const name=$('nm'),start=$('startB'),stop=$('stopB'),ok=$('ok'),st=$('st'),conn=$('conn'),roomc=$('roomc');
+const room=roomFromUrl();roomc.textContent=room;
+const fam=connect(room,{onStatus:s=>conn.textContent='relay: '+s});
+const id=localStorage.getItem('vw-me')||crypto.randomUUID().slice(0,12);localStorage.setItem('vw-me',id);
+name.value=localStorage.getItem('vw-name')||'';
+let watch=null,timer=null,last=null;
+const send=()=>{if(last)fam.publish(id,{name:name.value.trim()||'Family member',lat:last.lat,lon:last.lon,acc:last.acc,ts:Date.now()});};
+start.onclick=()=>{if(!ok.checked){st.textContent='Please tick the consent box first.';return;}if(!navigator.geolocation){st.textContent='Location is not supported in this browser.';return;}
+ localStorage.setItem('vw-name',name.value);
+ watch=navigator.geolocation.watchPosition(p=>{const first=!last;last={lat:p.coords.latitude,lon:p.coords.longitude,acc:Math.round(p.coords.accuracy)};if(first)send();st.textContent=`✅ Sharing as ${name.value||'Family member'}: ${last.lat.toFixed(5)}, ${last.lon.toFixed(5)} (±${last.acc} m)`;},
+   e=>st.textContent='Location error: '+e.message,{enableHighAccuracy:true,maximumAge:5000});
+ timer=setInterval(send,5000);start.disabled=true;stop.disabled=false;};
+stop.onclick=()=>{if(watch!==null)navigator.geolocation.clearWatch(watch);clearInterval(timer);watch=timer=null;last=null;fam.clear(id);st.textContent='⛔ Stopped. Your avatar was removed.';start.disabled=false;stop.disabled=true;};
+addEventListener('pagehide',()=>{if(watch!==null)fam.clear(id);});
+window.__vw={fam,id};
 </script></body></html>
