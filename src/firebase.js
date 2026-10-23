@@ -74,3 +74,4 @@ const r2=x=>Math.round(x*100)/100;
 export async function saveAgent(uid,a){const d={name:a.name,look:a.look,personality:a.personality||'',ownerName:a.ownerName||'',lat:a.lat,lon:a.lon,
   approx:{lat:r2(a.lat),lon:r2(a.lon)},preciseVisibility:'private',updatedAt:serverTimestamp()};
   await setDoc(doc(db,'agents',uid),d);return d;}
+export const currentUser=()=>auth.currentUser;

@@ -9,7 +9,7 @@ export function roomFromUrl(){const q=new URLSearchParams(location.search);const
  let r=clean(q.get('room'))||clean(localStorage.getItem('vw-room'));
  if(!r){const b=crypto.getRandomValues(new Uint8Array(12));r=btoa(String.fromCharCode(...b)).replace(/\+/g,'-').replace(/\//g,'_').slice(0,16);}
  localStorage.setItem('vw-room',r);return r;}
-export const joinLink=room=>new URL('join.html?room='+encodeURIComponent(room),location.href).href;
+export const joinLink=room=>new URL('./?room='+encodeURIComponent(room),location.hostname.endsWith('github.io')?location.href:'https://vishnupoola-999.github.io/virtual-world/').href;
 export function connect(room,{onPresence,onStatus}={}){
   const topic=`${RELAY}/vw1-${room}`;let es;
   const open=()=>{es=new EventSource(`${topic}/sse?since=150s`);
