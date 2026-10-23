@@ -58,6 +58,14 @@ test('page loads with no console errors', async ({ page }) => {
   }, null, { timeout: 45_000 });
   await page.waitForTimeout(1000);
 
+  // The account sheet hides the floating buttons on a phone. Close it, then
+  // confirm signed-out chat asks for sign-in and does not open the transcript.
+  await page.locator('#sheetClose').click();
+  await expect(page.locator('#sheet')).toBeHidden();
+  await page.locator('#chatBtn').click();
+  await expect(page.locator('#toast')).toContainText(/sign in/i);
+  await expect(page.locator('#chat')).toBeHidden();
+
   const format = (entry) => (entry.url ? `${entry.text} (${entry.url})` : entry.text);
   const ignored = errors.filter(isBlockedExternal);
   const unexpected = errors.filter((entry) => !ignored.includes(entry));

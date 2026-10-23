@@ -1,4 +1,4 @@
-# Lint, Playwright smoke, and Firestore rules tests.
+# Lint, proxy unit tests, Playwright smoke, and Firestore rules tests.
 # The site itself stays a static GitHub Pages deploy; this workflow does not publish it.
 name: CI
 
@@ -28,6 +28,20 @@ jobs:
       - run: npm ci
       - name: ESLint
         run: npm run lint
+
+  proxy:
+    name: Proxy unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Proxy auth and prompt tests
+        run: npm run test:proxy
 
   smoke:
     name: Playwright smoke
