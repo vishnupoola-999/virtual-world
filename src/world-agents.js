@@ -19,7 +19,7 @@ function create(map){
   const loadR=()=>rLoad||=import('./agent-renderer.js').then(m=>{R=m.sharedRenderer();window.__avatarReady=true;kick();return R;})
     .catch(e=>{rLoad=null;console.warn('agent renderer',e?.message);});
   function el(a){const d=document.createElement('div');d.className='ag'+(a.mine?' mine':'');d.setAttribute('role','button');d.tabIndex=0;
-    d.innerHTML=`${a.mine?'<span class="halo"></span>':''}<span class="shadow"></span><div class="bob"><canvas width="112" height="128"></canvas></div>`+
+    d.innerHTML=`${a.mine?'<span class="halo"></span><span class="birth" aria-hidden="true"><i></i><i></i><em>Finding your spot…</em></span>':''}<span class="shadow"></span><div class="bob"><canvas width="112" height="128"></canvas></div>`+
       `<span class="bubble glass" hidden><b></b><b></b><b></b></span><span class="busy" hidden></span><span class="pill glass"><i></i>${a.mine?'You · ':''}<span class="agLabel"></span></span>`;
     // Tap opens the profile; a 500 ms long-press on your own agent starts Move my agent (PR #14).
     let lp=0,down=null,fired=false;const cancel=()=>{clearTimeout(lp);lp=0;};
@@ -62,10 +62,15 @@ function create(map){
       if(prof)drawProfile(dt);}
     raf=requestAnimationFrame(frame);}
   const animFor=a=>a.mine&&a.waveUntil>performance.now()?'wave':a.state==='walking'?'walk':a.state==='talking'?'talk':'idle';
-  function blit(a,anim,dt){const src=R.draw(a.id,a.look,anim,dt);a.g.clearRect(0,0,112,128);a.g.drawImage(src,0,0);}
+  function blit(a,anim,dt){const src=R.draw(a.id,a.look,anim,dt);a.g.clearRect(0,0,112,128);a.g.drawImage(src,0,0);
+    if(!a.born){a.born=true;a.el.classList.add('born');}} // birth pulse fades out, character scales and fades in (CSS)
   function drawProfile(dt){const a=all.get(prof.id),cv=document.getElementById('pAv');if(!a||!cv||!R)return;const src=R.draw(a.id,a.look,animFor(a),dt,'portrait');
     const g=cv.getContext('2d');g.clearRect(0,0,144,144);g.drawImage(src,9,0,126,144);}
   const onZoom=()=>{const n=near();for(const a of all.values())a.el.classList.toggle('far',!n);if(n)kick();};
+  // Warm the 3D code (three.js ~170 KB gz from the CDN + character.js) as soon as the map is ready, in parallel with sign-in
+  // and the agent fetch, so the character is ready when the agent lands instead of starting the download only then.
+  const warm=()=>(window.requestIdleCallback||setTimeout)(()=>loadR(),{timeout:1500});
+  if(map.loaded())warm();else map.once('load',warm);
   map.on('zoom',onZoom);map.on('move',kick);
   document.addEventListener('visibilitychange',()=>{last=0;kick();});
   new MutationObserver(()=>{last=0;kick();}).observe(document.body,{attributes:true,attributeFilter:['data-tab']});
