@@ -82,6 +82,9 @@ export function cleanInterests(list){const out=[];for(const t of Array.isArray(l
 export async function saveInterests(uid,interests,bio=''){const tags=cleanInterests(interests);if(tags.length<3)throw new Error('Pick 3 to 5 interests');
   const {updateDoc,doc,db,serverTimestamp}=await fs();const d={interests:tags,bio:String(bio).replace(/\s+/g,' ').trim().slice(0,120),updatedAt:serverTimestamp()};
   await updateDoc(doc(db,'agents',uid),d);return d;}
+// Life loop diary (owner-read-only): newest first. Entries: {kind:'meet'|'diary', text?, withId?, withName?, shared?, at}.
+export async function loadDiary(uid,n=30){const F=await fs(),{getDocs,query,orderBy,limit,collection,db}=F;
+  const s=await getDocs(query(collection(db,'agents',uid,'diary'),orderBy('at','desc'),limit(n)));return s.docs.map(d=>({id:d.id,...d.data()}));}
 export const MAX_MESSAGES=200;
 const msgs=({collection,db},uid)=>collection(db,'agents',uid,'messages');
 export async function loadMessages(uid){const F=await fs(),{getDocs,query,orderBy,limit}=F;const s=await getDocs(query(msgs(F,uid),orderBy('at','desc'),limit(MAX_MESSAGES)));

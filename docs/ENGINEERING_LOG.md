@@ -237,3 +237,4 @@ One line per pull request. Status is `merged` or `open` as of 2026-10-24. #15 is
 ## How to update
 
 Every pull request adds one row to the changelog (number, title, `merged` or `open`, one-line summary) and updates every section that the change affects, including architecture, the proxy, Firestore rules, Android signing and auth, CI, secret names, and known issues. Put product roadmap items in `docs/ROADMAP.md` and product decisions in `docs/DECISIONS.md`. Do not paste secret values, certificate fingerprints, or keystore passwords into this file.
+- 2026-10-24 design/living-agents: onboarding interests step (6 steps, saveInterests), living map states (walking/meeting/working status pill, owner-only route, meeting link, hint card), While-you-were-away card (owner diary, Not now 7-day snooze); SW cache v17. Depends on #24.
