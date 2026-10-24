@@ -23,7 +23,7 @@ jobs:
           TICK_SECRET: ${{ secrets.TICK_SECRET }}
           PROXY_URL: ${{ secrets.PROXY_URL || 'https://virtual-world-ai.onrender.com' }}
         run: |
-          if [ -z "$TICK_SECRET" ]; then echo "TICK_SECRET secret is not set; skipping"; exit 0; fi
+          if [ -z "$TICK_SECRET" ]; then echo "::error title=Life tick::TICK_SECRET repo secret is not set"; exit 1; fi
           # Wake the free-plan server first (cold start can take ~60 s).
           curl -sS -o /dev/null --retry 5 --retry-delay 10 --retry-all-errors --max-time 90 "$PROXY_URL/" || true
           curl -sS --fail-with-body --retry 2 --retry-delay 15 --max-time 240 \
