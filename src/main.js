@@ -3,6 +3,7 @@ import {connect,roomFromUrl,joinLink} from './family.js';
 import {familyLayer} from './family-layer.js';
 import {flightsLayer} from './flights.js';
 import {setupAgent} from './agent.js';
+import {setupOnboarding} from './onboarding.js';
 import {setupChat} from './chat.js';
 import {chatHero} from './chat-hero.js';
 import {setupTabs} from './tabs.js';
@@ -48,7 +49,16 @@ const chat=setupChat({getAgent:()=>window.__vw.agent?.agent,getUser:currentUser,
   onShowMe:a=>{tabs.set('world');if(a)flyTo(map,a.lon,a.lat,19);}});
 tabs=setupTabs({map,hero,onSwitch:t=>{flt.pause(t==='chat');famL0.pause(t==='chat');},canChat:()=>!!window.__vw.agent?.agent&&chat.open(),onChat:()=>{const ok=chat.open();if(ok)closeSheet();return ok;}});
 window.__vw.tabs=tabs;
-window.__vw.agent=setupAgent(map,{onAgent:a=>{chat.reset();if(a&&autoChat){autoChat=false;if(chat.open()){closeSheet();tabs.set('chat');return true;}}else if(!a&&tabs.current==='chat')tabs.set('world');else if(a&&tabs.current==='chat')chat.open();}});
+// Onboarding for new users (?onb=0 skips it, for tests and debugging). Returning users go straight to Chat.
+const noOnb=new URLSearchParams(location.search).get('onb')==='0';
+const goChat=()=>{if(chat.open()){closeSheet();tabs.set('chat');}};
+const ob=setupOnboarding(map,{onCreated:(a,saved)=>window.__vw.agent.adopt(a,saved),
+  onDone:w=>{if(w==='move'){tabs.set('world');window.__vw.agent.startMove('onboarding');}else goChat();},
+  onFindFriends:()=>{tabs.set('world');openSheet('family');}});
+window.__vw.onb=ob;
+onUser(u=>{if(!u&&!noOnb)ob.open(1);});
+$('chatMove').onclick=()=>{tabs.set('world');window.__vw.agent.startMove('chat');};
+window.__vw.agent=setupAgent(map,{onLoaded:(u,a)=>{if(!u||noOnb)return;if(!a)ob.afterSignIn();else if(ob.active&&ob.step<=2){ob.close();goChat();}},onAgent:a=>{chat.reset();if(a&&autoChat){autoChat=false;if(chat.open()){closeSheet();tabs.set('chat');return true;}}else if(!a&&tabs.current==='chat')tabs.set('world');else if(a&&tabs.current==='chat')chat.open();}});
 $('tabWorld').addEventListener('click',()=>{autoChat=false;});
 // Share my own live location from inside the app, so the map (and my agent) stay on screen.
 let watch=null,timer=null,lastPos=null;

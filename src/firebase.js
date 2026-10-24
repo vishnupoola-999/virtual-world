@@ -72,7 +72,7 @@ export async function loadAgent(uid){const s=await getDoc(doc(db,'agents',uid));
 // ~1 km grid (0.01°) for the future friends phase; exact coords stay owner-only.
 const r2=x=>Math.round(x*100)/100;
 export async function saveAgent(uid,a){const d={name:a.name,look:a.look,personality:a.personality||'',ownerName:a.ownerName||'',lat:a.lat,lon:a.lon,
-  approx:{lat:r2(a.lat),lon:r2(a.lon)},preciseVisibility:'private',updatedAt:serverTimestamp()};
+  approx:{lat:r2(a.lat),lon:r2(a.lon)},spotApprox:!!a.spotApprox,preciseVisibility:'private',updatedAt:serverTimestamp()};
   // merge keeps the server-written `memory` field (rules reject any client change to it).
   await setDoc(doc(db,'agents',uid),d,{merge:true});return d;}
 // Chat history: agents/{uid}/messages, owner-only. Kept to the newest MAX_MESSAGES.

@@ -9,6 +9,8 @@ Ideator's v1 checklist. [x] = merged to `main`; open PRs are noted next to an it
 - [x] Sign in with Google (web and Android APK)
 - [x] Agent is born at your spot (created at your location)
 - [x] Choose your agent's look (girl/boy bases + customisation, PR #9)
+- [ ] First-60-seconds onboarding: globe → sign-in + system location prompt → dive and landing → pick and name → agent greets first (PR #14)
+- [ ] Move my agent (button + long-press drag on the map) (PR #14)
 
 ## Chat + World tabs
 - [x] Two bottom tabs, Chat first, World = the map (PR #10)
@@ -35,7 +37,7 @@ Ideator's v1 checklist. [x] = merged to `main`; open PRs are noted next to an it
 - [ ] Dark map credits box (the MapLibre attribution is still white on the World tab)
 - [ ] 8-friend limit on the map: at most 8 full friend characters, farther friends shown as dots (Diggy's performance budget)
 - [ ] Friend invites flow in the app (replaces the family share link, see [DECISIONS](DECISIONS.md))
-- [ ] Girl/boy decision: keep the name guess, or a side-by-side picker with no preselection (owner to decide)
+- [x] Girl/boy decision: side-by-side picker, nothing preselected, no name guess (see DECISIONS.md)
 
 ## Backend follow-ups (from SWE, see [Engineering log](ENGINEERING_LOG.md))
 - [ ] `/flights` on the proxy has no sign-in check
