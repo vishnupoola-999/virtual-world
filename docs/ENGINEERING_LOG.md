@@ -1,6 +1,8 @@
-# Backend notes
+# Engineering log
 
-Linked from [PROJECT_NOTES.md](PROJECT_NOTES.md). That file, plus `ROADMAP.md` and `DECISIONS.md`, holds the changelog, roadmap, and product decisions. This file is only backend and infrastructure as of `main` (`68961ce`). Secret values are not listed.
+This is the engineering record for Virtual World, as of `main` (`68961ce`). Product roadmap and product decisions belong in [ROADMAP.md](ROADMAP.md) and [DECISIONS.md](DECISIONS.md) (`docs/ROADMAP.md` and `docs/DECISIONS.md`, added in open PR #11). Secret values are not listed.
+
+Checked against `origin/main` on 2026-10-24: PRs #9 and #10 are still open, so the character, night-map, and Firestore `look` sections below describe `main` (Liberty style, `assets/robot.glb`, legacy `{color, emoji}` look).
 
 ## Architecture
 
@@ -56,7 +58,7 @@ Rules file: `firestore.rules` (`rules_version = '2'`). The only allowed path is 
 
 There is no `look.v` field on `main`. A look map with any extra key is rejected (rules test: `hat`).
 
-**Not merged.** Open PR #9 (`feat/characters-night-map`, stacked under open PR #10) would keep the same document path and owner-only rules, and would accept either the legacy `{color, emoji}` look or a v1 character look: keys `v`, `base`, `skin`, `hair`, `hairColour`, `outfit`, `outfitColour`, `bottomColour`, `acc`; `v == 1`; `base` `boy` or `girl` with per-base hair, outfit, and accessory allowlists; colours `^#[0-9a-f]{6}$`; `acc` length ≤ 4. That PR also adds `src/character.js` and `assets/map-style-night.json`. Neither is on `main`. Product choices for that look belong in `DECISIONS.md`.
+**Not on `main`.** Open PR #9 (`feat/characters-night-map`, base of open PR #10) would keep the same document path and owner-only rules, and would accept either the legacy `{color, emoji}` look or a v1 character look: keys `v`, `base`, `skin`, `hair`, `hairColour`, `outfit`, `outfitColour`, `bottomColour`, `acc`; `v == 1`; `base` `boy` or `girl` with per-base hair, outfit, and accessory allowlists; colours `^#[0-9a-f]{6}$`; `acc` length ≤ 4. That PR also adds `src/character.js` and `assets/map-style-night.json`. Neither file is on `main`. Girl/boy product choices belong in `DECISIONS.md`.
 
 Rules tests use the emulator project id `demo-virtual-world`, not `virtual-world-8ac82`.
 
@@ -149,6 +151,25 @@ GitHub Actions has no repository secrets in these workflows.
 - **The Android workflow trigger is `push` only.** It does not show up as a `pull_request` check. A push of the head branch still builds the debug APK.
 - **Pages deploy path is not defined in the repo.** Uncertain which setting publishes `main`.
 
-## Updating this file
+## Changelog
 
-Update `docs/BACKEND_NOTES.md` in any PR that changes the proxy, Firestore rules or client writes, Android signing or auth, CI, or the names of environment variables. Put changelog lines, roadmap items, and product decisions in `PROJECT_NOTES.md`, `ROADMAP.md`, and `DECISIONS.md`. Do not paste secret values, certificate fingerprints, or keystore passwords into this file.
+One line per pull request. Status is `merged` or `open` as of 2026-10-24. #9 and #10 are not on `main`.
+
+| PR | Title | Status | Summary |
+| --- | --- | --- | --- |
+| #1 | Add Capacitor Android wrapper and debug APK workflow | merged | Capacitor 6 Android app `com.vishnupoola.virtualworld` and a JDK 17 debug APK workflow. |
+| #2 | Add CI for lint, Playwright smoke, and Firestore rules | merged | GitHub Actions jobs for ESLint, Playwright smoke, and Firestore rules in the emulator. |
+| #3 | feat: native Google sign-in on Android | merged | Native Google sign-in via `@capacitor-firebase/authentication` with `skipNativeAuth`, then Firebase JS `signInWithCredential`. |
+| #4 | chore: add Android google-services.json | merged | Commit `google-services.json` for the debug Android OAuth client and the web client. |
+| #5 | fix: steady 3D agent, in-app family sharing, chat with agent | merged | Steady 3D agent, in-app family location sharing, and chat with the agent. |
+| #6 | perf: 30fps avatar, pause in background, reuse matrices; identify self by account uid | merged | Cap the avatar at 30fps, pause it in the background, reuse matrices, and identify self by account uid. |
+| #7 | feat: require Firebase ID tokens on the Gemini chat proxy | merged | `POST /chat` requires a Firebase ID token; the proxy builds the system prompt and rate-limits per uid. |
+| #8 | fix: PR #6 review follow-ups (own dot on auth, clear all keys, on-screen check, rAF frame pacing) | merged | Own map dot follows auth, chat storage keys are cleared, on-screen check, and rAF frame pacing. |
+| #9 | Characters + night map (PR A) | open | Procedural `src/character.js`, v1 `agents/{uid}.look`, and a night map style. Not on `main`. |
+| #10 | Chat and World tabs (night theme, agent character header, Show me) | open | Chat and World tabs, night-theme chat, and the agent character in the header. Stacked on #9. Not on `main`. |
+| #11 | Docs: v1 roadmap and product decisions | open | Adds `docs/ROADMAP.md` and `docs/DECISIONS.md`. Not on `main`. |
+| #12 | docs: add the engineering log | open | This file: the engineering record, this changelog, and pointers to the product docs. |
+
+## How to update
+
+Every pull request adds one row to the changelog (number, title, `merged` or `open`, one-line summary) and updates every section that the change affects, including architecture, the proxy, Firestore rules, Android signing and auth, CI, secret names, and known issues. Put product roadmap items in `docs/ROADMAP.md` and product decisions in `docs/DECISIONS.md`. Do not paste secret values, certificate fingerprints, or keystore passwords into this file.
