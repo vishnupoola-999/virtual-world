@@ -10,5 +10,7 @@ export const GPU=gpu();
 const WEAK_GPU=/swiftshader|llvmpipe|software|mali-(t|g3|g5)|adreno \(tm\) ([3-5]\d\d|6[01]\d)|powervr|img be/i.test(GPU);
 export const LOW_END=mem<=4||cores<=4||WEAK_GPU;
 // "High quality 3D" (terrain): off by default on phones and low-end devices; the Layers sheet toggle is remembered.
-export const terrainPref=()=>{const v=localStorage.getItem('vw-terrain');return v===null?!(MOBILE||LOW_END):v==='1';};
-export const setTerrainPref=on=>localStorage.setItem('vw-terrain',on?'1':'0');
+// Storage can be blocked (private mode, WebView settings): fall back to an in-memory value so the map always loads.
+let memPref=null;
+export const terrainPref=()=>{let v=memPref;try{v=localStorage.getItem('vw-terrain')??memPref;}catch{}return v===null?!(MOBILE||LOW_END):v==='1';};
+export const setTerrainPref=on=>{memPref=on?'1':'0';try{localStorage.setItem('vw-terrain',memPref);}catch{}};
