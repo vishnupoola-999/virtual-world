@@ -18,6 +18,16 @@ export function sheetAction({ name, args }, mode) {
   return { kind: 'email', mode, email: { to: [args.to], subject: args.subject, body: args.body } };
 }
 
+// Calendar reads are private and ephemeral: shown in the chat window only, never saved or sent back to the model.
+export const EPHEMERAL_TOOLS = new Set(['list_events']);
+// results: [{name, text}] -> {persist: text saved to history, ephemeral: text shown only}
+export function composeReply(reply, results) {
+  const keep = [reply], temp = [];
+  for (const r of results) (EPHEMERAL_TOOLS.has(r.name) ? temp : keep).push(r.text);
+  const j = (a) => a.filter(Boolean).join('\n');
+  return { persist: j(keep), ephemeral: j(temp) };
+}
+
 export class ToolError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
@@ -82,7 +92,7 @@ export function createGoogleTools({ requestAccess, confirm, apiEnabled = () => f
     }
     if (name === 'add_event') {
       await call(scopes, 'https://www.googleapis.com/calendar/v3/calendars/primary/events', { method: 'POST',
-        body: JSON.stringify({ summary: args.title, description: args.description || '', start: { dateTime: args.start }, end: { dateTime: args.end } }) });
+        body: JSON.stringify({ summary: args.title, description: args.description || '', location: args.location || '', start: { dateTime: args.start }, end: { dateTime: args.end } }) });
       return `Added "${args.title}" to your calendar.`;
     }
     if (name === 'list_events') {
@@ -108,7 +118,9 @@ export function createGoogleTools({ requestAccess, confirm, apiEnabled = () => f
   return { run };
 }
 
-function hdr(v) { return String(v ?? '').replace(/[\r\n]+/g, ' '); }
+// Header-safe single line: every control char (\x00-\x1F, \x7F) becomes a space.
+// eslint-disable-next-line no-control-regex
+export function hdr(v) { return String(v ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' '); }
 const b64url = (s) => {
   const bytes = new TextEncoder().encode(s);
   let bin = '';

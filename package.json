@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Static Virtual World site. GitHub Pages serves the HTML and JS as-is. npm scripts are for CI and the Capacitor Android wrapper.",
   "scripts": {
+    "test": "npm run test:proxy",
     "lint": "eslint .",
     "test:smoke": "playwright test",
     "test:proxy": "node --test tests/proxy.test.mjs tests/rate-limit.test.mjs tests/tools.test.mjs",

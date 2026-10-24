@@ -2,7 +2,7 @@
 // The proxy builds the system prompt. This client sends only the agent name, personality, and transcript.
 import {toast} from './ui.js';
 import {loadMessages, addMessage, trimMessages, MAX_MESSAGES, requestGoogleAccess, currentUser} from './firebase.js';
-import {createGoogleTools, TOOL_MESSAGES} from './google-tools.js';
+import {createGoogleTools, composeReply, TOOL_MESSAGES} from './google-tools.js';
 import {confirmAction} from './ui/confirmAction.js';
 
 import {toolsApiEnabled} from './tools-config.js';
@@ -384,22 +384,27 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
       const payload = await response.json();
       const actions = Array.isArray(payload.actions) ? payload.actions : [];
       let reply = payload.choices?.[0]?.message?.content?.trim() || '';
+      let ephemeral = '';
       if (actions.length) {
         // Agent tools: each action goes through google-tools.js, which asks confirmAction() before any write.
         pending.remove();
-        const notes = [];
+        const results = [];
         for (const action of actions) {
-          try { notes.push(await googleTools.run(action)); }
-          catch (err) { notes.push(err?.message || TOOL_MESSAGES.failed); }
+          try { results.push({ name: action?.name, text: await googleTools.run(action) }); }
+          catch (err) { results.push({ name: 'error', text: err?.message || TOOL_MESSAGES.failed }); }
         }
-        reply = [reply, ...notes].filter(Boolean).join('\n');
+        ({ persist: reply, ephemeral } = composeReply(reply, results));
       }
-      if (!reply) { fail(0); return; }
+      if (!reply && !ephemeral) { fail(0); return; }
       pending.remove();
       status('ok');
-      remember('assistant', reply.slice(0, 2000));
       hero.state('talking');
-      await stream(reply);
+      if (reply) {
+        remember('assistant', reply.slice(0, 2000));
+        await stream(reply);
+      }
+      // Calendar listings: on screen only, never in hist, localStorage, Firestore or later prompts.
+      if (ephemeral) add('assistant', ephemeral, 'ephemeral');
       showMe();
       save();
     } catch (err) {

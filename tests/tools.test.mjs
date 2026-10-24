@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { cleanAction, parseModelReply, TOOL_DECLARATIONS } from '../proxy/tools.js';
 import { prepareChat } from '../proxy/server.js';
-import { createGoogleTools, forgetToken, rawEmail, _tokenState, SCOPES } from '../src/google-tools.js';
+import { createGoogleTools, composeReply, hdr, forgetToken, rawEmail, _tokenState, SCOPES } from '../src/google-tools.js';
 import { buildMailtoUrl as mailtoUrl, buildGmailComposeUrl as gmailComposeUrl, buildCalendarUrl, buildIcs, MAILTO_MAX } from '../src/agentTools.js';
 import { toolsApiEnabled } from '../src/tools-config.js';
 
@@ -187,4 +187,26 @@ test('mailto supports arrays, cc and stays under 2,000 chars', () => {
   assert.match(decodeURIComponent(u), /Message shortened/);
   const c = new URL(buildCalendarUrl({ ...ev, guests: [{ email: 'g@h.com' }, 'i@j.com'] }));
   assert.equal(c.searchParams.get('add'), 'g@h.com,i@j.com');
+});
+
+test('list_events output is ephemeral, never persisted', () => {
+  const r = composeReply('Here you go.', [{ name: 'list_events', text: '• Dentist (2026-10-25)' }, { name: 'add_event', text: 'Opened Google Calendar.' }]);
+  assert.equal(r.persist, 'Here you go.\nOpened Google Calendar.');
+  assert.equal(r.ephemeral, '• Dentist (2026-10-25)');
+  assert.doesNotMatch(r.persist, /Dentist/);
+  const chat = readFileSync(new URL('../src/chat.js', import.meta.url), 'utf8');
+  assert.match(chat, /if \(ephemeral\) add\('assistant', ephemeral, 'ephemeral'\)/);
+  assert.doesNotMatch(chat, /remember\([^)]*ephemeral/);
+});
+
+test('real calendar add includes location', async () => {
+  const h = harness();
+  await h.tools.run({ name: 'add_event', args: { title: 't', start: '2026-10-25T10:00:00Z', end: '2026-10-25T11:00:00Z', location: 'T-Hub' } });
+  assert.equal(JSON.parse(h.calls[0].init.body).location, 'T-Hub');
+});
+
+test('hdr strips all control characters', () => {
+  assert.equal(hdr('a\x00b\tc\x1fd\x7fe\r\nf'), 'a b c d e f');
+  const raw = Buffer.from(rawEmail({ to: 'a@b.com\x0bBcc: x', subject: 's\x00', body: 'b' }), 'base64url').toString();
+  assert.doesNotMatch(raw.split('\r\n\r\n')[0], /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/);
 });
