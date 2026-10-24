@@ -113,6 +113,7 @@ export function parseDecision(text, me, hasMatch) {
 }
 
 function oneLine(v, max) {
+  // eslint-disable-next-line no-control-regex
   return typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '';
 }
 
