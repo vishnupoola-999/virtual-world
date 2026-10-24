@@ -1,9 +1,12 @@
 // Chat with the user's agent through the Gemini proxy. History stays on this device for now.
 // The proxy builds the system prompt. This client sends only the agent name, personality, and transcript.
 import {toast} from './ui.js';
+import {loadMessages, addMessage, trimMessages, MAX_MESSAGES} from './firebase.js';
 
 const API = 'https://virtual-world-ai.onrender.com/chat';
 const REPLY_TIMEOUT_MS = 60_000;
+const SEND_LAST = 20; // messages sent to the proxy as context
+const LOAD_TIMEOUT_MS = 5_000;
 const WAKE_AFTER_MS = 3_000;
 const $ = (id) => document.getElementById(id);
 
@@ -55,6 +58,23 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
   };
   const showMe = () => chips([['📍 Show me', () => onShowMe(getAgent()), true]]);
   const save = () => localStorage.setItem(key(), JSON.stringify(hist.slice(-40)));
+  let writes = 0;
+  // Adds a message to the transcript, this device's cache and (when signed in) Firestore, so it follows you to other devices.
+  const remember = (role, content) => {
+    hist.push({ role, content });
+    hist = hist.slice(-MAX_MESSAGES);
+    save();
+    const uid = getUser()?.uid;
+    if (!uid) return;
+    addMessage(uid, { role, content })
+      .then(() => { if (++writes % 20 === 0) return trimMessages(uid); })
+      .catch((err) => console.warn('chat history not saved:', err?.code || err?.message));
+  };
+  const render = () => {
+    log.innerHTML = '<div class="msg sys">Today</div>';
+    for (const message of hist) add(message.role, message.content);
+    if (hist.length) showMe();
+  };
   const signInPrompt = () => toast('Sign in to chat with your agent');
 
   // Header status line and the banner under it: ok | waking | error.
@@ -95,13 +115,28 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     status('ok');
     try { hist = JSON.parse(localStorage.getItem(key()) || '[]'); } catch { hist = []; }
     if (!Array.isArray(hist)) hist = [];
-    log.innerHTML = '<div class="msg sys">Today</div>';
-    if (hist.length) {
-      for (const message of hist) add(message.role, message.content);
-      showMe();
-      return true;
-    }
-    // The agent speaks first.
+    render();
+    const uid = user?.uid;
+    if (!uid) { if (!hist.length) greet(agent, user); return true; }
+    // Then the saved history from Firestore (other devices); greet only if there is none anywhere.
+    const t = hist.length ? null : typing();
+    Promise.race([loadMessages(uid), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), LOAD_TIMEOUT_MS))])
+      .then((remote) => {
+        if (openedFor !== who || busy) return;
+        if (remote.length) { hist = remote; save(); render(); }
+      })
+      .catch((err) => console.warn('chat history not loaded:', err?.code || err?.message))
+      .finally(() => {
+        t?.remove();
+        if (openedFor === who && !hist.length) greet(agent, user);
+        else if (openedFor === who && writes === 0) trimMessages(uid).catch(() => {});
+      });
+    return true;
+  }
+
+  // The agent speaks first.
+  function greet(agent, user) {
+    const who = openedFor;
     const first = (user?.displayName || agent.ownerName || '').split(' ')[0] || 'there';
     const t = typing();
     hero.state('thinking');
@@ -109,7 +144,8 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     greetTimer = setTimeout(() => {
       t.remove();
       const hi = `Hi ${first} 👋 I'm ${agent.name}. Want me to find your friends?`;
-      hist.push({ role: 'assistant', content: hi });
+      if (openedFor !== who) return;
+      remember('assistant', hi);
       add('assistant', hi);
       hero.state('wave');
       chips([
@@ -117,7 +153,6 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
         ['📍 Show me', () => onShowMe(getAgent())],
       ]);
     }, 900);
-    return true;
   }
 
   const sync = () => { send.disabled = busy || !input.value.trim(); };
@@ -134,9 +169,8 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     if (!getAgent()) { toast('Create your agent first'); return; }
     input.value = '';
     for (const old of log.querySelectorAll('.chips')) old.remove();
-    hist.push({ role: 'user', content: text.slice(0, 1000) });
+    remember('user', text.slice(0, 1000));
     add('user', text);
-    save();
     ask();
   };
 
@@ -174,7 +208,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
         fail(err?.name === 'AbortError' ? 0 : 401);
         return;
       }
-      const messages = hist.slice(-8)
+      const messages = hist.slice(-SEND_LAST)
         .filter((message) => message && (message.role === 'user' || message.role === 'assistant'))
         .map((message) => ({ role: message.role, content: String(message.content || '').slice(0, 1000) }));
       const response = await fetch(API, {
@@ -202,7 +236,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
       if (!reply) { fail(0); return; }
       pending.remove();
       status('ok');
-      hist.push({ role: 'assistant', content: reply });
+      remember('assistant', reply.slice(0, 2000));
       add('assistant', reply);
       hero.state('talking');
       showMe();

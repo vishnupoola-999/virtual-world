@@ -13,7 +13,7 @@ Ideator's v1 checklist. [x] = merged to `main`; open PRs are noted next to an it
 ## Chat + World tabs
 - [x] Two bottom tabs, Chat first, World = the map (PR #10)
 - [x] Chat with your agent through the token-checked proxy (PR #7)
-- [ ] Agent memory (today: last 40 messages saved on this device only; needs server-side memory)
+- [x] Agent memory: chat history synced across devices, owner notes kept by the proxy (PR #13; needs `FIREBASE_SERVICE_ACCOUNT` on Render)
 
 ## Friends
 - [ ] Mutual invites: your agent invites a friend's agent, they accept

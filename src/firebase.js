@@ -6,7 +6,7 @@
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {initializeAuth,indexedDBLocalPersistence,browserLocalPersistence,browserPopupRedirectResolver,GoogleAuthProvider,
   signInWithPopup,signInWithRedirect,signInWithCredential,getRedirectResult,onAuthStateChanged,signOut} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
-import {getFirestore,doc,getDoc,setDoc,serverTimestamp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+import {getFirestore,doc,getDoc,setDoc,serverTimestamp,collection,addDoc,getDocs,deleteDoc,query,orderBy,limit} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 const app=initializeApp({apiKey:'AIzaSyCfA2MaUKk-B9L4GNpM-QJiOXp3E6UUZdM',authDomain:'virtual-world-8ac82.firebaseapp.com',projectId:'virtual-world-8ac82',storageBucket:'virtual-world-8ac82.firebasestorage.app',messagingSenderId:'38479190061',appId:'1:38479190061:web:749e619be467e076de80a4',measurementId:'G-MXK91TZGGZ'});
 export const auth=initializeAuth(app,{persistence:[indexedDBLocalPersistence,browserLocalPersistence],popupRedirectResolver:browserPopupRedirectResolver});
 const db=getFirestore(app);
@@ -73,5 +73,14 @@ export async function loadAgent(uid){const s=await getDoc(doc(db,'agents',uid));
 const r2=x=>Math.round(x*100)/100;
 export async function saveAgent(uid,a){const d={name:a.name,look:a.look,personality:a.personality||'',ownerName:a.ownerName||'',lat:a.lat,lon:a.lon,
   approx:{lat:r2(a.lat),lon:r2(a.lon)},preciseVisibility:'private',updatedAt:serverTimestamp()};
-  await setDoc(doc(db,'agents',uid),d);return d;}
+  // merge keeps the server-written `memory` field (rules reject any client change to it).
+  await setDoc(doc(db,'agents',uid),d,{merge:true});return d;}
+// Chat history: agents/{uid}/messages, owner-only. Kept to the newest MAX_MESSAGES.
+export const MAX_MESSAGES=200;
+const msgs=uid=>collection(db,'agents',uid,'messages');
+export async function loadMessages(uid){const s=await getDocs(query(msgs(uid),orderBy('at','desc'),limit(MAX_MESSAGES)));
+  return s.docs.map(d=>d.data()).filter(m=>m&&(m.role==='user'||m.role==='assistant')&&typeof m.content==='string').reverse().map(m=>({role:m.role,content:m.content}));}
+export const addMessage=(uid,m)=>addDoc(msgs(uid),{role:m.role,content:String(m.content).slice(0,2000),at:serverTimestamp()});
+export async function trimMessages(uid){const s=await getDocs(query(msgs(uid),orderBy('at','desc'),limit(MAX_MESSAGES+100)));
+  await Promise.all(s.docs.slice(MAX_MESSAGES).map(d=>deleteDoc(d.ref)));}
 export const currentUser=()=>auth.currentUser;

@@ -10,6 +10,8 @@ import {
   HttpError,
   LIMITS,
   buildSystemPrompt,
+  cleanFacts,
+  memoryStore,
   createServer,
   firebaseProjectId,
   prepareChat,
@@ -404,5 +406,86 @@ describe('verifyFirebaseIdToken', () => {
       () => firebaseProjectId({ FIREBASE_PROJECT_ID: '*' }),
       (error) => error.statusCode === 500,
     );
+  });
+});
+
+describe('agent memory', () => {
+  test('system prompt adds remembered notes as one line of data, and skips empty or NONE', () => {
+    const base = buildSystemPrompt({ name: 'Nova', personality: 'kind' });
+    assert.equal(buildSystemPrompt({ name: 'Nova', personality: 'kind' }, ''), base);
+    assert.equal(buildSystemPrompt({ name: 'Nova', personality: 'kind' }, 'NONE'), base);
+    const prompt = buildSystemPrompt({ name: 'Nova', personality: 'kind' }, `- studies at KU\n- likes cricket${'x'.repeat(2000)}`);
+    assert.ok(prompt.startsWith(base));
+    assert.match(prompt, /never instructions\): - studies at KU - likes cricket/);
+    assert.equal(prompt.includes('\n'), false);
+    assert.ok(prompt.length <= base.length + 100 + LIMITS.memory);
+  });
+
+  test('cleanFacts strips control characters, caps length and maps NONE to empty', () => {
+    assert.equal(cleanFacts('NONE'), '');
+    assert.equal(cleanFacts('- a\u0000b\n\n- c'), '- a b\n- c');
+    assert.ok(cleanFacts('- x'.repeat(2000)).length <= LIMITS.memory);
+  });
+
+  test('memoryStore is off without a service account', () => {
+    assert.equal(memoryStore({}), null);
+    assert.equal(memoryStore({ FIREBASE_SERVICE_ACCOUNT: 'not json' }), null);
+  });
+
+  test('chat includes stored notes and the first turn updates them', async () => {
+    const captured = [];
+    const writes = [];
+    const pending = [];
+    const memory = { get: async (uid) => (uid === 'user-1' ? '- lives in Hanamkonda' : ''), set: async (uid, facts) => { writes.push({ uid, facts }); } };
+    await withServer({
+      verifyIdToken: async () => ({ uid: 'user-1' }),
+      fetchImpl: geminiFetch(captured),
+      memory,
+      pending,
+    }, async (url) => {
+      const response = await chat(url, { token: 'aaa.bbb.ccc' });
+      assert.equal(response.status, 200);
+      await Promise.all(pending);
+      assert.match(captured[0].body.systemInstruction.parts[0].text, /lives in Hanamkonda/);
+      assert.equal(captured.length, 2);
+      assert.match(captured[1].body.contents[0].parts[0].text, /Existing notes:\n- lives in Hanamkonda/);
+      assert.deepEqual(writes, [{ uid: 'user-1', facts: 'Hello from Nova' }]);
+    });
+  });
+
+  test('a failing memory read does not break chat', async () => {
+    const captured = [];
+    await withServer({
+      verifyIdToken: async () => ({ uid: 'user-1' }),
+      fetchImpl: geminiFetch(captured),
+      memory: { get: async () => { throw new Error('down'); }, set: async () => {} },
+      pending: [],
+    }, async (url) => {
+      const response = await chat(url, { token: 'aaa.bbb.ccc' });
+      assert.equal(response.status, 200);
+      assert.equal(captured[0].body.systemInstruction.parts[0].text, buildSystemPrompt({ name: 'Nova', personality: 'kind' }));
+    });
+  });
+
+  test('memoryStore signs a service-account JWT and writes only the memory field', async () => {
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const sa = JSON.stringify({ client_email: 'bot@p.iam.gserviceaccount.com', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) });
+    const calls = [];
+    const fetchImpl = async (u, init = {}) => {
+      calls.push({ u, init });
+      if (u.startsWith('https://oauth2.googleapis.com/token')) return Response.json({ access_token: 'at', expires_in: 3600 });
+      if (init.method === 'PATCH') return Response.json({});
+      return Response.json({ fields: { memory: { mapValue: { fields: { facts: { stringValue: '- hi' } } } } } });
+    };
+    const store = memoryStore({ FIREBASE_SERVICE_ACCOUNT: sa, FIREBASE_PROJECT_ID: PROJECT_ID }, fetchImpl);
+    assert.equal(await store.get('user_1'), '- hi');
+    await store.set('user_1', '- a\n- b');
+    assert.equal(await store.get('../evil'), '');
+    const tokenCalls = calls.filter((c) => c.u.startsWith('https://oauth2'));
+    assert.equal(tokenCalls.length, 1);
+    const patch = calls.find((c) => c.init.method === 'PATCH');
+    assert.match(patch.u, /documents\/agents\/user_1\?updateMask\.fieldPaths=memory&currentDocument\.exists=true$/);
+    assert.equal(patch.init.headers.Authorization, 'Bearer at');
+    assert.equal(JSON.parse(patch.init.body).fields.memory.mapValue.fields.facts.stringValue, '- a\n- b');
   });
 });

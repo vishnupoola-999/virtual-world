@@ -30,7 +30,7 @@ Merged PR #7 says auto-deploy from `main` is on and that the free instance sleep
 - Requires `Authorization: Bearer <Firebase ID token>`. Verification uses Google's securetoken certificates (`securetoken@system.gserviceaccount.com`), RS256, and the same claims as `firebase-admin` `verifyIdToken` with `checkRevoked` false: `aud`, `iss` (`https://securetoken.google.com/<project>`), `exp`, `iat`, `auth_time`, `sub`. No service account and no revocation check. Project id is `FIREBASE_PROJECT_ID` or, if unset, `virtual-world-8ac82`.
 - Builds the system prompt on the server from a fixed template plus `agent.name` (40) and `agent.personality` (300). Client `system`, `systemPrompt`, and `role: "system"` messages are ignored.
 - Calls `generativelanguage.googleapis.com` `v1beta` `generateContent`. Default model `gemini-flash-lite-latest` (`MODEL` overrides it when the name matches `^[A-Za-z0-9._-]{1,80}$`). The API key is sent only as the `x-goog-api-key` header. `maxOutputTokens` 200, temperature 0.9. Upstream timeout 50s.
-- Limits, in order: 6 requests/min per IP (before auth), then token check, 6 chats/min per uid, body parse, then 60 chats/hour and 600/day globally. Body max 16 KB, 8 messages, 1000 characters each. Counters are in-process `Map`s. They reset on restart, are not shared across instances, and a map larger than 5000 keys is cleared entirely.
+- Limits, in order: 6 requests/min per IP (before auth), then token check, 6 chats/min per uid, body parse, then 60 chats/hour and 600/day globally. Body max 64 KB, 20 messages, 1000 characters each. Agent memory (optional `FIREBASE_SERVICE_ACCOUNT`): the proxy reads `agents/{uid}.memory.facts` into the prompt as data and rewrites it on turn 1 and every 4th turn per uid (one extra Gemini call, counted toward the daily cap). Chat history lives in owner-only `agents/{uid}/messages` (app keeps the newest 200); clients can read but never write `memory`. Counters are in-process `Map`s. They reset on restart, are not shared across instances, and a map larger than 5000 keys is cleared entirely.
 - CORS allowlist: `https://vishnupoola-999.github.io`, and `http`/`https` origins whose host is `localhost` (any port). `127.0.0.1` is not allowed. Preflight allows `Content-Type` and `Authorization`. A disallowed origin gets 403 on `POST /chat` and on `OPTIONS`. `ALLOWED_ORIGIN` is not read.
 
 `GET /` returns `ok`. `GET /flights` needs no auth and no allowlist check (CORS headers are still omitted for other origins). It queries adsb.lol, then adsb.fi, caches about 8 seconds, and clamps radius to 5–250 (default 80).
@@ -176,7 +176,8 @@ One line per pull request. Status is `merged` or `open` as of 2026-10-24, after 
 | #9 | Characters + night map (PR A) | merged | Procedural `src/character.js`, v1 `agents/{uid}.look` (legacy look still accepted), night map style, and `assets/` copied into the Android bundle. |
 | #10 | Chat and World tabs (night theme, agent character header, Show me) | merged | Chat and World tabs, night-theme chat, and the agent character in the header. |
 | #11 | Docs: v1 roadmap and product decisions | merged | Adds `docs/ROADMAP.md` and `docs/DECISIONS.md`. |
-| #12 | docs: add the engineering log | open | This file: the engineering record, this changelog, and pointers to the product docs. |
+| #12 | docs: add the engineering log | merged | This file: the engineering record, this changelog, and pointers to the product docs. |
+| #13 | Agent memory: synced chat history + server-side owner notes | open | `agents/{uid}/messages` (owner-only rules + tests, newest 200) synced across devices; proxy sends the last 20 messages and a server-written `agents/{uid}.memory` summary. Needs `FIREBASE_SERVICE_ACCOUNT` on Render. |
 
 ## How to update
 

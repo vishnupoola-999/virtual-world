@@ -236,7 +236,71 @@ describe('agents/{uid} rules', { concurrency: false }, () => {
     await assertFails(getDoc(doc(guest, 'users', ALICE)));
     await assertFails(setDoc(doc(guest, 'profiles', ALICE), agent()));
     await assertFails(getDoc(doc(alice, 'agents', ALICE, 'notes', 'secret')));
+    await assertFails(getDoc(doc(alice, 'agents', ALICE, 'messages', 'm1', 'x', 'y')));
     await assertFails(setDoc(doc(alice, 'agents', ALICE, 'notes', 'secret'), { text: 'nope' }));
+  });
+});
+
+describe('agent memory and chat history rules', { concurrency: false }, () => {
+  before(async () => {
+    const [host, port] = process.env.FIRESTORE_EMULATOR_HOST.split(':');
+    testEnv = await initializeTestEnvironment({
+      projectId: PROJECT_ID,
+      firestore: { rules: readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8'), host, port: Number(port) },
+    });
+  });
+  after(async () => { await testEnv.cleanup(); });
+  beforeEach(async () => { await testEnv.clearFirestore(); });
+
+  const msg = (overrides = {}) => ({ role: 'user', content: 'I study at KU', at: serverTimestamp(), ...overrides });
+  const msgRef = (owner, uid = owner, id = 'm1') => doc(db(owner), 'agents', uid, 'messages', id);
+  async function seedMemory(uid) {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'agents', uid), { ...agent(), updatedAt: Timestamp.now(), memory: { facts: '- studies at KU', updatedAt: Timestamp.now() } });
+    });
+  }
+
+  test('owner can read the server-written memory, others cannot', async () => {
+    await seedMemory(ALICE);
+    const snap = await assertSucceeds(getDoc(agentRef(ALICE)));
+    assert.equal(snap.data().memory.facts, '- studies at KU');
+    await assertFails(getDoc(agentRef(ALICE, BOB)));
+    await assertFails(getDoc(doc(db(null), 'agents', ALICE)));
+  });
+
+  test('owner cannot create or change memory, but can save the agent with memory untouched', async () => {
+    await assertFails(setDoc(agentRef(ALICE), agent({ memory: { facts: 'fake' } })));
+    await seedMemory(ALICE);
+    await assertFails(setDoc(agentRef(ALICE), agent({ memory: { facts: 'fake' } }), { merge: true }));
+    await assertFails(setDoc(agentRef(ALICE), agent()));
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({ name: 'Bea' }), { merge: true }));
+  });
+
+  test('owner can add, list and delete their messages', async () => {
+    await assertSucceeds(setDoc(msgRef(ALICE), msg()));
+    await assertSucceeds(setDoc(msgRef(ALICE, ALICE, 'm2'), msg({ role: 'assistant', content: 'Nice!' })));
+    const all = await assertSucceeds(getDocs(collection(db(ALICE), 'agents', ALICE, 'messages')));
+    assert.equal(all.size, 2);
+    await assertSucceeds(deleteDoc(msgRef(ALICE)));
+  });
+
+  test('messages are private to the owner', async () => {
+    await assertSucceeds(setDoc(msgRef(ALICE), msg()));
+    await assertFails(getDoc(msgRef(BOB, ALICE)));
+    await assertFails(getDocs(collection(db(BOB), 'agents', ALICE, 'messages')));
+    await assertFails(setDoc(msgRef(BOB, ALICE, 'm9'), msg()));
+    await assertFails(deleteDoc(msgRef(BOB, ALICE)));
+    await assertFails(getDoc(doc(db(null), 'agents', ALICE, 'messages', 'm1')));
+  });
+
+  test('invalid or edited messages are rejected', async () => {
+    await assertFails(setDoc(msgRef(ALICE), msg({ role: 'system' })));
+    await assertFails(setDoc(msgRef(ALICE), msg({ content: '' })));
+    await assertFails(setDoc(msgRef(ALICE), msg({ content: 'x'.repeat(2001) })));
+    await assertFails(setDoc(msgRef(ALICE), msg({ at: Timestamp.fromMillis(0) })));
+    await assertFails(setDoc(msgRef(ALICE), msg({ extra: 1 })));
+    await assertSucceeds(setDoc(msgRef(ALICE), msg({ content: 'x'.repeat(2000) })));
+    await assertFails(setDoc(msgRef(ALICE), msg({ content: 'edited' })));
   });
 });
 
