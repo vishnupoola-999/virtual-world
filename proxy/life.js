@@ -9,7 +9,7 @@ export const LIFE = {
   activeDays: 14,        // owner must have opened the app in this window (updatedAt)
   meetCooldownMs: 3 * 86_400_000, // do not re-meet the same agent within 3 days
   maxCallsPerTick: 50,  // hard ceiling on Gemini calls per tick (a meet costs 2)
-  tickDeadlineMs: 200_000, // stop starting new agents after ~200 s
+  tickDeadlineMs: 170_000, // stop starting new agents after ~170 s (workflow curl --max-time is 240 s)
   maxConversationLines: 6,
 };
 
@@ -39,7 +39,8 @@ export const dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 // Server-side salt for hashed ids and place offsets. Never sent to clients.
 export function lifeSalt(env = process.env) {
-  return String(env.LIFE_SALT || env.TICK_SECRET || '');
+  // Required and independent of TICK_SECRET: rotating the tick secret must not change hashed ids or places.
+  return String(env.LIFE_SALT || '');
 }
 
 // Opaque, stable id for another user's agent. Raw uids never land in someone else's diary, friends or met map.
@@ -184,6 +185,7 @@ export function parseConversation(text, a, b) {
 // changed since updateTime), addDiary(uid, entry), addFriend(uid, friendId, fact). llm(prompt, maxTokens) -> text.
 // Budget: at most maxCalls model calls and deadlineMs per tick; every model call (rest included) counts toward the daily cap.
 export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(), maxCalls = LIFE.maxCallsPerTick, deadlineMs = LIFE.tickDeadlineMs, clock = Date.now }) {
+  if (!salt) throw new Error('LIFE_SALT missing');
   const started = clock();
   const agents = (await store.listAgents()).map((a) => ({ ...a, interests: cleanInterests(a.interests) }));
   const summary = { agents: agents.length, acted: 0, skipped: 0, moves: 0, meets: 0, diary: 0, rests: 0, errors: 0, calls: 0, stopped: null };
@@ -240,8 +242,9 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       const shared = mine.interests.filter((t) => theirs.interests.includes(t));
       const otherId = hashId(other.uid, salt), meId = hashId(me.uid, salt);
       const otherLife = countAction(other.life, now);
-      await store.saveLife(me.uid, { ...life, activity: 'meet', status: `Chatting with ${theirs.name}`, met: { ...(me.life?.met || {}), [otherId]: now } }, { updateTime: me.updateTime });
+      // Partner first: if their doc changed (412) we throw before touching ours, so no half-saved meet.
       await store.saveLife(other.uid, { ...otherLife, activity: 'meet', status: `Chatting with ${mine.name}`, met: { ...(other.life?.met || {}), [meId]: now } }, { updateTime: other.updateTime });
+      await store.saveLife(me.uid, { ...life, activity: 'meet', status: `Chatting with ${theirs.name}`, met: { ...(me.life?.met || {}), [otherId]: now } }, { updateTime: me.updateTime });
       touched.add(other.uid);
       await store.addDiary(me.uid, { kind: 'meet', withId: otherId, withName: theirs.name, shared, lines, at: now });
       await store.addDiary(other.uid, { kind: 'meet', withId: meId, withName: mine.name, shared, lines, at: now });
@@ -328,16 +331,25 @@ export function lifeStore(admin) {
   };
 }
 
+// Second check behind scrub/safeLine: Gemini blocks medium-and-above for these categories.
+export const SAFETY_SETTINGS = ['HARASSMENT', 'HATE_SPEECH', 'SEXUALLY_EXPLICIT', 'DANGEROUS_CONTENT']
+  .map((c) => ({ category: `HARM_CATEGORY_${c}`, threshold: 'BLOCK_MEDIUM_AND_ABOVE' }));
+
 export function geminiLlm({ fetchImpl, apiKey, model }) {
   return async (prompt, maxTokens) => {
     const r = await fetchImpl(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: maxTokens, temperature: 0.8 } }),
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], safetySettings: SAFETY_SETTINGS, generationConfig: { maxOutputTokens: maxTokens, temperature: 0.8 } }),
       signal: AbortSignal.timeout(20_000),
     });
     if (!r.ok) throw new Error(`gemini ${r.status}`);
     const p = await r.json();
-    return p.candidates?.[0]?.content?.parts?.map((x) => x.text || '').join('') || '';
+    // Blocked or empty output is treated as unsafe: return '' so the parsers fall back to rest and nothing is saved.
+    if (p.promptFeedback?.blockReason) return '';
+    const c = p.candidates?.[0];
+    if (!c || c.finishReason === 'SAFETY' || c.finishReason === 'PROHIBITED_CONTENT' || c.finishReason === 'BLOCKLIST' || c.finishReason === 'SPII') return '';
+    if (c.safetyRatings?.some((x) => x.blocked)) return '';
+    return c.content?.parts?.map((x) => x.text || '').join('') || '';
   };
 }
