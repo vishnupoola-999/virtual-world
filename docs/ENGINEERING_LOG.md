@@ -79,11 +79,13 @@ App id `com.vishnupoola.virtualworld`. Capacitor Android, core, and CLI are 6.2.
 
 Google OAuth inside the WebView fails (`403 disallowed_useragent`). When `Capacitor.isNativePlatform()` is true, `src/firebase.js` calls `FirebaseAuthentication.signInWithGoogle` with `skipNativeAuth: true` (also set in `capacitor.config.json`), then `signInWithCredential(GoogleAuthProvider.credential(idToken))`. Firestore rules see that Firebase JS user. `skipNativeAuth` does not sign in the native FirebaseAuth user. Sign-out calls native `signOut`, then JS `signOut`. Browsers never take this path. Browser sign-in is `signInWithPopup`, then `signInWithRedirect` only if the popup is blocked. Persistence is IndexedDB, then localStorage. `getRedirectResult` runs on load.
 
-The debug APK is signed only with the committed keystore `android/app/debug.keystore`, alias `androiddebugkey`. Store and key passwords are in `android/app/build.gradle` and are not copied here. The release `buildType` has no `signingConfig` and `minifyEnabled` is false. No release or Play signing keystore is in the repo. The Android workflow fails if the debug certificate fingerprints change; the expected fingerprints are in that workflow and in the README, and are not copied here.
+The debug APK is signed with the committed keystore `android/app/debug.keystore`, alias `androiddebugkey`. Store and key passwords are in `android/app/build.gradle` and are not copied here. The Android workflow fails if the debug certificate fingerprints change; the expected fingerprints are in that workflow and in the README, and are not copied here.
+
+Release `minifyEnabled` is false. `signingConfigs.release` is applied only when the upload key is available from the environment. `android/app/build.gradle` reads `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`, and the keystore from `ANDROID_KEYSTORE_FILE` or, when that is unset, from `ANDROID_KEYSTORE_BASE64` (whitespace stripped, then decoded to `android/app/build/release.keystore`). Leading and trailing whitespace on the password, alias, and key password is stripped. `ANDROID_KEYSTORE_FILE` wins when both keystore variables are set. `assembleRelease` and `bundleRelease` fail while any of those values are missing or the base64 is invalid, so a release APK or AAB is signed with the upload key. `assembleDebug` does not require them. The upload keystore, its base64, the alias, and the passwords stay out of git. `*.jks` and `*.keystore` are gitignored, with an exception for the tracked debug keystore.
 
 `android/app/google-services.json` is committed (not gitignored) for this package name. It includes an Android OAuth client (`client_type` 1) and a web client (`client_type` 3). The native plugin reads the type 3 client as the request id token's web client id. `strings.xml` does not set `default_web_client_id`. The Google Services plugin is applied only when that JSON file exists and is non-empty, so a missing file still lets `assembleDebug` finish and leaves native sign-in broken.
 
-A Play release needs a different keystore, plus that certificate's SHA-1 (and the Play App Signing SHA-1) registered in Firebase, then a new `google-services.json`. Whether those console fingerprints exist is not recorded in the repo.
+A Play release uses the upload keystore from those environment variables, not the debug keystore. The Android workflow prints the release certificate SHA-1 and SHA-256 when the signing secrets are set. Add both fingerprints on the Firebase Android app (`com.vishnupoola.virtualworld`, Project settings → Your apps → SHA certificate fingerprints) or Google sign-in fails on that release build. Download `google-services.json` again after adding them. Installs from Play also need the Play App Signing certificate SHA-1 and SHA-256 on that same app. The fingerprint values are not copied here. Whether the console entries exist is not recorded in the repo. How to create the keystore and which GitHub Actions secrets to add is under Setup and secret names.
 
 If the web API key is restricted by HTTP referrer, the WebView also needs `https://localhost/*` allowed. Whether the live key is restricted is not recorded in the repo. The device needs Google Play services.
 
@@ -91,7 +93,7 @@ If the web API key is restricted by HTTP referrer, the WebView also needs `https
 
 ## CI and local tests
 
-No GitHub Actions secret is referenced. Workflows use `contents: read` and `actions: write`.
+The CI workflow does not read a GitHub Actions secret. The Android workflow reads `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` when they are set. Workflows use `contents: read` and `actions: write`.
 
 **CI** (`.github/workflows/ci.yml`), on push and pull_request, Node 22, concurrency cancels in progress:
 
@@ -102,7 +104,7 @@ No GitHub Actions secret is referenced. Workflows use `contents: read` and `acti
 | Playwright smoke | `npm run test:smoke` | Chromium, `scripts/static-server.mjs` port 4173, mobile 390×844 and desktop 1280×800. CI retries twice. |
 | Firestore rules | `npm run test:rules` | Temurin 21. `firebase emulators:exec --only firestore --project demo-virtual-world`. |
 
-**Android** (`.github/workflows/android.yml`), on push only (not pull_request): JDK 17, `platforms;android-34`, `build-tools;34.0.0`, `npm run check:auth`, `npm run copy:web`, `npx cap sync android`, fingerprint check, `./gradlew assembleDebug`. Artifact `virtual-world-debug`, kept 14 days.
+**Android** (`.github/workflows/android.yml`), on push only (not pull_request): JDK 17, `platforms;android-34`, `build-tools;34.0.0`, `npm run check:auth`, `npm run copy:web`, `npx cap sync android`, debug fingerprint check, `./gradlew assembleDebug`. Artifact `virtual-world-debug`, kept 14 days. When all four release signing secrets are non-empty, the job decodes `ANDROID_KEYSTORE_BASE64` with `base64 --decode`, prints the release SHA-1 and SHA-256, rejects the debug certificate, runs `./gradlew assembleRelease bundleRelease` with those secrets in the environment, checks the APK with `apksigner` and the AAB with `jarsigner`, and uploads `virtual-world-release-apk` and `virtual-world-release-aab` (14 days). When all four are empty, those steps are skipped and the debug APK job still passes. When only some are set, the job fails after the debug APK upload.
 
 Local, from a clean install (`npm ci`):
 
@@ -115,6 +117,9 @@ npm run test:rules          # needs a JDK; firebase-tools starts the emulator
 npm run check:auth          # popup path vs native id-token path
 npm run copy:web && npx cap sync android
 cd android && ./gradlew assembleDebug
+# Signed release. Export ANDROID_KEYSTORE_BASE64 (or ANDROID_KEYSTORE_FILE)
+# plus ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD.
+cd android && ./gradlew assembleRelease bundleRelease
 ```
 
 `npm run test:rules:run` alone fails unless `FIRESTORE_EMULATOR_HOST` is set. `node proxy/server.js` runs the proxy locally.
@@ -146,7 +151,45 @@ Do not add a service account, `GOOGLE_APPLICATION_CREDENTIALS`, or a Firebase JS
 - `FIRESTORE_EMULATOR_HOST` — set by `firebase emulators:exec` (emulator host `127.0.0.1`, port `8080` in `firebase.json`).
 - `CHECK_MODE` — used only inside `scripts/check-firebase-auth.mjs`.
 
-GitHub Actions has no repository secrets in these workflows.
+**GitHub Actions repository secrets for release signing**
+
+Names only. Settings → Secrets and variables → Actions. Leave them unset until the upload key exists; the Android workflow then builds the debug APK only.
+
+Create the keystore on a trusted machine. `keytool` prompts for the store password, the key password, and the certificate name. Keep those passwords in the secrets below and out of the repo, shell history, and this file:
+
+```bash
+keytool -genkeypair -v \
+  -keystore release.keystore \
+  -storetype PKCS12 \
+  -alias YOUR_ALIAS \
+  -keyalg RSA \
+  -keysize 2048 \
+  -validity 10000
+```
+
+`YOUR_ALIAS` is whatever alias you choose. That same text is the value of `ANDROID_KEY_ALIAS`. `-storetype PKCS12` matches current `keytool` defaults; a `.jks` file is also accepted. `*.keystore` and `*.jks` are gitignored.
+
+Base64 for `ANDROID_KEYSTORE_BASE64` is one line (standard base64, not base64url):
+
+```bash
+base64 -w 0 release.keystore                 # GNU coreutils
+base64 -i release.keystore | tr -d '\n'      # macOS
+```
+
+| Secret | Role |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | Single-line base64 of the upload keystore. CI decodes it with `base64 --decode` after stripping whitespace. Gradle decodes the same variable when `ANDROID_KEYSTORE_FILE` is unset. |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore store password. |
+| `ANDROID_KEY_ALIAS` | Alias of the key entry inside the keystore. |
+| `ANDROID_KEY_PASSWORD` | Password for that key entry. |
+
+`ANDROID_KEYSTORE_FILE` is not a repository secret. It is an optional absolute path to a decoded keystore for a local release build. When it is set, Gradle uses that file and does not read `ANDROID_KEYSTORE_BASE64`.
+
+The first signed release build prints the upload certificate SHA-1 and SHA-256 in the workflow log. Add both to the Firebase Android app before Google sign-in will work on the release APK or on a build signed with this upload key. For installs from Play, also add the Play App Signing certificate SHA-1 and SHA-256, then download a fresh `google-services.json`.
+
+**Not a GitHub Actions secret**
+
+The CI workflow (lint, smoke, proxy, rules) does not read repository secrets.
 
 ## Known engineering issues
 
@@ -155,7 +198,7 @@ GitHub Actions has no repository secrets in these workflows.
 - **Proxy limits are per process.** A restart or a second instance does not share them. Revoked ID tokens are accepted until they expire.
 - **`GET /flights` and `GET /` are unauthenticated.** `/flights` is served even when the browser origin is not on the allowlist.
 - **Debug APK omits the PWA shell files.** `www/` has `src/` and `assets/` but not `sw.js`, `manifest.json`, or `icons/`. The procedural character does not need `robot.glb` (removed in #9).
-- **Release signing is not set up.** Debug keystore only.
+- **Release signing secrets are optional.** Until `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` are all set, CI publishes the debug APK only. Google sign-in on the release build also needs that upload certificate's SHA-1 and SHA-256 (and, for Play installs, the Play App Signing fingerprints) on the Firebase Android app.
 - **The Android workflow trigger is `push` only.** It does not show up as a `pull_request` check. A push of the head branch still builds the debug APK.
 - **Pages deploy path is not defined in the repo.** Uncertain which setting publishes `main`.
 
@@ -178,6 +221,7 @@ One line per pull request. Status is `merged` or `open` as of 2026-10-24, after 
 | #11 | Docs: v1 roadmap and product decisions | merged | Adds `docs/ROADMAP.md` and `docs/DECISIONS.md`. |
 | #12 | docs: add the engineering log | merged | This file: the engineering record, this changelog, and pointers to the product docs. |
 | #13 | Agent memory: synced chat history + server-side owner notes | open | `agents/{uid}/messages` (owner-only rules + tests, newest 200) synced across devices; proxy sends the last 20 messages and a server-written `agents/{uid}.memory` summary. Needs `FIREBASE_SERVICE_ACCOUNT` on Render. |
+| TBD | feat: sign Android release builds from CI keystore secrets | open | Release APK and AAB are signed from `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` when those secrets are set. The debug APK build still runs, and it is the only Android artifact when the secrets are unset. |
 
 ## How to update
 

@@ -1,5 +1,73 @@
 apply plugin: 'com.android.application'
 
+// Release signing reads the upload keystore from the environment.
+// ANDROID_KEYSTORE_FILE is a path to an already decoded keystore.
+// When that is unset, ANDROID_KEYSTORE_BASE64 is decoded here (CI decodes
+// the same secret before Gradle, and a local release build can pass it through).
+// Passwords and the alias are trimmed; they are never written into the repo.
+def releaseEnv = { String name ->
+    def value = System.getenv(name)
+    if (value == null) {
+        return null
+    }
+    def trimmed = value.trim()
+    return trimmed ? trimmed : null
+}
+
+def keystoreFileEnv = releaseEnv('ANDROID_KEYSTORE_FILE')
+def releaseStorePassword = releaseEnv('ANDROID_KEYSTORE_PASSWORD')
+def releaseKeyAlias = releaseEnv('ANDROID_KEY_ALIAS')
+def releaseKeyPassword = releaseEnv('ANDROID_KEY_PASSWORD')
+def normalizedKeystoreBase64 = System.getenv('ANDROID_KEYSTORE_BASE64')?.replaceAll('\\s', '')
+if (!normalizedKeystoreBase64) {
+    normalizedKeystoreBase64 = null
+}
+
+def appProject = project
+File releaseKeystoreFile = null
+def releaseSigningError = null
+if (keystoreFileEnv != null) {
+    releaseKeystoreFile = file(keystoreFileEnv)
+} else if (normalizedKeystoreBase64 != null) {
+    releaseKeystoreFile = layout.buildDirectory.file('release.keystore').get().asFile
+    releaseKeystoreFile.parentFile.mkdirs()
+    try {
+        releaseKeystoreFile.bytes = java.util.Base64.decoder.decode(normalizedKeystoreBase64)
+    } catch (IllegalArgumentException ignored) {
+        releaseSigningError = 'ANDROID_KEYSTORE_BASE64 is not valid base64.'
+        releaseKeystoreFile = null
+    }
+    if (releaseKeystoreFile != null) {
+        releaseKeystoreFile.setReadable(false, false)
+        releaseKeystoreFile.setReadable(true, true)
+        releaseKeystoreFile.setWritable(false, false)
+        releaseKeystoreFile.setWritable(true, true)
+        releaseKeystoreFile.setExecutable(false, false)
+    }
+}
+
+def releaseSigningProblems = []
+if (releaseStorePassword == null) {
+    releaseSigningProblems << 'ANDROID_KEYSTORE_PASSWORD'
+}
+if (releaseKeyAlias == null) {
+    releaseSigningProblems << 'ANDROID_KEY_ALIAS'
+}
+if (releaseKeyPassword == null) {
+    releaseSigningProblems << 'ANDROID_KEY_PASSWORD'
+}
+if (releaseSigningError != null) {
+    releaseSigningProblems << releaseSigningError
+} else if (releaseKeystoreFile == null) {
+    releaseSigningProblems << 'ANDROID_KEYSTORE_FILE or ANDROID_KEYSTORE_BASE64'
+} else if (!releaseKeystoreFile.isFile() || releaseKeystoreFile.length() == 0L) {
+    releaseSigningProblems << 'a non-empty keystore from ANDROID_KEYSTORE_FILE or ANDROID_KEYSTORE_BASE64'
+}
+def releaseSigningReady = releaseSigningProblems.isEmpty()
+if (releaseSigningReady) {
+    logger.lifecycle('Release signing configured from environment variables.')
+}
+
 android {
     namespace "com.vishnupoola.virtualworld"
     compileSdk rootProject.ext.compileSdkVersion
@@ -27,14 +95,41 @@ android {
             keyPassword 'android'
         }
     }
+    if (releaseSigningReady) {
+        signingConfigs {
+            release {
+                storeFile releaseKeystoreFile
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+}
+
+def releaseTaskNames = ['assembleRelease', 'bundleRelease', 'packageRelease', 'packageReleaseBundle'] as Set
+gradle.taskGraph.whenReady { graph ->
+    def buildsRelease = graph.allTasks.any { task ->
+        task.project == appProject && releaseTaskNames.contains(task.name)
+    }
+    if (buildsRelease && !releaseSigningReady) {
+        throw new GradleException(
+            'Refusing to build an unsigned release. Missing ' +
+            releaseSigningProblems.join(', ') +
+            '. assembleDebug does not need these. See docs/ENGINEERING_LOG.md.'
+        )
     }
 }
 
