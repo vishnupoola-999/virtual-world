@@ -4,7 +4,7 @@ import {avatarLayer,toLook} from './avatar3d.js';
 import {defaultLook,guessBase,sanitize,SKIN,HAIR_COLOURS,OUTFIT_COLOURS,HAIRSTYLES,OUTFITS,ACCESSORIES} from './character.js';
 import {toast} from './ui.js';
 const $=id=>document.getElementById(id);
-export function setupAgent(map){let user=null,agent=null,loadSeq=0;const av=avatarLayer(map);const msg=t=>{$('agMsg').textContent=t;};
+export function setupAgent(map,{onAgent=()=>{}}={}){let user=null,agent=null,loadSeq=0;const av=avatarLayer(map);const msg=t=>{$('agMsg').textContent=t;};
   const lk=lookEditor(l=>{if(agent&&$('agForm').dataset.edit)av.set({...agent,look:l});});
   const getPos=()=>new Promise((ok,no)=>navigator.geolocation?navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:true,timeout:20000}):no(new Error('Location not supported')));
   function render(){const signed=!!user;
@@ -26,15 +26,17 @@ export function setupAgent(map){let user=null,agent=null,loadSeq=0;const av=avat
   $('agForm').onsubmit=async e=>{e.preventDefault();const base={name:$('agName').value.trim().slice(0,40),look:lk.value(),personality:$('agPers').value.trim().slice(0,300),ownerName:(user.displayName||'').slice(0,80)};
     if(!base.name)return msg('Give your agent a name');
     try{let lat=agent?.lat,lon=agent?.lon;if(!agent){msg('Asking for your location (only you see the exact spot)…');const p=await getPos();lat=p.coords.latitude;lon=p.coords.longitude;}
-      agent=await saveAgent(user.uid,{...base,lat,lon});delete $('agForm').dataset.edit;av.set(agent);render();go();msg('✅ Saved. Only you can see its exact spot.');}
+      agent=await saveAgent(user.uid,{...base,lat,lon});delete $('agForm').dataset.edit;av.set(agent);render();go();onAgent(agent);msg('✅ Saved. Only you can see its exact spot.');}
     catch(e){msg('Error: '+(e.code||e.message));}};
   onUser(async u=>{const seq=++loadSeq;user=u;agent=null;delete $('agForm').dataset.edit;msg('');av.set(null);lk.load(null,u?.displayName||'');render();
     if(u){toast(`Signed in as ${u.displayName||u.email}`);
       for(let i=0;i<3&&seq===loadSeq;i++){try{const a=await loadAgent(u.uid);if(seq!==loadSeq)return;agent=a;break;}
         catch(e){if(i===2)toast('⚠️ Could not load your agent: '+(e.code||e.message),8000);else await new Promise(r=>setTimeout(r,1500*(i+1)));}}
-      if(agent){av.set(agent);go();}}
-    render();});
-  render();lk.load(null,'');return {get agent(){return agent;},_preview(a){agent=a;av.set(a);render();}};}
+      if(agent)av.set(agent);}
+    render();if(seq!==loadSeq)return;
+    // Opening on the Chat tab: skip the fly-to (the map is hidden); it happens from Show me instead.
+    if(!onAgent(agent)&&agent)go();});
+  render();lk.load(null,'');return {get agent(){return agent;},_preview(a){agent=a;av.set(a);render();onAgent(a);}};}
 
 // Character look editor in the agent sheet. Girl/Boy is only a starting guess from the first name; once the user taps the
 // switch the name no longer overrides it (the guess runs only when the sheet loads), and each base keeps its own edits. Live-previews on the map character when editing.

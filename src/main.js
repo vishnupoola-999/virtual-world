@@ -4,6 +4,8 @@ import {familyLayer} from './family-layer.js';
 import {flightsLayer} from './flights.js';
 import {setupAgent} from './agent.js';
 import {setupChat} from './chat.js';
+import {chatHero} from './chat-hero.js';
+import {setupTabs} from './tabs.js';
 import {currentUser,onUser} from './firebase.js';
 import {setupUI,toast,closeSheet,openSheet} from './ui.js';
 const $=id=>document.getElementById(id);
@@ -40,8 +42,14 @@ renderFam(famL.fam);
 const relay=connect(room,{onPresence:famL.update,onStatus:s=>$('famConn').textContent='('+s+')'});
 window.__vw={fam:famL.fam,relay,famUpdate:famL.update};
 if(new URLSearchParams(location.search).get('flights'))$('fltBtn').click();
-window.__vw.agent=setupAgent(map);
-setupChat(()=>window.__vw.agent.agent,currentUser);
+// Chat tab is the home screen once you have an agent; the World tab is the map.
+const hero=chatHero($('heroCv'));let tabs=null,autoChat=true;
+const chat=setupChat({getAgent:()=>window.__vw.agent?.agent,getUser:currentUser,hero,onNeedAgent:()=>openSheet('agent'),
+  onShowMe:a=>{tabs.set('world');if(a)flyTo(map,a.lon,a.lat,19);}});
+tabs=setupTabs({map,hero,onSwitch:t=>{flt.pause(t==='chat');famL0.pause(t==='chat');},canChat:()=>!!window.__vw.agent?.agent&&chat.open(),onChat:()=>{const ok=chat.open();if(ok)closeSheet();return ok;}});
+window.__vw.tabs=tabs;
+window.__vw.agent=setupAgent(map,{onAgent:a=>{chat.reset();if(a&&autoChat){autoChat=false;if(chat.open()){closeSheet();tabs.set('chat');return true;}}else if(!a&&tabs.current==='chat')tabs.set('world');else if(a&&tabs.current==='chat')chat.open();}});
+$('tabWorld').addEventListener('click',()=>{autoChat=false;});
 // Share my own live location from inside the app, so the map (and my agent) stay on screen.
 let watch=null,timer=null,lastPos=null;
 const myName=()=>currentUser()?.displayName||localStorage.getItem('vw-name')||'Family member';
