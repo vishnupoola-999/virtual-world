@@ -28,6 +28,8 @@ export const signInWithCredential = async (_auth, credential) => {
 };
 export const getRedirectResult = () => Promise.resolve(null);
 export const onAuthStateChanged = () => () => {};
+export const reauthenticateWithPopup = async () => ({ providerId: 'google.com' });
+export const linkWithPopup = async () => ({ providerId: 'google.com' });
 export const signOut = async () => {
   globalThis.__calls.push('web-sign-out');
   return 'web-signed-out';
