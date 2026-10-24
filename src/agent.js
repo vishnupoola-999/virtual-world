@@ -1,4 +1,4 @@
-import {signIn,logOut,onUser,loadAgent,saveAgent,authMsg,redirectResult} from './firebase.js';
+import {signIn,logOut,onUser,loadAgent,cachedAgent,saveAgent,authMsg,redirectResult} from './firebase.js';
 import {flyTo} from './map.js';
 import {agentsOnMap} from './world-agents.js';
 import {toLook,defaultLook,sanitize,SKIN,HAIR_COLOURS,OUTFIT_COLOURS,HAIRSTYLES,OUTFITS,ACCESSORIES} from './character-data.js';
@@ -33,9 +33,11 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
     catch(e){msg('Error: '+(e.code||e.message));}};
   onUser(async u=>{endMove(false);const seq=++loadSeq;user=u;agent=null;delete $('agForm').dataset.edit;msg('');av.set(null);lk.load(null,u?.displayName||'');render();
     if(u){toast(`Signed in as ${u.displayName||u.email}`);
-      for(let i=0;i<3&&seq===loadSeq;i++){try{const a=await loadAgent(u.uid);if(seq!==loadSeq)return;agent=a;break;}
-        catch(e){if(i===2)toast('Could not load your agent: '+(e.code||e.message),8000);else await new Promise(r=>setTimeout(r,1500*(i+1)));}}
-      if(agent)av.set(agent);}
+      // Show the last known agent straight away (no network), then confirm it from Firestore.
+      const cached=cachedAgent(u.uid);if(cached){agent=cached;av.set(cached);render();}
+      let fresh;for(let i=0;i<3&&seq===loadSeq;i++){try{fresh=await loadAgent(u.uid);if(seq!==loadSeq)return;agent=fresh;break;}
+        catch(e){if(i===2){if(!cached)toast('Could not load your agent: '+(e.code||e.message),8000);}else await new Promise(r=>setTimeout(r,400*(i+1)));}}
+      if(agent&&agent!==cached)av.set(agent);}
     render();if(seq!==loadSeq)return;
     // Opening on the Chat tab: skip the fly-to (the map is hidden); it happens from Show me instead.
     onLoaded(user,agent);if(!onAgent(agent)&&agent)go();});
