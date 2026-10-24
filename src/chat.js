@@ -335,6 +335,14 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
       pending.remove();
       status('error', friendlyError(status_));
       hero.state('error');
+      // Always leave a visible line in the transcript too, so a failure is never silent.
+      for (const old of log.querySelectorAll('.msg.retry')) old.remove();
+      const line = add('assistant', "Couldn't reach your agent, tap to retry", 'sys');
+      line.classList.add('retry');
+      line.setAttribute('role', 'button');
+      line.tabIndex = 0;
+      line.onclick = () => { line.remove(); ask(); };
+      line.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); line.click(); } };
     };
     try {
       let token;
@@ -377,6 +385,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
       const reply = payload.choices?.[0]?.message?.content?.trim();
       if (!reply) { fail(0); return; }
       pending.remove();
+      for (const old of log.querySelectorAll('.msg.retry')) old.remove();
       status('ok');
       remember('assistant', reply.slice(0, 2000));
       hero.state('talking');
