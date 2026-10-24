@@ -62,11 +62,16 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
   // ---- location: fast fix (no high accuracy), 8 s timeout, never re-prompt this session
   function locate(){return new Promise(ok=>{let done=false;const fin=v=>{if(!done){done=true;ok(v);}};
     const fallback=async()=>{track('location_denied');try{const r=await fetch('https://get.geojs.io/v1/ip/geo.json',{signal:AbortSignal.timeout(4000)});const j=await r.json();
-        if(isFinite(+j.latitude)&&isFinite(+j.longitude)){track('location_fallback',{level:'city'});return fin({lat:+j.latitude,lon:+j.longitude,approx:true,name:j.city||'your city'});}}catch{/* fall through */}
+        if(isFinite(+j.latitude)&&isFinite(+j.longitude)){track('location_fallback',{level:'city'});return fin({lat:+j.latitude,lon:+j.longitude,approx:true,source:'ip',name:j.city||'your city',city:j.city||'your city'});}}catch{/* fall through */}
       track('location_fallback',{level:'default'});fin({...DEFAULT_SPOT,approx:true});};
     if(sessionStorage.getItem('vw-loc-asked')==='denied'||!navigator.geolocation||new URLSearchParams(location.search).get('state')==='loc-denied'){fallback();return;}
     track('location_prompt');sessionStorage.setItem('vw-loc-asked','1');const to=setTimeout(fallback,8000);
-    navigator.geolocation.getCurrentPosition(p=>{clearTimeout(to);if(done)return;track('location_granted',{accuracy_m:bucket(p.coords.accuracy)});fin({lat:p.coords.latitude,lon:p.coords.longitude,approx:false});},
+    // Coarse first fix (>200 m): retry once with high accuracy; still >200 m → keep the better fix but mark it approximate.
+    const got=(p,retried)=>{track('location_granted',{accuracy_m:bucket(p.coords.accuracy)});
+      if(p.coords.accuracy>200&&!retried){navigator.geolocation.getCurrentPosition(q=>{clearTimeout(to);if(!done)got(q.coords.accuracy<p.coords.accuracy?q:p,true);},
+        ()=>{clearTimeout(to);if(!done)got(p,true);},{enableHighAccuracy:true,timeout:6000,maximumAge:0});return;}
+      clearTimeout(to);fin({lat:p.coords.latitude,lon:p.coords.longitude,approx:p.coords.accuracy>200,source:'gps'});};
+    navigator.geolocation.getCurrentPosition(p=>{if(done)return;got(p,false);},
       ()=>{clearTimeout(to);sessionStorage.setItem('vw-loc-asked','denied');fallback();},{enableHighAccuracy:false,timeout:8000,maximumAge:600000});});}
   async function placeName(s){if(s.name)return s.name;try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&lat=${s.lat}&lon=${s.lon}`,{headers:{'Accept-Language':'en'},signal:AbortSignal.timeout(4000)});
     const a=(await r.json()).address||{};const city=a.city||a.town||a.village||a.county||'';const road=a.road||a.neighbourhood||a.suburb||'';
@@ -82,7 +87,7 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
     if(RM()){map.jumpTo({center:[spot.lon,spot.lat],zoom:17,pitch:60,bearing:-20});root.classList.add('xfade');later(()=>root.classList.remove('xfade'),200);later(landNow,200);}
     else{map.flyTo({center:[spot.lon,spot.lat],zoom:17,pitch:60,bearing:-20,duration:2600,curve:1.6,essential:true});later(()=>{body.querySelector('.orb').classList.add('drop');later(landNow,1600);},2600);}
     nameP.then(n=>{if(step!==3)return;const city=spot.city||n;$('onbChip').textContent=spot.approx?`📍 ${city} (approximate)`:`📍 ${n}`;
-      if(spot.approx)$('onbNote').innerHTML=`Couldn't get your exact spot, so your agent is in <b>${esc(city)}</b> for now. You can move it later.`;});}
+      if(spot.approx)$('onbNote').innerHTML=`Couldn't get your exact spot, so your agent is in <b>${esc(city)}</b> for now. You can move it later.`+(spot.source==='ip'?'<small class="ipNote">The city is a rough guess from your internet address (via get.geojs.io). Only the city is used.</small>':'');});}
   function landNow(){if(step!==3||landed)return;landed=true;if(spot)map.jumpTo({center:[spot.lon,spot.lat],zoom:17,pitch:60,bearing:-20});
     const o=body.querySelector('.orb');o.classList.add('landed');track('agent_landed');later(()=>body.querySelector('.onbBottom').classList.add('in'),RM()?0:1700);$('onbSkip').hidden=true;}
 

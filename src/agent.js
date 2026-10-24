@@ -30,7 +30,7 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
     try{let lat=agent?.lat,lon=agent?.lon;if(!agent){msg('Asking for your location (only you see the exact spot)…');const p=await getPos();lat=p.coords.latitude;lon=p.coords.longitude;}
       agent=await saveAgent(user.uid,{...base,lat,lon,spotApprox:agent?.spotApprox});delete $('agForm').dataset.edit;av.set(agent);render();go();onAgent(agent);msg('✅ Saved. Only you can see its exact spot.');}
     catch(e){msg('Error: '+(e.code||e.message));}};
-  onUser(async u=>{const seq=++loadSeq;user=u;agent=null;delete $('agForm').dataset.edit;msg('');av.set(null);lk.load(null,u?.displayName||'');render();
+  onUser(async u=>{endMove(false);const seq=++loadSeq;user=u;agent=null;delete $('agForm').dataset.edit;msg('');av.set(null);lk.load(null,u?.displayName||'');render();
     if(u){toast(`Signed in as ${u.displayName||u.email}`);
       for(let i=0;i<3&&seq===loadSeq;i++){try{const a=await loadAgent(u.uid);if(seq!==loadSeq)return;agent=a;break;}
         catch(e){if(i===2)toast('⚠️ Could not load your agent: '+(e.code||e.message),8000);else await new Promise(r=>setTimeout(r,1500*(i+1)));}}
@@ -42,8 +42,8 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
   let moving=null;
   function startMove(from){if(!agent||moving)return;track('move_agent_tap',{from});moving={from};document.dispatchEvent(new Event('vw-agent-sheet-leave'));
     document.body.classList.add('moving');$('moveBar').hidden=false;map.flyTo({center:[agent.lon,agent.lat],zoom:Math.max(map.getZoom(),17.5),essential:true});av.set(null);}
-  function endMove(save){if(!moving)return;const prev=agent;moving=null;document.body.classList.remove('moving');$('moveBar').hidden=true;
-    if(!save){av.set(prev);return;}const c=map.getCenter();const approxBefore=!!prev.spotApprox;
+  function endMove(save){if(!moving)return;if(!user||!agent)save=false;const prev=agent;moving=null;document.body.classList.remove('moving');$('moveBar').hidden=true;
+    if(!save){if(prev)av.set(prev);return;}const c=map.getCenter();const approxBefore=!!prev.spotApprox;
     const next={...prev,lat:c.lat,lon:c.lng,spotApprox:false};agent=next;av.set(next);av.play?.('walk');setTimeout(()=>av.play?.('idle'),900);
     track('move_agent_done',{approx_before:approxBefore});
     saveAgent(user.uid,{...next,ownerName:user.displayName||''}).then(d=>{agent=d;toast('🏠 Your agent lives here now');}).catch(e=>{toast('⚠️ Could not move: '+(e.code||e.message),8000);agent=prev;av.set(prev);});}
