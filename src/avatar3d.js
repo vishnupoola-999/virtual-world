@@ -45,7 +45,7 @@ export function avatarLayer(map){
       model.rotation.y=-map.getBearing()*Math.PI/180;
       const v=V.set(0,baseH*1.02,0,1).applyMatrix4(M);if(v.w>0){const c=map.getCanvas();topPx=[(v.x/v.w+1)/2*c.clientWidth,(1-v.y/v.w)/2*c.clientHeight];}renderer.resetState();renderer.render(scene,camera);
       // Animation at ~30 fps, only while the character is on screen and the app is in the foreground.
-      if(!raf&&!document.hidden&&onScreen())raf=requestAnimationFrame(tick);}};
+      if(!raf&&!document.hidden&&document.body.dataset.tab!=='chat'&&onScreen())raf=requestAnimationFrame(tick);}};
   function tick(t){if(t-lastT<33){raf=requestAnimationFrame(tick);return;}raf=0;lastT=t;map.triggerRepaint();}
   function applyLook(){if(!agent)return;ch?.setLook(toLook(agent.look,agent.ownerName||agent.name));label.textContent=agent.name;}
   const ensure=()=>{if(!map.getLayer('agent-3d'))map.addLayer(layer);};

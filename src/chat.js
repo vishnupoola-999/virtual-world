@@ -10,71 +10,153 @@ const $ = (id) => document.getElementById(id);
 function friendlyError(status) {
   if (status === 401) return 'Sign in again.';
   if (status === 429) return 'Slow down.';
-  return 'Try again.';
+  return 'Check your internet and try again.';
 }
 
-export function setupChat(getAgent, getUser) {
+export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
   const key = () => 'vw-chat-' + (getUser()?.uid || 'guest');
   let hist = [];
+  let openedFor = null;
+  let busy = false;
+  const log = $('chatLog');
+  const input = $('chatIn');
+  const send = $('chatF').querySelector('button');
+  const name = () => getAgent()?.name || 'your agent';
+  const scrollEnd = () => { log.scrollTop = 1e9; };
   const add = (role, text, cls = '') => {
     const d = document.createElement('div');
     d.className = `msg ${role === 'user' ? 'me' : 'ag'} ${cls}`.trim();
     d.textContent = text;
-    $('chatLog').append(d);
-    $('chatLog').scrollTop = 1e9;
+    log.append(d);
+    scrollEnd();
     return d;
   };
+  const typing = () => {
+    const d = add('assistant', '', 'typing');
+    d.setAttribute('aria-label', `${name()} is thinking`);
+    for (let i = 0; i < 3; i++) d.append(document.createElement('span'));
+    return d;
+  };
+  const chips = (list) => {
+    for (const old of log.querySelectorAll('.chips')) old.remove();
+    const c = document.createElement('div');
+    c.className = 'chips';
+    for (const [label, fn, solid] of list) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip' + (solid ? ' solid' : '');
+      b.textContent = label;
+      b.onclick = fn;
+      c.append(b);
+    }
+    log.append(c);
+    scrollEnd();
+  };
+  const showMe = () => chips([['📍 Show me', () => onShowMe(getAgent()), true]]);
   const save = () => localStorage.setItem(key(), JSON.stringify(hist.slice(-40)));
   const signInPrompt = () => toast('Sign in to chat with your agent');
 
+  // Header status line and the banner under it: ok | waking | error.
+  function status(kind, detail = '') {
+    const dot = $('chatDot');
+    dot.className = 'dot' + (kind === 'waking' ? ' warn' : kind === 'error' ? ' bad' : '');
+    $('chatSub').textContent = kind === 'waking' ? 'Waking up…' : kind === 'error' ? `Can't reach ${name()}` : 'Online';
+    const b = $('chatBanner');
+    b.innerHTML = '';
+    b.hidden = kind === 'ok';
+    b.className = 'banner' + (kind === 'error' ? ' err' : '');
+    if (kind === 'waking') b.textContent = '☕ Waking up your agent… this can take up to a minute the first time.';
+    if (kind === 'error') {
+      const t = document.createElement('span');
+      t.textContent = `${name()} couldn't answer. ${detail}`;
+      const r = document.createElement('button');
+      r.type = 'button';
+      r.textContent = 'Retry';
+      r.onclick = () => ask();
+      b.append(t, r);
+    }
+  }
+
+  // Returns true when the Chat tab can open (signed in with an agent, or a preview agent).
   function open() {
     const agent = getAgent();
     const user = getUser();
-    if (!user) { signInPrompt(); return; }
-    if (!agent) { toast('Create your agent first (🤖 button)'); return; }
+    if (!agent) {
+      if (!user) signInPrompt(); else { toast('Create your agent first'); onNeedAgent?.(); }
+      return false;
+    }
+    hero.set(agent);
     $('chatTitle').textContent = agent.name;
-    $('chatSub').textContent = '';
+    input.placeholder = `Message ${agent.name}…`;
+    const who = key() + '|' + agent.name;
+    if (openedFor === who) return true;
+    openedFor = who;
+    status('ok');
     try { hist = JSON.parse(localStorage.getItem(key()) || '[]'); } catch { hist = []; }
     if (!Array.isArray(hist)) hist = [];
-    $('chatLog').innerHTML = '';
-    if (!hist.length) {
-      const first = (user.displayName || '').split(' ')[0] || 'there';
-      hist.push({ role: 'assistant', content: `Hi ${first}! I'm ${agent.name}. What can I help you with today?` });
+    log.innerHTML = '<div class="msg sys">Today</div>';
+    if (hist.length) {
+      for (const message of hist) add(message.role, message.content);
+      showMe();
+      return true;
     }
-    for (const message of hist) add(message.role, message.content);
-    $('chat').hidden = false;
-    setTimeout(() => $('chatIn').focus(), 50);
+    // The agent speaks first.
+    const first = (user?.displayName || agent.ownerName || '').split(' ')[0] || 'there';
+    const t = typing();
+    hero.state('thinking');
+    setTimeout(() => {
+      t.remove();
+      const hi = `Hi ${first} 👋 I'm ${agent.name}. Want me to find your friends?`;
+      hist.push({ role: 'assistant', content: hi });
+      add('assistant', hi);
+      hero.state('wave');
+      chips([
+        ['Find my friends', () => { input.value = 'Find my friends'; sync(); $('chatF').requestSubmit(); }, true],
+        ['📍 Show me', () => onShowMe(getAgent())],
+      ]);
+    }, 900);
+    return true;
   }
 
-  $('chatBtn').onclick = open;
-  $('chatBack').onclick = () => { $('chat').hidden = true; };
+  const sync = () => { send.disabled = busy || !input.value.trim(); };
+  input.addEventListener('input', sync);
+  sync();
+  log.addEventListener('scroll', () => $('hero').classList.toggle('compact', log.scrollTop > 24), { passive: true });
 
-  $('chatF').onsubmit = async (event) => {
+  $('chatF').onsubmit = (event) => {
     event.preventDefault();
-    const text = $('chatIn').value.trim();
-    if (!text) return;
+    const text = input.value.trim();
+    if (!text || busy) return;
     const user = getUser();
     if (!user || typeof user.getIdToken !== 'function') { signInPrompt(); return; }
-    const agent = getAgent();
-    if (!agent) { toast('Create your agent first (🤖 button)'); return; }
-    $('chatIn').value = '';
+    if (!getAgent()) { toast('Create your agent first'); return; }
+    input.value = '';
+    for (const old of log.querySelectorAll('.chips')) old.remove();
     hist.push({ role: 'user', content: text.slice(0, 1000) });
     add('user', text);
     save();
-    const pending = add('assistant', '…', 'typing');
-    const input = $('chatIn');
-    const send = $('chatF').querySelector('button');
-    input.disabled = true;
-    if (send) send.disabled = true;
+    ask();
+  };
+
+  // Sends the transcript to the proxy (also used by Retry, which resends without adding a message).
+  async function ask() {
+    if (busy) return;
+    const user = getUser();
+    if (!user || typeof user.getIdToken !== 'function') { signInPrompt(); return; }
+    const agent = getAgent();
+    if (!agent) { toast('Create your agent first'); return; }
+    busy = true;
+    sync();
+    status('ok');
+    hero.state('thinking');
+    const pending = typing();
     const ctrl = new AbortController();
     const kill = setTimeout(() => ctrl.abort(), REPLY_TIMEOUT_MS);
-    const wake = setTimeout(() => {
-      pending.textContent = 'waking up your agent…';
-      pending.classList.remove('typing');
-    }, WAKE_AFTER_MS);
-    const fail = (status) => {
+    const wake = setTimeout(() => { status('waking'); hero.state('sleeping'); }, WAKE_AFTER_MS);
+    const fail = (status_) => {
       pending.remove();
-      add('assistant', `⚠️ ${friendlyError(status)}`);
+      status('error', friendlyError(status_));
+      hero.state('error');
     };
     try {
       let token;
@@ -117,16 +199,21 @@ export function setupChat(getAgent, getUser) {
       const reply = payload.choices?.[0]?.message?.content?.trim();
       if (!reply) { fail(0); return; }
       pending.remove();
+      status('ok');
       hist.push({ role: 'assistant', content: reply });
       add('assistant', reply);
+      hero.state('talking');
+      showMe();
       save();
     } catch (err) {
       fail(err?.name === 'AbortError' ? 0 : err?.status);
     } finally {
       clearTimeout(kill);
       clearTimeout(wake);
-      input.disabled = false;
-      if (send) send.disabled = false;
+      busy = false;
+      sync();
     }
-  };
+  }
+
+  return { open, reset() { openedFor = null; } };
 }

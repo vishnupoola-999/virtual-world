@@ -11,18 +11,23 @@
 <div id="map"></div>
 <header id="topbar"><span class="brand">🌍 Virtual World</span><button id="acctBtn" class="fab sm" data-open="account" aria-label="Account">👤</button></header>
 <nav id="fabs" aria-label="Tools">
- <button class="fab" id="chatBtn" aria-label="Chat with my agent" title="Chat">💬</button>
  <button class="fab" data-open="search" aria-label="Search" title="Search">🔎</button>
  <button class="fab" id="meBtn" aria-label="My location" title="My location">📍</button>
  <button class="fab" data-open="agent" aria-label="My agent" title="My agent">🤖</button>
  <button class="fab" data-open="family" aria-label="Family" title="Family">👪<span id="famN" class="badge">0</span></button>
  <button class="fab" data-open="layers" aria-label="Layers" title="Layers">🗂️</button>
 </nav>
-<section id="chat" hidden>
- <header><button id="chatBack" aria-label="Back to map">←</button><b id="chatTitle">My agent</b><small id="chatSub"></small></header>
- <div id="chatLog"></div>
- <form id="chatF"><input id="chatIn" placeholder="Message your agent…" autocomplete="off" enterkeyhint="send" maxlength="1000"><button aria-label="Send">➤</button></form>
+<section id="chatView" hidden aria-label="Chat with my agent">
+ <header class="hero" id="hero"><div class="lights"></div><canvas id="heroCv" aria-hidden="true"></canvas>
+  <div class="who"><b id="chatTitle">My agent</b><small><span id="chatDot" class="dot"></span><span id="chatSub">Online</span></small></div></header>
+ <div id="chatBanner" class="banner" hidden role="status"></div>
+ <div id="chatLog" aria-live="polite"></div>
+ <form id="chatF"><input id="chatIn" placeholder="Message your agent…" autocomplete="off" enterkeyhint="send" maxlength="1000"><button aria-label="Send" disabled>➤</button></form>
 </section>
+<nav id="tabs" role="tablist">
+ <button class="tab" role="tab" id="tabChat" aria-selected="false"><span class="pill"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 2-2z"/></svg></span>Chat</button>
+ <button class="tab" role="tab" id="tabWorld" aria-selected="true"><span class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg></span>World</button>
+</nav>
 <section id="sheet" hidden>
  <div id="sheetHead"><div class="grab"></div><b id="sheetTitle"></b><button id="sheetClose" aria-label="Close">✕</button></div>
  <div class="body">

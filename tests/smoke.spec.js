@@ -62,9 +62,11 @@ test('page loads with no console errors', async ({ page }) => {
   // confirm signed-out chat asks for sign-in and does not open the transcript.
   await page.locator('#sheetClose').click();
   await expect(page.locator('#sheet')).toBeHidden();
-  await page.locator('#chatBtn').click();
+  await expect(page.locator('#tabs')).toBeVisible();
+  await page.locator('#tabChat').click();
   await expect(page.locator('#toast')).toContainText(/sign in/i);
-  await expect(page.locator('#chat')).toBeHidden();
+  await expect(page.locator('#chatView')).toBeHidden();
+  await expect(page.locator('#tabWorld')).toHaveAttribute('aria-selected', 'true');
 
   const format = (entry) => (entry.url ? `${entry.text} (${entry.url})` : entry.text);
   const ignored = errors.filter(isBlockedExternal);
