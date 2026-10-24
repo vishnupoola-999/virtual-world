@@ -1,5 +1,5 @@
 // Virtual World agent characters: two stylised base bodies (girl, boy), built procedurally in three.js.
-// No external assets: ~3-5k triangles, flat vertex-free materials so every part is recolourable at runtime.
+// No external assets: ~7-8.5k triangles, flat vertex-free materials so every part is recolourable at runtime.
 // API: const c = createCharacter(look); scene.add(c.group); c.play('idle'|'wave'|'walk'|'talk'); c.update(dt); c.setLook(look)
 import * as THREE from 'three';
 
@@ -23,16 +23,16 @@ function roundBox(w,h,d,r){const g=new THREE.BoxGeometry(w,h,d,6,4,6),p=g.attrib
   for(let i=0;i<p.count;i++){v.fromBufferAttribute(p,i);c.set(Math.max(-hw,Math.min(hw,v.x)),Math.max(-hh,Math.min(hh,v.y)),Math.max(-hd,Math.min(hd,v.z)));v.sub(c).normalize().multiplyScalar(r).add(c);p.setXYZ(i,v.x,v.y,v.z);}g.computeVertexNormals();return g;}
 const S=(r,w=18,h=14)=>new THREE.SphereGeometry(r,w,h);
 const cap=(r,l,s=10)=>new THREE.CapsuleGeometry(r,l,4,s);
-function mesh(g,m,x=0,y=0,z=0,p){const o=new THREE.Mesh(g,m);o.position.set(x,y,z);o.castShadow=true;(p||null)?.add(o);return o;}
+function mesh(g,m,x=0,y=0,z=0,p){const o=new THREE.Mesh(g,m);o.position.set(x,y,z);(p||null)?.add(o);return o;}
 
 export function createCharacter(look=defaultLook()){
   const group=new THREE.Group();group.name='agent-character';
-  const M={skin:mat(SKIN[2],.85),hair:mat('#1b1512',.8),top:mat('#1e88e5'),bottom:mat('#26324f'),shoe:mat('#eef2ff',.5),
+  const M={skin:mat(SKIN[2],.85),hair:mat('#1b1512',.8),top:mat('#1e88e5'),top2:new THREE.MeshStandardMaterial({color:'#1e88e5',roughness:.92,metalness:0,side:THREE.DoubleSide}),bottom:mat('#26324f'),shoe:mat('#eef2ff',.5),
     eye:mat('#141821',.5),white:new THREE.MeshBasicMaterial({color:'#ffffff'}),mouth:mat('#2a1c1c',.9),acc:mat('#141821',.4),accent:mat('#5eb4ff',.4),bindi:mat('#d7263d',.4)};
   let rig={},state='idle',t=0,blinkT=2,cur=null;
 
   function build(){
-    group.clear();const L=cur,girl=L.base==='girl';
+    group.traverse(o=>{if(o.isMesh)o.geometry.dispose();});group.clear();const L=cur,girl=L.base==='girl';
     const root=new THREE.Group();group.add(root);
     const hips=new THREE.Group();hips.position.y=.42;root.add(hips);
     // legs (pivot at hip) + shoes
@@ -44,9 +44,9 @@ export function createCharacter(look=defaultLook()){
     const body=mesh(cap(tw,.16,14),M.top,0,.17,0,torso);body.scale.set(girl?1:1.12,1,.78);
     if(!girl){const sh=mesh(cap(.07,tw*1.5,10),M.top,0,.28,0,torso);sh.rotation.z=Math.PI/2;sh.scale.set(1,1,.9);} // squarer shoulders
     if(girl&&(L.outfit==='dress'||L.outfit==='kurta')){const len=L.outfit==='dress'?.26:.2;
-      mesh(new THREE.CylinderGeometry(tw*.95,tw*1.45,len,16,1,true),M.top,0,.08-len/2+.04,0,torso).material.side=THREE.DoubleSide;}
-    if(!girl&&L.outfit==='kurta'){const k=mesh(new THREE.CylinderGeometry(tw*1.08,tw*1.12,.2,16,1,true),M.top,0,.02,0,torso);k.material.side=THREE.DoubleSide;k.scale.set(1.08,1,.82);
-      const col=mesh(new THREE.CylinderGeometry(.045,.05,.035,14,1,true),M.top,0,.355,0,torso);col.material.side=THREE.DoubleSide;}
+      mesh(new THREE.CylinderGeometry(tw*.95,tw*1.45,len,16,1,true),M.top2,0,.08-len/2+.04,0,torso);}
+    if(!girl&&L.outfit==='kurta'){const k=mesh(new THREE.CylinderGeometry(tw*1.08,tw*1.12,.2,16,1,true),M.top2,0,.02,0,torso);k.scale.set(1.08,1,.82);
+      mesh(new THREE.CylinderGeometry(.045,.05,.035,14,1,true),M.top2,0,.355,0,torso);}
     if(L.outfit==='hoodie'){const h=mesh(new THREE.TorusGeometry(.085,.035,8,16),M.top,0,.33,-.03,torso);h.rotation.x=Math.PI/2.4;
       mesh(S(.012,6,4),M.white,-.03,.25,.105,torso);mesh(S(.012,6,4),M.white,.03,.25,.105,torso);}
     if(L.outfit==='kurta'){[.28,.24,.2].forEach(y=>mesh(S(.009,6,4),M.white,0,y,.102,torso));}
@@ -61,7 +61,7 @@ export function createCharacter(look=defaultLook()){
     mesh(new THREE.CylinderGeometry(.035,.04,.06,10),M.skin,0,.36,0,torso);
     const head=new THREE.Group();head.position.y=.55;head.scale.setScalar(1.18);torso.add(head);
     const skull=mesh(S(.17,24,18),M.skin,0,0,0,head);skull.scale.set(girl?1:1.04,girl?1.02:.98,.95);
-    if(!girl){const p=skull.geometry.attributes.position;for(let i=0;i<p.count;i++){const y=p.getY(i);if(y<0){const k=1+.16*Math.min(1,-y/.12);p.setX(i,p.getX(i)*k);p.setY(i,Math.max(y,-.15+(-.15-y)*-.0));}}skull.geometry.computeVertexNormals();} // broader, squarer jaw (deformed skull, no seams) // broader, squarer jaw
+    if(!girl){const p=skull.geometry.attributes.position;for(let i=0;i<p.count;i++){const y=p.getY(i);if(y<0){const k=1+.16*Math.min(1,-y/.12);p.setX(i,p.getX(i)*k);p.setY(i,Math.max(y,-.15));}}skull.geometry.computeVertexNormals();} // broader, squarer jaw (deformed skull, no seams)
     [-1,1].forEach(sx=>{const e=mesh(S(.035,10,8),M.skin,sx*.168,-.01,0,head);e.scale.set(.5,1,.8);});
     const eyes=[-1,1].map(sx=>{const e=mesh(S(.032,12,10),M.eye,sx*.064,-.005,.15,head);e.scale.set(.85,1.15,.5);
       mesh(S(.008,6,4),M.white,.008,.012,.012,e);if(girl){const l=mesh(new THREE.BoxGeometry(.012,.005,.005),M.eye,sx*.026,.02,0,e);l.rotation.z=sx*-.6;}return e;}); // girl: one tiny lash flick, boy: none
@@ -95,7 +95,7 @@ export function createCharacter(look=defaultLook()){
     if(A.includes('bindi'))mesh(S(.009,8,6),M.bindi,0,.035,.172,head);
   }
   function setLook(l){const prev=cur;cur=sanitize({...defaultLook(l?.base),...l});
-    M.skin.color.set(cur.skin);M.hair.color.set(cur.hairColour);M.top.color.set(cur.outfitColour);M.bottom.color.set(cur.bottomColour);
+    M.skin.color.set(cur.skin);M.hair.color.set(cur.hairColour);M.top.color.set(cur.outfitColour);M.top2.color.set(cur.outfitColour);M.bottom.color.set(cur.bottomColour);
     M.shoe.color.set(cur.outfitColour==='#eef2ff'?'#26324f':'#eef2ff');
     const shape=k=>JSON.stringify([k.base,k.hair,k.outfit,k.acc]);
     if(!prev||shape(prev)!==shape(cur))build();}  // colour-only changes are instant (no rebuild)

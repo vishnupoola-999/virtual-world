@@ -18,6 +18,8 @@ export function setupAgent(map){let user=null,agent=null,loadSeq=0;const av=avat
   $('signInBtn').onclick=doSignIn;$('agSignIn').onclick=doSignIn;
   redirectResult.catch(e=>toast('⚠️ '+authMsg(e),8000));
   $('signOutBtn').onclick=()=>logOut().then(()=>toast('Signed out'));
+  // Leaving the look editor without saving puts the saved look back on the map.
+  document.addEventListener('vw-agent-sheet-leave',()=>{if(!$('agForm').dataset.edit)return;delete $('agForm').dataset.edit;if(agent)av.set(agent);render();});
   $('agEdit').onclick=()=>{$('agForm').dataset.edit=1;$('agName').value=agent.name;lk.load(agent.look,agent.ownerName||user.displayName||agent.name);$('agPers').value=agent.personality||'';render();};
   const go=()=>{if(agent)flyTo(map,agent.lon,agent.lat,19);};$('agGo').onclick=go;
   $('agMove').onclick=async()=>{msg('Getting your exact location…');try{const p=await getPos();agent=await saveAgent(user.uid,{...agent,ownerName:user.displayName||'',lat:p.coords.latitude,lon:p.coords.longitude});av.set(agent);go();msg(`Moved to where you are (±${Math.round(p.coords.accuracy)} m).`);}catch(e){msg('Error: '+(e.code||e.message));}};

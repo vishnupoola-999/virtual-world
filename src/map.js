@@ -12,7 +12,6 @@ export function createMap(container,{center=HOME,zoom=16.3,pitch=60,bearing=-20}
   // Some POI icons are missing from the sprite; supply a blank so the console stays clean.
   map.on('styleimagemissing',e=>{if(!map.hasImage(e.id))map.addImage(e.id,{width:1,height:1,data:new Uint8Array(4)});});
   map.on('style.load',()=>{
-    map.setProjection({type:'globe'});
     map.addSource('dem',{type:'raster-dem',tiles:[DEM],tileSize:256,encoding:'terrarium',maxzoom:15,attribution:'Terrain: Mapzen/AWS Terrain Tiles'});
     map.setTerrain({source:'dem',exaggeration:1.2});
     map.addLayer({id:'hillshade',type:'hillshade',source:'dem',paint:{'hillshade-exaggeration':.25,'hillshade-shadow-color':'#02040a','hillshade-highlight-color':'#1b2a55'}},
