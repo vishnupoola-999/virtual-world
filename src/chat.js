@@ -27,36 +27,170 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
   const send = $('chatF').querySelector('button');
   const name = () => getAgent()?.name || 'your agent';
   const scrollEnd = () => { log.scrollTop = 1e9; };
-  const add = (role, text, cls = '') => {
+  const ICON = {
+    copy: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+    good: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 11v9H4v-9zM7 11l4-7c1.5 0 2.5 1 2.2 2.6L12.6 10H19a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 17.8 20H7"/></svg>',
+    pin: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+    bolt: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M13 3 5 13h6l-1 8 8-10h-6z"/></svg>',
+    read: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
+  };
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)');
+  // Agent replies: a 26 px gradient monogram, the name in small text, then plain text with no bubble.
+  const agentShell = () => {
     const d = document.createElement('div');
-    d.className = `msg ${role === 'user' ? 'me' : 'ag'} ${cls}`.trim();
-    d.textContent = text;
+    d.className = 'msg ag';
+    const mini = document.createElement('span');
+    mini.className = 'mini';
+    mini.setAttribute('aria-hidden', 'true');
+    mini.textContent = (name()[0] || 'A').toUpperCase();
+    const body = document.createElement('div');
+    body.className = 'mbody';
+    const who = document.createElement('div');
+    who.className = 'name';
+    who.textContent = getAgent()?.name || 'Your agent';
+    body.append(who);
+    d.append(mini, body);
+    return { d, body };
+  };
+  const actions = (body, text) => {
+    const row = document.createElement('div');
+    row.className = 'actions';
+    const mk = (label, svg, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-label', label);
+      b.innerHTML = svg;
+      b.onclick = () => fn(b);
+      row.append(b);
+    };
+    mk('Copy', ICON.copy, () => navigator.clipboard?.writeText(text).then(() => toast('Copied'), () => {}));
+    mk('Good reply', ICON.good, (b) => b.classList.toggle('on'));
+    if ('speechSynthesis' in globalThis) mk('Read aloud', ICON.read, () => { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(text)); });
+    body.append(row);
+  };
+  const add = (role, text, cls = '') => {
+    let d;
+    if (role === 'user') {
+      d = document.createElement('div');
+      d.className = `msg me ${cls}`.trim();
+      d.textContent = text;
+    } else if (cls === 'sys') {
+      d = document.createElement('div');
+      d.className = 'msg sys';
+      d.textContent = text;
+    } else {
+      const m = agentShell();
+      d = m.d;
+      const t = document.createElement('div');
+      t.className = 'agent-text';
+      t.textContent = text;
+      m.body.append(t);
+      actions(m.body, text);
+    }
     log.append(d);
     scrollEnd();
     return d;
   };
-  const typing = () => {
-    const d = add('assistant', '', 'typing');
-    d.setAttribute('aria-label', `${name()} is thinking`);
-    for (let i = 0; i < 3; i++) d.append(document.createElement('span'));
-    return d;
+  // Streams a reply in word by word: tokens are appended as text nodes (never re-rendering the message),
+  // batched once per animation frame, each fading in over 180 ms, with a soft dot caret while it runs.
+  const stream = (text) => new Promise((done) => {
+    const m = agentShell();
+    const t = document.createElement('div');
+    t.className = 'agent-text';
+    m.body.append(t);
+    log.append(m.d);
+    const words = text.match(/\S+\s*|\s+/g) || [text];
+    if (REDUCED.matches || document.hidden) {
+      t.textContent = text;
+      actions(m.body, text);
+      scrollEnd();
+      done(m.d);
+      return;
+    }
+    const caret = document.createElement('span');
+    caret.className = 'caret';
+    caret.setAttribute('aria-hidden', 'true');
+    t.append(caret);
+    let i = 0;
+    let last = 0;
+    let acc = 0;
+    const perFrameMs = 45; // about 22 words a second, a typical model stream rate
+    const step = (now) => {
+      if (!m.d.isConnected) { done(m.d); return; }
+      acc = Math.min(4, acc + (last ? (now - last) / perFrameMs : 1)); // at most 4 words per frame, so a long task can't dump the reply at once
+      last = now;
+      const n = Math.floor(acc);
+      acc -= n;
+      last = now;
+      const frag = document.createDocumentFragment();
+      for (let k = 0; k < n && i < words.length; k++, i++) {
+        const span = document.createElement('span');
+        span.className = 'tok';
+        span.textContent = words[i];
+        frag.append(span);
+      }
+      t.insertBefore(frag, caret);
+      scrollEnd();
+      if (i < words.length) { requestAnimationFrame(step); return; }
+      caret.remove();
+      t.textContent = text; // collapse the token spans into one text node
+      actions(m.body, text);
+      scrollEnd();
+      done(m.d);
+    };
+    requestAnimationFrame(step);
+  });
+  // What the agent is doing, named in the thinking shimmer.
+  const actionFor = (text = '') => {
+    const s = text.toLowerCase();
+    if (/calendar|free|busy|meeting|today|tomorrow|schedule|plan/.test(s)) return 'Checking your calendar…';
+    if (/friend|family|who.*near|nearby|people/.test(s)) return 'Looking for your friends…';
+    if (/where|map|place|near|go to|chai|food|eat|restaurant|cafe/.test(s)) return 'Searching the map…';
+    if (/weather|rain|hot|cold/.test(s)) return 'Checking the weather…';
+    return 'Thinking it through…';
+  };
+  const typing = (label = 'Thinking it through…') => {
+    const m = agentShell();
+    m.d.classList.add('thinking');
+    m.d.setAttribute('aria-label', `${name()} is thinking`);
+    const th = document.createElement('div');
+    th.className = 'think';
+    const orbit = document.createElement('span');
+    orbit.className = 'orbit';
+    const lab = document.createElement('span');
+    lab.textContent = label;
+    th.append(orbit, lab);
+    const sks = document.createElement('div');
+    sks.className = 'sks';
+    for (const w of ['92%', '74%', '48%']) {
+      const l = document.createElement('div');
+      l.className = 'sk';
+      l.style.width = w;
+      sks.append(l);
+    }
+    m.body.append(th, sks);
+    log.append(m.d);
+    scrollEnd();
+    m.d.label = (v) => { lab.textContent = v; };
+    return m.d;
   };
   const chips = (list) => {
     for (const old of log.querySelectorAll('.chips')) old.remove();
     const c = document.createElement('div');
     c.className = 'chips';
-    for (const [label, fn, solid] of list) {
+    for (const [label, fn, solid, icon] of list) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'chip' + (solid ? ' solid' : '');
-      b.textContent = label;
+      b.className = 'chip' + (solid ? ' on' : '');
+      if (icon) b.innerHTML = ICON[icon];
+      b.append(label);
       b.onclick = fn;
       c.append(b);
     }
     log.append(c);
     scrollEnd();
   };
-  const showMe = () => chips([['📍 Show me', () => onShowMe(getAgent()), true]]);
+  const showMe = () => chips([['Show me', () => onShowMe(getAgent()), true, 'pin']]);
   const save = () => localStorage.setItem(key(), JSON.stringify(hist.slice(-40)));
   let writes = 0;
   // Adds a message to the transcript, this device's cache and (when signed in) Firestore, so it follows you to other devices.
@@ -85,16 +219,25 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     const b = $('chatBanner');
     b.innerHTML = '';
     b.hidden = kind === 'ok';
-    b.className = 'banner' + (kind === 'error' ? ' err' : '');
-    if (kind === 'waking') b.textContent = '☕ Waking up your agent… this can take up to a minute the first time.';
-    if (kind === 'error') {
+    b.className = 'banner glass' + (kind === 'error' ? ' err' : '');
+    const lead = (icon, bold, rest) => {
+      const ic = document.createElement('span');
+      ic.className = 'ic';
+      if (ICON[icon]) ic.innerHTML = ICON[icon]; else ic.textContent = icon;
       const t = document.createElement('span');
-      t.textContent = `${name()} couldn't answer. ${detail}`;
+      const strong = document.createElement('b');
+      strong.textContent = bold;
+      t.append(strong, ' ' + rest);
+      b.append(ic, t);
+    };
+    if (kind === 'waking') lead('bolt', `Waking up ${name()}.`, 'The first reply can take up to a minute.');
+    if (kind === 'error') {
+      lead('!', `${name()} couldn't answer.`, detail);
       const r = document.createElement('button');
       r.type = 'button';
       r.textContent = 'Retry';
       r.onclick = () => ask();
-      b.append(t, r);
+      b.append(r);
     }
   }
 
@@ -108,7 +251,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     }
     hero.set(agent);
     $('chatTitle').textContent = agent.name;
-    input.placeholder = `Message ${agent.name}…`;
+    input.placeholder = `Ask ${agent.name} anything`;
     const who = key() + '|' + agent.name;
     if (openedFor === who) return true;
     openedFor = who;
@@ -119,7 +262,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     const uid = user?.uid;
     if (!uid) { if (!hist.length) greet(agent, user); return true; }
     // Then the saved history from Firestore (other devices); greet only if there is none anywhere.
-    const t = hist.length ? null : typing();
+    const t = hist.length ? null : typing('Remembering our chats…');
     Promise.race([loadMessages(uid), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), LOAD_TIMEOUT_MS))])
       .then((remote) => {
         if (openedFor !== who || busy) return;
@@ -138,28 +281,26 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
   function greet(agent, user) {
     const who = openedFor;
     const first = (user?.displayName || agent.ownerName || '').split(' ')[0] || 'there';
-    const t = typing();
+    const t = typing('Getting ready…');
     hero.state('thinking');
     clearTimeout(greetTimer);
     greetTimer = setTimeout(() => {
       t.remove();
-      const hi = `Hi ${first} 👋 I'm ${agent.name}. Want me to find your friends?`;
+      const hi = `Hi ${first}, I'm ${agent.name}. Want me to find your friends?`;
       if (openedFor !== who) return;
       remember('assistant', hi);
-      add('assistant', hi);
       hero.state('wave');
-      chips([
+      stream(hi).then(() => { if (openedFor === who) chips([
         ['Find my friends', () => { input.value = 'Find my friends'; sync(); $('chatF').requestSubmit(); }, true],
-        ['📍 Show me', () => onShowMe(getAgent())],
-      ]);
+        ['Show me', () => onShowMe(getAgent()), false, 'pin'],
+      ]); });
     }, 900);
   }
 
   const sync = () => { send.disabled = busy || !input.value.trim(); };
   input.addEventListener('input', sync);
   sync();
-  log.addEventListener('scroll', () => $('hero').classList.toggle('compact', log.scrollTop > 24), { passive: true });
-
+  
   $('chatF').onsubmit = (event) => {
     event.preventDefault();
     const text = input.value.trim();
@@ -185,10 +326,11 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     sync();
     status('ok');
     hero.state('thinking');
-    const pending = typing();
+    const lastUser = [...hist].reverse().find((m) => m.role === 'user')?.content;
+    const pending = typing(actionFor(lastUser));
     const ctrl = new AbortController();
     const kill = setTimeout(() => ctrl.abort(), REPLY_TIMEOUT_MS);
-    const wake = setTimeout(() => { status('waking'); hero.state('sleeping'); }, WAKE_AFTER_MS);
+    const wake = setTimeout(() => { status('waking'); pending.label?.('Waking up…'); hero.state('sleeping'); }, WAKE_AFTER_MS);
     const fail = (status_) => {
       pending.remove();
       status('error', friendlyError(status_));
@@ -237,8 +379,8 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
       pending.remove();
       status('ok');
       remember('assistant', reply.slice(0, 2000));
-      add('assistant', reply);
       hero.state('talking');
+      await stream(reply);
       showMe();
       save();
     } catch (err) {

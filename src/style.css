@@ -48,14 +48,6 @@ button.primary{background:#1e88e5;color:#fff;border-color:#1e88e5;width:100%;pad
 .tab[aria-selected=true]{color:var(--accent-2)}.tab[aria-selected=true] .pill{background:#1e88e533}
 body[data-tab=chat] #topbar,body[data-tab=chat] #fabs,body[data-tab=chat] #sheet,body[data-tab=chat] .maplibregl-control-container{display:none}
 #chatView{position:absolute;left:0;right:0;top:0;bottom:var(--tabs);z-index:5;background:var(--bg);color:var(--text);display:flex;flex-direction:column;padding-top:var(--safe-t)}
-.hero{position:relative;height:168px;flex:none;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:10px;box-sizing:border-box;overflow:hidden;
- background:radial-gradient(120px 80px at 50% 70%,#1a2a55 0%,transparent 70%),linear-gradient(#0a1230,var(--bg));border-bottom:1px solid var(--line);transition:height .2s}
-.hero .lights{position:absolute;inset:0;background-image:radial-gradient(1.5px 1.5px at 20% 30%,var(--glow) 50%,transparent),radial-gradient(1.5px 1.5px at 75% 22%,var(--glow) 50%,transparent),radial-gradient(1px 1px at 60% 50%,#fff 50%,transparent),radial-gradient(1px 1px at 35% 15%,#fff 50%,transparent),radial-gradient(1.5px 1.5px at 88% 55%,var(--glow) 50%,transparent);opacity:.7;pointer-events:none}
-#heroCv{width:100px;height:116px;display:block;transition:opacity .2s}
-.hero.compact{height:64px;flex-direction:row;justify-content:flex-start;gap:10px;padding:0 12px}
-.hero.compact #heroCv{width:44px;height:52px}
-.who{text-align:center;z-index:1}.hero.compact .who{text-align:left}
-.who b{font-size:17px;display:block}.who small{font-size:13px;color:var(--muted)}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:5px;vertical-align:1px}.dot.warn{background:var(--glow)}.dot.bad{background:var(--err)}
 .banner{margin:8px 12px 0;padding:10px 12px;border-radius:10px;font-size:14px;display:flex;align-items:center;gap:10px;background:#2a2410;color:#ffe2a3;border:1px solid #5a4a1a}
 .banner.err{background:#2c1216;color:#ffc2c2;border-color:#5c2228}
@@ -76,7 +68,7 @@ body[data-tab=chat] #topbar,body[data-tab=chat] #fabs,body[data-tab=chat] #sheet
 #chatIn:focus{outline:2px solid var(--accent-2);outline-offset:-1px}
 #chatF button{width:44px;height:44px;flex:none;border:none;border-radius:50%;background:var(--accent);color:#fff;font-size:18px;padding:0}#chatF button:disabled{opacity:.4}
 body[data-tab=world] .msg.typing span{animation:none}
-@media (prefers-reduced-motion:reduce){.msg.typing span{animation:none}.hero,#heroCv{transition:none}}
+@media (prefers-reduced-motion:reduce){.msg.typing span{animation:none}}
 @media (min-width:768px){#sheet{border:1px solid var(--line)}}
 .maplibregl-ctrl-group{background:var(--surface);border:1px solid var(--line);box-shadow:none}.maplibregl-ctrl-group button+button{border-top:1px solid var(--line)}.maplibregl-ctrl-icon{filter:invert(1) hue-rotate(180deg)}
 
@@ -130,12 +122,11 @@ button.big{width:100%;min-height:52px;font-size:17px;border-radius:14px}button.b
 button.link{background:none;border:0;color:var(--muted);min-height:44px;text-decoration:underline}
 .onbChat{flex:1;display:flex;flex-direction:column;padding:0 14px 32px}
 .onbHead{display:flex;align-items:center;justify-content:space-between;padding:8px 0 12px;border-bottom:1px solid var(--line)}
-.onbHead button,.heroMove{min-height:44px;border-radius:22px;background:var(--surface-2);font-size:14px}
+.onbHead button{min-height:44px;border-radius:22px;background:var(--surface-2);font-size:14px}
 .onbChat .log{flex:1;padding-top:16px}.bub{display:inline-block;max-width:82%;background:var(--surface-2);border:1px solid var(--line);border-radius:16px 16px 16px 4px;padding:10px 14px;line-height:1.4}
 .bub.typing i{display:inline-block;width:7px;height:7px;margin:0 2px;border-radius:50%;background:var(--muted);animation:dot 1s infinite}.bub.typing i:nth-child(2){animation-delay:.15s}.bub.typing i:nth-child(3){animation-delay:.3s}
 @keyframes dot{50%{transform:translateY(-4px);opacity:.5}}
 .onbChips{display:flex;gap:10px}.onbChips button{flex:1;min-height:48px;border-radius:24px}
-.heroMove{position:absolute;top:10px;right:10px;z-index:2;padding:0 14px}.hero.compact .heroMove{position:static;margin-left:auto}
 #agLift.wide{width:100%;min-height:44px;margin-top:8px}
 /* Move my agent */
 body.moving #fabs,body.moving #sheet{visibility:hidden}

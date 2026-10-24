@@ -21,7 +21,7 @@ export function flightsLayer(map,{onMsg=()=>{},getUser=()=>null}={}){
       if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();
       ensure();map.getSource('flights').setData({type:'FeatureCollection',features:j.ac.map(a=>({type:'Feature',geometry:{type:'Point',coordinates:[a.lon,a.lat]},properties:{cs:`${a.cs||a.hex} ${a.alt?Math.round(a.alt).toLocaleString()+' ft':'gnd'}`}}))});
       onMsg(`${j.ac.length} aircraft within 250 km (${j.src})`);window.__flights=j.ac.length;}
-    catch(e){onMsg('⚠️ flights unavailable (proxy waking up?), retrying');window.__flights=-1;}}
+    catch(e){onMsg('Flights are unavailable right now. Retrying.');window.__flights=-1;}}
   // pause(true) while the Chat tab is open: no fetches or map updates until the World tab is back.
   return {get on(){return on;},pause(p){const was=paused;paused=!!p;if(was&&!paused)fetchNow();},toggle(){on=!on;clearInterval(timer);
     if(on){fetchNow();timer=setInterval(fetchNow,15000);}else{map.getSource('flights')?.setData(empty);onMsg('');}

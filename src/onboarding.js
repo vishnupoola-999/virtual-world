@@ -41,8 +41,8 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
       const c=map.getCenter();map.jumpTo({center:[c.lng+6*dt,c.lat]});};globeRaf=requestAnimationFrame(f);}
   function stopGlobe(){cancelAnimationFrame(globeRaf);globeRaf=0;}
   function s1(){chrome(1,{skip:'Skip intro'});startGlobe();
-    body.append(el('div','onbBottom',`<h1>Your agent is waiting to be <em>born.</em></h1><p>A tiny AI that lives where you live, makes friends and helps you get things done.</p><button class="primary big" id="onbGo">Get started</button>`));
-    $('onbGo').onclick=()=>show(2);}
+    body.append(el('div','onbBottom',`<span class="cap">Virtual World</span><h1>Your agent is waiting to be <em>born.</em></h1><p>It lives where you live, makes friends, and gets things done for you.</p><button class="primary big" id="onbGo">Get started</button><button class="ghost" id="onbHave" type="button">I already have an agent</button>`));
+    $('onbGo').onclick=()=>show(2);$('onbHave').onclick=()=>show(2);}
 
   // ---- 2. sign in (then the system location prompt, no explainer)
   function s2(){chrome(2,{back:true});startGlobe();
@@ -80,13 +80,13 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
   let landed=false;
   async function s3(){chrome(3,{skip:'Skip'});import('./cards3d.js').catch(()=>{});// warm three.js during the dive, so step 4's cards are ready
     landed=false;
-    body.append(el('div','onbCap','🔒 Friends only see the approximate area'),el('div','orb',''),el('div','onbBottom fade','<span class="onbChip" id="onbChip">📍 Finding your spot…</span><h2>Your agent has landed ✨</h2><p id="onbNote">Let\'s give it a name and a look.</p><button class="primary big" id="onbNext3">Continue</button>'));
+    body.append(el('div','onbCap','Friends only see the approximate area'),el('div','orb',''),el('div','onbBottom fade','<span class="onbChip" id="onbChip">Finding your spot…</span><h2>Your agent has landed</h2><p id="onbNote">Let\'s give it a name and a look.</p><button class="primary big" id="onbNext3">Continue</button>'));
     $('onbNext3').onclick=()=>show(4);
     spot=await (locP||=locate());if(step!==3)return;
     const nameP=placeName(spot);
     if(RM()){map.jumpTo({center:[spot.lon,spot.lat],zoom:17,pitch:60,bearing:-20});root.classList.add('xfade');later(()=>root.classList.remove('xfade'),200);later(landNow,200);}
     else{map.flyTo({center:[spot.lon,spot.lat],zoom:17,pitch:60,bearing:-20,duration:2600,curve:1.6,essential:true});later(()=>{body.querySelector('.orb').classList.add('drop');later(landNow,1600);},2600);}
-    nameP.then(n=>{if(step!==3)return;const city=spot.city||n;$('onbChip').textContent=spot.approx?`📍 ${city} (approximate)`:`📍 ${n}`;
+    nameP.then(n=>{if(step!==3)return;const city=spot.city||n;$('onbChip').textContent=spot.approx?`${city} (approximate)`:n;
       if(spot.approx)$('onbNote').innerHTML=`Couldn't get your exact spot, so your agent is in <b>${esc(city)}</b> for now. You can move it later.`+(spot.source==='ip'?'<small class="ipNote">The city is a rough guess from your internet address (via get.geojs.io). Only the city is used.</small>':'');});}
   function landNow(){if(step!==3||landed)return;landed=true;if(spot)map.jumpTo({center:[spot.lon,spot.lat],zoom:17,pitch:60,bearing:-20});
     const o=body.querySelector('.orb');o.classList.add('landed');track('agent_landed');later(()=>body.querySelector('.onbBottom').classList.add('in'),RM()?0:1700);$('onbSkip').hidden=true;}
@@ -111,15 +111,15 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
     track('agent_created',{base,customised:false});
     // Firestore queues the write while offline; don't block the greeting on the server ack.
     const local={...a,approx:{lat:Math.round(a.lat*100)/100,lon:Math.round(a.lon*100)/100},preciseVisibility:'private'};
-    saveAgent(u.uid,a).then(d=>onCreated(d,true)).catch(e=>toast('⚠️ Could not save your agent: '+(e.code||e.message),8000));
+    saveAgent(u.uid,a).then(d=>onCreated(d,true)).catch(e=>toast('Could not save your agent: '+(e.code||e.message),8000));
     onCreated(local,false);show(5);}
 
   // ---- 5. first chat: local template greeting, never needs the network
-  function s5(){chrome(5);const first=(currentUser()?.displayName||'').split(/\s+/)[0];const hi=first?`Hi ${esc(first)} 👋`:'Hi 👋';
+  function s5(){chrome(5);const first=(currentUser()?.displayName||'').split(/\s+/)[0];const hi=first?`Hi ${esc(first)}.`:'Hi.';
     const msg=spot.approx?`${hi} I'm in ${esc(spot.city||spot.name||'your city')} for now. You can move me to your exact spot anytime. Want me to find your friends?`
       :`${hi} I'm here on ${esc((spot.name||'your street').split(',')[0])}. Want me to find your friends?`;
-    body.append(el('div','onbChat',`<div class="onbHead"><b>${esc(document.querySelector('.agLabel')?.textContent||'Your agent')}</b><button id="onbMove" type="button">📍 Move my agent</button></div>
-      <div class="log"><div class="bub typing" id="onbBub"><i></i><i></i><i></i></div></div><div class="onbChips fade" id="onbChips"><button class="primary" id="onbFind">Find my friends</button><button id="onbNot">Not now</button></div>`));
+    body.append(el('div','onbChat',`<div class="onbHead"><b>${esc(document.querySelector('.agLabel')?.textContent||'Your agent')}</b><button id="onbMove" type="button">Move my agent</button></div>
+      <div class="log"><div class="bub typing" id="onbBub"><i></i><i></i><i></i></div></div><div class="onbChips fade" id="onbChips"><button class="brand" id="onbFind">Find friends</button><button id="onbNot">Not now</button></div>`));
     later(()=>{const b=$('onbBub');b.classList.remove('typing');b.innerHTML=msg;track('first_message_shown',{ms_since_open:Math.round(performance.now()-T0)});},1200);
     later(()=>$('onbChips').classList.add('in'),RM()?1200:2200);
     $('onbFind').onclick=()=>{track('find_friends_tap');close();onFindFriends();};

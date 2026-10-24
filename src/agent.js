@@ -15,10 +15,10 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
     if(signed){$('userName').textContent=user.displayName||user.email;$('userMail').textContent=user.email||'';}
     $('agForm').hidden=!signed||!!agent&&!$('agForm').dataset.edit;$('agView').hidden=!agent||!$('agForm').hidden;
     if(agent){$('agTitle').textContent=agent.name;$('agDesc').textContent=agent.personality||'';}
-    $('agSave').textContent=agent?'💾 Save':'✨ Create my agent here';$('agSave').disabled=!lk.picked();}
-  const doSignIn=()=>signIn().catch(e=>{console.warn('signIn',e.code);toast('⚠️ '+authMsg(e),8000);});
+    $('agSave').textContent=agent?'Save':'Create my agent here';$('agSave').disabled=!lk.picked();}
+  const doSignIn=()=>signIn().catch(e=>{console.warn('signIn',e.code);toast(authMsg(e),8000);});
   $('signInBtn').onclick=doSignIn;$('agSignIn').onclick=doSignIn;
-  redirectResult.catch(e=>toast('⚠️ '+authMsg(e),8000));
+  redirectResult.catch(e=>toast(authMsg(e),8000));
   $('signOutBtn').onclick=()=>logOut().then(()=>toast('Signed out'));
   // Leaving the look editor without saving puts the saved look back on the map.
   document.addEventListener('vw-agent-sheet-leave',()=>{if(!$('agForm').dataset.edit)return;delete $('agForm').dataset.edit;if(agent)av.set(agent);render();});
@@ -28,12 +28,12 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
   $('agForm').onsubmit=async e=>{e.preventDefault();const base={name:$('agName').value.trim().slice(0,40),look:lk.value(),personality:$('agPers').value.trim().slice(0,300),ownerName:(user.displayName||'').slice(0,80)};
     if(!lk.picked())return msg('Tap a character first');if(!base.name)return msg('Give your agent a name');
     try{let lat=agent?.lat,lon=agent?.lon;if(!agent){msg('Asking for your location (only you see the exact spot)…');const p=await getPos();lat=p.coords.latitude;lon=p.coords.longitude;}
-      agent=await saveAgent(user.uid,{...base,lat,lon,spotApprox:agent?.spotApprox});delete $('agForm').dataset.edit;av.set(agent);render();go();onAgent(agent);msg('✅ Saved. Only you can see its exact spot.');}
+      agent=await saveAgent(user.uid,{...base,lat,lon,spotApprox:agent?.spotApprox});delete $('agForm').dataset.edit;av.set(agent);render();go();onAgent(agent);msg('Saved. Only you can see its exact spot.');}
     catch(e){msg('Error: '+(e.code||e.message));}};
   onUser(async u=>{endMove(false);const seq=++loadSeq;user=u;agent=null;delete $('agForm').dataset.edit;msg('');av.set(null);lk.load(null,u?.displayName||'');render();
     if(u){toast(`Signed in as ${u.displayName||u.email}`);
       for(let i=0;i<3&&seq===loadSeq;i++){try{const a=await loadAgent(u.uid);if(seq!==loadSeq)return;agent=a;break;}
-        catch(e){if(i===2)toast('⚠️ Could not load your agent: '+(e.code||e.message),8000);else await new Promise(r=>setTimeout(r,1500*(i+1)));}}
+        catch(e){if(i===2)toast('Could not load your agent: '+(e.code||e.message),8000);else await new Promise(r=>setTimeout(r,1500*(i+1)));}}
       if(agent)av.set(agent);}
     render();if(seq!==loadSeq)return;
     // Opening on the Chat tab: skip the fly-to (the map is hidden); it happens from Show me instead.
@@ -46,7 +46,7 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
     if(!save){if(prev)av.set(prev);return;}const c=map.getCenter();const approxBefore=!!prev.spotApprox;
     const next={...prev,lat:c.lat,lon:c.lng,spotApprox:false};agent=next;av.set(next);av.play?.('walk');setTimeout(()=>av.play?.('idle'),900);
     track('move_agent_done',{approx_before:approxBefore});
-    saveAgent(user.uid,{...next,ownerName:user.displayName||''}).then(d=>{agent=d;toast('🏠 Your agent lives here now');}).catch(e=>{toast('⚠️ Could not move: '+(e.code||e.message),8000);agent=prev;av.set(prev);});}
+    saveAgent(user.uid,{...next,ownerName:user.displayName||''}).then(d=>{agent=d;toast('Your agent lives here now');}).catch(e=>{toast('Could not move: '+(e.code||e.message),8000);agent=prev;av.set(prev);});}
   $('agLift').onclick=()=>startMove('sheet');$('moveOk').onclick=()=>endMove(true);$('moveCancel').onclick=()=>endMove(false);
   // Long-press (500 ms) on your own agent on the World map.
   let lp=0,lpAt=null;const cancelLp=()=>{clearTimeout(lp);lp=0;};
@@ -64,7 +64,7 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
 // Character look editor in the agent sheet. New agents start with nothing picked and no name-based guess: the user taps one
 // of two character cards (rendered from character.js) before Save is enabled. Existing agents open on their saved look.
 // Each base keeps its own edits. Live-previews on the map character when editing.
-const LABEL={none:'None',glasses:'👓 Glasses',headphones:'🎧 Headphones',cap:'🧢 Cap',bindi:'🔴 Bindi'};
+const LABEL={none:'None',glasses:'Glasses',headphones:'Headphones',cap:'Cap',bindi:'Bindi'};
 function lookEditor(onChange){let per={},base=null;
   const cur=()=>per[base]||(per[base]=defaultLook(base));
   const swatches=(id,list,key)=>{const el=$(id);el.innerHTML='';for(const c of list){const b=document.createElement('button');b.type='button';b.style.background=c;b.ariaLabel=c;b.dataset.c=c;
