@@ -11,12 +11,18 @@
 // system prompt as data, and every few turns asks Gemini to update those facts and writes them back with
 // admin credentials (Firestore REST, OAuth via a self-signed service-account JWT). Without the variable, chat works with no memory.
 //
+// GET /flights requires the same Bearer Firebase ID token as POST /chat. A missing or invalid token is 401.
+// Per-uid chat limits are Firestore counters keyed by clock minute, written with that same admin client
+// (one service account, one access-token cache). If the client is missing or Firestore cannot be reached,
+// the process falls back to the in-memory counter. IP and global caps stay in memory. The CORS allowlist is unchanged.
+//
 // Limits: CORS allowlist, 64 KB body, 1000 characters per message, 20 messages, 6 chats/min per uid,
 // 6 requests/min per IP, 60 chats/hour and 600/day globally, 200 output tokens.
 import http from 'node:http';
 import { createPublicKey, createSign, createVerify, X509Certificate } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { allowHit, createUidRateLimiter } from './rate-limit.js';
 
 const DEFAULT_PROJECT_ID = 'virtual-world-8ac82';
 const PROJECT_ID_RE = /^[a-z0-9-]{6,40}$/;
@@ -95,18 +101,19 @@ export function cleanFacts(text) {
 
 const UID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
-// Admin Firestore access for agents/{uid}.memory. Returns null when FIREBASE_SERVICE_ACCOUNT is not set or invalid.
-export function memoryStore(env = process.env, fetchImpl = fetch, now = () => Date.now()) {
+// One Firebase admin client for this process: service-account JWT, cached access token,
+// project id. Agent memory and the per-uid rate-limit counters both use this object.
+// Returns null when FIREBASE_SERVICE_ACCOUNT is missing or invalid.
+export function firebaseAdmin(env = process.env, fetchImpl = fetch, now = () => Date.now()) {
   let sa;
   try {
     sa = env.FIREBASE_SERVICE_ACCOUNT ? JSON.parse(env.FIREBASE_SERVICE_ACCOUNT) : null;
   } catch {
-    console.error('FIREBASE_SERVICE_ACCOUNT is not valid JSON; agent memory is off');
+    console.error('FIREBASE_SERVICE_ACCOUNT is not valid JSON; Firestore admin is off');
     return null;
   }
   if (!sa || typeof sa.client_email !== 'string' || typeof sa.private_key !== 'string') return null;
   const projectId = firebaseProjectId(env);
-  const docUrl = (uid) => `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/agents/${uid}`;
   let cached = null;
   async function accessToken() {
     if (cached && cached.expires > now() + 60_000) return cached.token;
@@ -125,6 +132,13 @@ export function memoryStore(env = process.env, fetchImpl = fetch, now = () => Da
     cached = { token: json.access_token, expires: now() + (Number(json.expires_in) || 3600) * 1000 };
     return cached.token;
   }
+  return { projectId, fetchImpl, now, accessToken };
+}
+
+function memoryFromAdmin(admin) {
+  if (!admin) return null;
+  const { projectId, fetchImpl, now, accessToken } = admin;
+  const docUrl = (uid) => `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/agents/${uid}`;
   return {
     async get(uid) {
       if (!UID_RE.test(uid)) return '';
@@ -153,6 +167,11 @@ export function memoryStore(env = process.env, fetchImpl = fetch, now = () => Da
       if (!response.ok) throw new Error(`memory write ${response.status}`);
     },
   };
+}
+
+// Admin Firestore access for agents/{uid}.memory. Returns null when FIREBASE_SERVICE_ACCOUNT is not set or invalid.
+export function memoryStore(env = process.env, fetchImpl = fetch, now = () => Date.now()) {
+  return memoryFromAdmin(firebaseAdmin(env, fetchImpl, now));
 }
 
 export function prepareChat(body, memory = '') {
@@ -297,16 +316,20 @@ function clientIp(req) {
   return ip || 'unknown';
 }
 
-function allowHit(map, key, limit, windowMs, now) {
-  const hits = (map.get(key) || []).filter((t) => now - t < windowMs);
-  if (hits.length >= limit) {
-    map.set(key, hits);
-    return false;
+// Same check POST /chat uses: Bearer Firebase ID token, then a uid claim.
+async function requireUser(req, verifyIdToken) {
+  const token = bearerToken(req.headers.authorization);
+  if (!token) throw new HttpError(401, 'unauthorized');
+  let decoded;
+  try {
+    decoded = await verifyIdToken(token);
+  } catch (error) {
+    if (error instanceof HttpError && error.statusCode !== 401) throw error;
+    throw new HttpError(401, 'unauthorized');
   }
-  hits.push(now);
-  map.set(key, hits);
-  if (map.size > 5000) map.clear();
-  return true;
+  const uid = decoded && (decoded.uid || decoded.sub);
+  if (typeof uid !== 'string' || !uid || uid.length > 128) throw new HttpError(401, 'unauthorized');
+  return { uid };
 }
 
 function applyCors(req, res) {
@@ -412,18 +435,8 @@ async function handleChat(req, res, ctx) {
   if (Number.isFinite(declared) && declared > LIMITS.body) throw new HttpError(413, 'too big');
   const now = Date.now();
   if (!allowHit(ctx.ipHits, clientIp(req), LIMITS.perIpPerMin, 60_000, now)) throw new HttpError(429, 'rate limited');
-  const token = bearerToken(req.headers.authorization);
-  if (!token) throw new HttpError(401, 'unauthorized');
-  let decoded;
-  try {
-    decoded = await ctx.verifyIdToken(token);
-  } catch (error) {
-    if (error instanceof HttpError && error.statusCode !== 401) throw error;
-    throw new HttpError(401, 'unauthorized');
-  }
-  const uid = decoded && (decoded.uid || decoded.sub);
-  if (typeof uid !== 'string' || !uid || uid.length > 128) throw new HttpError(401, 'unauthorized');
-  if (!allowHit(ctx.uidHits, uid, LIMITS.perUidPerMin, 60_000, now)) throw new HttpError(429, 'rate limited');
+  const { uid } = await requireUser(req, ctx.verifyIdToken);
+  if (!await ctx.rateLimiter.allow(uid)) throw new HttpError(429, 'rate limited');
   const raw = await readBody(req);
   let body;
   try {
@@ -512,16 +525,27 @@ export async function updateMemory(ctx, model, uid, memory, contents, reply) {
 }
 
 export function createServer(options = {}) {
+  const fetchImpl = options.fetchImpl || fetch;
+  // One admin client per process, shared by memory and the uid rate limiter.
+  const admin = options.admin !== undefined ? options.admin : firebaseAdmin(process.env, fetchImpl);
+  const uidHits = new Map();
   const ctx = {
     verifyIdToken: options.verifyIdToken || ((token) => verifyFirebaseIdToken(token, options)),
-    fetchImpl: options.fetchImpl || fetch,
+    fetchImpl,
     apiKey: options.apiKey !== undefined ? options.apiKey : process.env.GEMINI_API_KEY,
     model: options.model || process.env.MODEL || DEFAULT_MODEL,
     ipHits: new Map(),
-    uidHits: new Map(),
+    uidHits,
     globalHits: new Map(),
     turns: new Map(),
-    memory: options.memory !== undefined ? options.memory : memoryStore(process.env, options.fetchImpl || fetch),
+    admin,
+    rateLimiter: options.rateLimiter || createUidRateLimiter({
+      admin,
+      uidHits,
+      now: options.now,
+      limit: LIMITS.perUidPerMin,
+    }),
+    memory: options.memory !== undefined ? options.memory : memoryFromAdmin(admin),
     pending: options.pending,
   };
   return http.createServer(async (req, res) => {
@@ -534,10 +558,12 @@ export function createServer(options = {}) {
         return;
       }
       if (req.method === 'GET' && url.pathname === '/flights') {
+        await requireUser(req, ctx.verifyIdToken);
         try {
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.end(await flights(url, ctx.fetchImpl));
         } catch (error) {
+          if (res.headersSent || res.writableEnded) return;
           sendJson(res, 502, { error: 'flights unavailable', detail: String(error.message || error).slice(0, 300) });
         }
         return;
