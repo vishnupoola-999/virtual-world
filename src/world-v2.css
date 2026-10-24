@@ -75,10 +75,10 @@ body[data-tab=chat] .ag *{animation:none}
 .ag.born canvas{opacity:1;transform:none}
 /* Birth pulse (design/birth-pulse-mockup.html): while your character is still loading, two soft rings pulse at the spot. */
 .birth{position:absolute;left:50%;bottom:6px;width:0;height:0;pointer-events:none;transition:opacity .4s ease-out}
-.birth i{position:absolute;left:-30px;top:-15px;width:60px;height:30px;border-radius:50%;box-shadow:0 0 0 2px #8b7bffcc,0 0 14px 2px #4fd1ff66;opacity:0;animation:birth 1.8s ease-out infinite}
+.birth i{position:absolute;left:-30px;top:-15px;width:60px;height:30px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--brand-b),0 0 0 1px #4fd1ff59,0 0 12px 3px #4fd1ff73,0 0 26px 6px #4fd1ff2e;opacity:0;animation:birth 1.8s ease-out infinite}
 .birth i+i{animation-delay:.9s}
 .birth em{position:absolute;left:0;bottom:44px;transform:translateX(-50%);white-space:nowrap;font:600 11.5px/22px var(--font);font-style:normal;color:var(--text-2);padding:0 10px;border-radius:var(--pill);background:rgba(20,23,34,.86);box-shadow:inset 0 0 0 1px var(--line-2)}
-@keyframes birth{0%{opacity:.9;transform:scale(.35)}100%{opacity:0;transform:scale(1.5)}}
+@keyframes birth{0%{opacity:1;transform:scale(.35)}100%{opacity:0;transform:scale(1.5)}}
 .ag.mine:not(.born) .pill,.ag.mine:not(.born) .shadow,.ag.mine:not(.born) .halo{opacity:0}
 .ag.mine:not(.born) .busy,.ag.mine:not(.born) .bubble{display:none}
 .ag .pill,.ag .shadow{transition:opacity .4s}
