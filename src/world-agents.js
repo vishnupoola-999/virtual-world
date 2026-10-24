@@ -3,6 +3,7 @@
 // This module has no three.js; the shared renderer (agent-renderer.js) is lazy-loaded once an agent is on screen at zoom ≥ 14.
 // Budget: one WebGL context, 30 fps, at most 8 live characters (the rest get one static frame), paused off-screen,
 // on the Chat tab and in the background. Only transform and opacity animate.
+import {dragToClose} from './ui.js';
 import {toLook} from './character-data.js';
 const NEAR_Z=14,MAX_LIVE=8,FRAME_MS=33;
 const REDUCED=matchMedia('(prefers-reduced-motion: reduce)');
@@ -62,8 +63,8 @@ function create(map){
     raf=requestAnimationFrame(frame);}
   const animFor=a=>a.mine&&a.waveUntil>performance.now()?'wave':a.state==='walking'?'walk':a.state==='talking'?'talk':'idle';
   function blit(a,anim,dt){const src=R.draw(a.id,a.look,anim,dt);a.g.clearRect(0,0,112,128);a.g.drawImage(src,0,0);}
-  function drawProfile(dt){const a=all.get(prof.id),cv=document.getElementById('pAv');if(!a||!cv||!R)return;const src=R.draw(a.id,a.look,animFor(a),dt);
-    const g=cv.getContext('2d');g.clearRect(0,0,144,144);g.drawImage(src,0,-8,144,164);}
+  function drawProfile(dt){const a=all.get(prof.id),cv=document.getElementById('pAv');if(!a||!cv||!R)return;const src=R.draw(a.id,a.look,animFor(a),dt,'portrait');
+    const g=cv.getContext('2d');g.clearRect(0,0,144,144);g.drawImage(src,9,0,126,144);}
   const onZoom=()=>{const n=near();for(const a of all.values())a.el.classList.toggle('far',!n);if(n)kick();};
   map.on('zoom',onZoom);map.on('move',kick);
   document.addEventListener('visibilitychange',()=>{last=0;kick();});
@@ -100,8 +101,7 @@ function create(map){
   if($('profile')){$('profScrim').onclick=closeProfile;
     $('pActs').onclick=e=>{const b=e.target.closest('button');if(!b||!prof)return;const a=all.get(prof.id);closeProfile();if(a)hooks['on'+b.dataset.a]?.(a);};
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&prof)closeProfile();});
-    let y0=null;const sh=$('profile');sh.addEventListener('touchstart',e=>{y0=e.touches[0].clientY;},{passive:true});
-    sh.addEventListener('touchend',e=>{if(y0!==null&&e.changedTouches[0].clientY-y0>60)closeProfile();y0=null;});}
+    dragToClose($('profile'),closeProfile);}
 
   // Friends' agents switch in Layers: hide everyone except you.
   function showFriends(on){for(const a of all.values())if(!a.mine){a.hidden=!on;a.el.style.visibility=on?'':'hidden';}syncSource();}
