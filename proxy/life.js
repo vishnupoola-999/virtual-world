@@ -89,7 +89,7 @@ export function safeLine(text, max) {
 }
 
 export function publicProfile(agent) {
-  return { name: scrub(String(agent.name || 'Agent')).slice(0, 40) || 'Agent', interests: cleanInterests(agent.interests), bio: scrub(String(agent.bio || '').slice(0, 120)) };
+  return { name: scrub(String(agent.name || 'Agent')).slice(0, 40) || 'Agent', interests: cleanInterests(agent.interests), bio: scrub(String(agent.bio || '').slice(0, 80)) };
 }
 
 // Most similar active agent with at least one shared interest, not met within the cooldown.

@@ -347,7 +347,8 @@ describe('rate limit counter rules', { concurrency: false }, () => {
     await assertFails(setDoc(ref, { interests: ['a', 'b', 'c', 'd', 'e', 'f'], updatedAt: serverTimestamp() }, { merge: true }));
     await assertFails(setDoc(ref, { interests: ['tech', 'tech', 'music'], updatedAt: serverTimestamp() }, { merge: true }));
     await assertFails(setDoc(ref, { interests: ['Tech', 'music', 'art'], updatedAt: serverTimestamp() }, { merge: true }));
-    await assertFails(setDoc(ref, { bio: 'x'.repeat(121), updatedAt: serverTimestamp() }, { merge: true }));
+    await assertSucceeds(setDoc(ref, { bio: 'x'.repeat(80), updatedAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(ref, { bio: 'x'.repeat(81), updatedAt: serverTimestamp() }, { merge: true }));
   });
 
   test('owner cannot write life-loop fields (life, friends, isTest) or the diary', async () => {

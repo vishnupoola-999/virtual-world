@@ -325,3 +325,7 @@ describe('agent.status (living-spec)', () => {
     assert.equal(JSON.parse(hit[1].body).fields.status.mapValue.fields.since.timestampValue, new Date(NOW).toISOString());
   });
 });
+
+test('bio is capped at 80 chars', () => {
+  assert.equal(publicProfile({ bio: 'x'.repeat(200) }).bio.length, 80);
+});

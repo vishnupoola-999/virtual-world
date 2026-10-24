@@ -41,7 +41,7 @@ service cloud.firestore {
         && (!('approx' in d) || (d.approx is map && d.approx.lat is number && d.approx.lon is number))
         && (!('spotApprox' in d) || d.spotApprox is bool)
         && (!('interests' in d) || interests(d.interests))
-        && (!('bio' in d) || (d.bio is string && d.bio.size() <= 120))
+        && (!('bio' in d) || (d.bio is string && d.bio.size() <= 80))
         && d.preciseVisibility == 'private'
         && d.updatedAt == request.time;
     }
