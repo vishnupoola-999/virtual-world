@@ -1,6 +1,6 @@
 # Virtual World v1 roadmap
 
-See also: [Engineering log](ENGINEERING_LOG.md) (architecture, PR history, setup, open issues).
+See also: [Backend notes](BACKEND_NOTES.md) (architecture, PR history, setup, open issues; PR #12).
 
 Ideator's v1 checklist. [x] = merged to `main`; open PRs are noted next to an item.
 
@@ -30,3 +30,9 @@ Ideator's v1 checklist. [x] = merged to `main`; open PRs are noted next to an it
 
 ## Money
 - [ ] Subscription screen (payments wired up later)
+
+## Frontend follow-ups
+- [ ] Dark map credits box (the MapLibre attribution is still white on the World tab)
+- [ ] 8-friend limit on the map: at most 8 full friend characters, farther friends shown as dots (Diggy's performance budget)
+- [ ] Friend invites flow in the app (replaces the family share link, see [DECISIONS](DECISIONS.md))
+- [ ] Girl/boy decision: keep the name guess, or a side-by-side picker with no preselection (owner to decide)
