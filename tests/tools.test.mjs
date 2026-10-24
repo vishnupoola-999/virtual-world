@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { cleanAction, parseModelReply, TOOL_DECLARATIONS } from '../proxy/tools.js';
 import { prepareChat } from '../proxy/server.js';
-import { createGoogleTools, forgetToken, rawEmail, _tokenState, mailtoUrl, gmailComposeUrl, gcalTemplateUrl, icsEvent, SCOPES } from '../src/google-tools.js';
+import { createGoogleTools, forgetToken, rawEmail, _tokenState, SCOPES } from '../src/google-tools.js';
+import { buildMailtoUrl as mailtoUrl, buildGmailComposeUrl as gmailComposeUrl, buildCalendarUrl, buildIcs, MAILTO_MAX } from '../src/agentTools.js';
 import { toolsApiEnabled } from '../src/tools-config.js';
 
 const fc = (name, args) => ({ candidates: [{ content: { parts: [{ text: 'Sure.' }, { functionCall: { name, args } }] } }] });
@@ -31,7 +32,7 @@ test('prepareChat only adds tools when asked', () => {
   assert.equal(prepareChat({ ...base, tools: 'yes' }).tools, false);
 });
 
-function harness({ confirm = async () => true, responses = [], api = true } = {}) {
+function harness({ confirm = async () => ({ confirmed: true }), responses = [], api = true } = {}) {
   forgetToken();
   const calls = [], asked = [];
   const tools = createGoogleTools({
@@ -48,7 +49,7 @@ for (const name of ['send_email', 'add_event']) {
   test(`${name} never runs without confirm (even if server says confirm:false)`, async () => {
     const args = name === 'add_event' ? { title: 't', start: '2026-10-25T10:00:00Z', end: '2026-10-25T11:00:00Z' } : send.args;
     for (const answer of [false, undefined, 'yes', 1]) {
-      const h = harness({ confirm: async () => answer });
+      const h = harness({ confirm: async () => ({ confirmed: answer }) });
       await assert.rejects(h.tools.run({ name, args, confirm: false }), (e) => e.code === 'cancelled');
       assert.equal(h.calls.length, 0);
       assert.equal(h.asked.length, 0);
@@ -58,10 +59,10 @@ for (const name of ['send_email', 'add_event']) {
 
 test('send runs after confirm with bearer token', async () => {
   const seen = [];
-  const h = harness({ confirm: async (a) => { seen.push(a.name); return true; } });
+  const h = harness({ confirm: async (a) => { seen.push(a.kind + ':' + a.mode); return { confirmed: true }; } });
   const msg = await h.tools.run(send);
   assert.match(msg, /Sent/);
-  assert.deepEqual(seen, ['send_email']);
+  assert.deepEqual(seen, ['email:api']);
   assert.match(h.calls[0].url, /messages\/send$/);
   assert.equal(h.calls[0].init.headers.Authorization, 'Bearer tok1');
 });
@@ -84,9 +85,9 @@ test('busy, consent and network errors are friendly', async () => {
   await assert.rejects(harness({ responses: [{ ok: false, status: 503 }] }).tools.run(send), (e) => e.code === 'busy');
   await assert.rejects(harness({ responses: [{ ok: false, status: 403 }] }).tools.run(send), (e) => e.code === 'consent');
   forgetToken();
-  const t = createGoogleTools({ apiEnabled: () => true, requestAccess: async () => { throw new Error('popup closed'); }, confirm: async () => true, fetchImpl: async () => okRes() });
+  const t = createGoogleTools({ apiEnabled: () => true, requestAccess: async () => { throw new Error('popup closed'); }, confirm: async () => ({ confirmed: true }), fetchImpl: async () => okRes() });
   await assert.rejects(t.run(send), (e) => e.code === 'consent');
-  const n = createGoogleTools({ apiEnabled: () => true, requestAccess: async () => ({ accessToken: 't' }), confirm: async () => true, fetchImpl: async () => { throw new TypeError('net'); } });
+  const n = createGoogleTools({ apiEnabled: () => true, requestAccess: async () => ({ accessToken: 't' }), confirm: async () => ({ confirmed: true }), fetchImpl: async () => { throw new TypeError('net'); } });
   await assert.rejects(n.run(send), (e) => e.code === 'busy');
 });
 
@@ -109,7 +110,9 @@ test('rawEmail strips header injection', () => {
   assert.match(raw, /Subject: =\?UTF-8\?B\?/);
 });
 
-const ev = { title: 'Lunch, team; ok\nnext', start: '2026-10-25T10:00:00+05:30', end: '2026-10-25T11:00:00+05:30', description: 'a\\b', location: 'T-Hub & co' };
+const ev = { title: 'Lunch, team; ok\nnext', start: '2026-10-25T10:00:00+05:30', end: '2026-10-25T11:00:00+05:30', description: 'a\\b', details: 'a\\b', location: 'T-Hub & co' };
+const gcalTemplateUrl = buildCalendarUrl;
+const icsEvent = (e, now) => buildIcs(e, now());
 
 test('mailto and Gmail compose URLs are encoded', () => {
   const e = { to: 'a@b.com', subject: 'Hi & bye?', body: 'line1\nline2 #1 100%' };
@@ -134,7 +137,7 @@ test('Google Calendar template URL uses UTC dates and encodes fields', () => {
 });
 
 test('.ics is valid RFC 5545 with escaping and UTC times', () => {
-  const ics = icsEvent({ ...ev, description: 'x'.repeat(200) + ', é' }, () => Date.parse('2026-10-24T17:00:00Z'));
+  const ics = icsEvent({ ...ev, details: 'x'.repeat(200) + ', é', guests: [{ name: 'Ravi', email: 'r@x.com' }] }, () => Date.parse('2026-10-24T17:00:00Z'));
   assert.ok(ics.startsWith('BEGIN:VCALENDAR\r\nVERSION:2.0\r\n'));
   assert.ok(ics.endsWith('END:VEVENT\r\nEND:VCALENDAR\r\n'));
   assert.doesNotMatch(ics.replace(/\r\n/g, ''), /\n/);
@@ -144,20 +147,22 @@ test('.ics is valid RFC 5545 with escaping and UTC times', () => {
   assert.match(ics, /SUMMARY:Lunch\\, team\\; ok\\nnext/);
   assert.match(ics, /LOCATION:T-Hub & co/);
   for (const l of ics.split('\r\n')) assert.ok(new TextEncoder().encode(l).length <= 75, l);
-  assert.match(ics, /\r\n UID|\r\n x|\r\n /);
+  assert.match(ics, /\r\n /);
+  assert.match(ics, /ATTENDEE;CN="Ravi":mailto:r@x.com/);
+  assert.match(icsEvent({ ...ev, start: new Date('2026-10-25T04:30:00Z'), end: new Date('2026-10-25T05:30:00Z') }, () => 0), /DTSTART:20261025T043000Z/);
 });
 
 test('flag off: no scope request, no Google API call, links offered after confirm', async () => {
   for (const name of ['draft_email', 'send_email', 'add_event', 'list_events']) {
     const seen = [];
-    const h = harness({ api: false, confirm: async (a) => { seen.push(a); return true; } });
+    const h = harness({ api: false, confirm: async (a) => { seen.push(a); return { confirmed: true }; } });
     const args = name === 'add_event' ? ev : name === 'list_events' ? { days: 3 } : send.args;
     await h.tools.run({ name, args });
     assert.equal(h.asked.length, 0, name);
     assert.equal(h.calls.length, 0, name);
-    if (name !== 'list_events') { assert.equal(seen[0].mode, 'links'); assert.ok(seen[0].links.length >= 2); }
+    if (name !== 'list_events') { assert.equal(seen[0].mode, 'links'); assert.equal(seen[0].kind, name === 'add_event' ? 'calendar' : 'email'); assert.ok(seen[0].email || seen[0].event); }
   }
-  const h = harness({ api: false, confirm: async () => false });
+  const h = harness({ api: false, confirm: async () => ({ confirmed: false }) });
   await assert.rejects(h.tools.run(send), (e) => e.code === 'cancelled');
 });
 
@@ -173,4 +178,13 @@ test('API flag is allowlist-only', () => {
   assert.equal(toolsApiEnabled({ email: 'someone@gmail.com' }), false);
   assert.equal(toolsApiEnabled({ email: 'SrilathaPoola6@gmail.com', emailVerified: true }), true);
   assert.equal(toolsApiEnabled({ email: 'srilathapoola6@gmail.com', emailVerified: false }), false);
+});
+
+test('mailto supports arrays, cc and stays under 2,000 chars', () => {
+  const u = mailtoUrl({ to: ['a@b.com', 'c@d.com'], cc: ['e@f.com'], subject: 's', body: 'y'.repeat(5000) });
+  assert.ok(u.startsWith('mailto:a%40b.com,c%40d.com?cc=e%40f.com&subject=s&body='));
+  assert.ok(u.length <= MAILTO_MAX);
+  assert.match(decodeURIComponent(u), /Message shortened/);
+  const c = new URL(buildCalendarUrl({ ...ev, guests: [{ email: 'g@h.com' }, 'i@j.com'] }));
+  assert.equal(c.searchParams.get('add'), 'g@h.com,i@j.com');
 });

@@ -12,6 +12,12 @@ export const SCOPES = {
 export const NEEDS_CONFIRM = new Set(['draft_email', 'send_email', 'add_event']);
 const scopeFor = (name) => (name === 'draft_email' || name === 'send_email' ? SCOPES.gmail : SCOPES.calendar);
 
+// Converts a proxy action to the confirm-sheet contract: {kind:'email'|'calendar', mode, email?|event?}.
+export function sheetAction({ name, args }, mode) {
+  if (name === 'add_event') return { kind: 'calendar', mode, event: { title: args.title, start: args.start, end: args.end, details: args.description || '', location: args.location || '' } };
+  return { kind: 'email', mode, email: { to: [args.to], subject: args.subject, body: args.body } };
+}
+
 export class ToolError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
@@ -62,7 +68,7 @@ export function createGoogleTools({ requestAccess, confirm, apiEnabled = () => f
     if (!api) return runLinks(action);
     // Gate: never trust action.confirm from the server; the client decides which actions need a tap.
     if (NEEDS_CONFIRM.has(name)) {
-      const ok = await confirm(action);
+      const ok = (await confirm(sheetAction(action, 'api')))?.confirmed;
       if (ok !== true) throw new ToolError('cancelled', TOOL_MESSAGES.cancelled);
     }
     const scopes = scopeFor(name);
@@ -92,52 +98,14 @@ export function createGoogleTools({ requestAccess, confirm, apiEnabled = () => f
   }
   // No-OAuth path: the user finishes the action in Gmail / Google Calendar (or with the .ics file).
   async function runLinks(action) {
-    const { name, args } = action;
+    const { name } = action;
     if (name === 'list_events') return 'I can\'t read your calendar yet. Open Google Calendar to check your schedule.';
-    if (name === 'draft_email' || name === 'send_email') {
-      const ok = await confirm({ ...action, mode: 'links', links: [
-        { label: 'Open in Gmail', href: gmailComposeUrl(args) },
-        { label: 'Open in mail app', href: mailtoUrl(args) },
-      ] });
-      if (ok !== true) throw new ToolError('cancelled', TOOL_MESSAGES.cancelled);
-      return `Opened your email to ${args.to}. Review it and press Send there.`;
-    }
-    if (name === 'add_event') {
-      const ok = await confirm({ ...action, mode: 'links', links: [
-        { label: 'Add to Google Calendar', href: gcalTemplateUrl(args) },
-        { label: 'Download .ics', ics: icsEvent(args, now), filename: 'event.ics' },
-      ] });
-      if (ok !== true) throw new ToolError('cancelled', TOOL_MESSAGES.cancelled);
-      return `Opened "${args.title}" for your calendar. Save it there.`;
-    }
-    throw new ToolError('invalid', TOOL_MESSAGES.invalid);
+    if (!NEEDS_CONFIRM.has(name)) throw new ToolError('invalid', TOOL_MESSAGES.invalid);
+    const ok = (await confirm(sheetAction(action, 'links')))?.confirmed;
+    if (ok !== true) throw new ToolError('cancelled', TOOL_MESSAGES.cancelled);
+    return name === 'add_event' ? 'Opened Google Calendar. Save it there.' : 'Opened in Gmail. Tap Send there to finish.';
   }
   return { run };
-}
-
-const enc = encodeURIComponent;
-export function mailtoUrl({ to, subject, body }) {
-  return `mailto:${enc(hdr(to))}?subject=${enc(hdr(subject))}&body=${enc(String(body ?? ''))}`;
-}
-export function gmailComposeUrl({ to, subject, body }) {
-  return `https://mail.google.com/mail/?view=cm&fs=1&to=${enc(hdr(to))}&su=${enc(hdr(subject))}&body=${enc(String(body ?? ''))}`;
-}
-// 20261025T043000Z
-export const utcStamp = (iso) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-export function gcalTemplateUrl({ title, start, end, description, location }) {
-  const q = `action=TEMPLATE&text=${enc(hdr(title))}&dates=${utcStamp(start)}/${utcStamp(end)}&details=${enc(String(description || ''))}`;
-  return `https://calendar.google.com/calendar/render?${q}${location ? `&location=${enc(hdr(location))}` : ''}`;
-}
-const icsText = (v) => String(v ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
-// RFC 5545 VEVENT with UTC times and escaped text, CRLF line endings, lines folded at 75 octets.
-export function icsEvent({ title, start, end, description, location }, now = () => Date.now()) {
-  const fold = (l) => { const out = []; let rest = l; while (new TextEncoder().encode(rest).length > 75) { let n = 74; while (new TextEncoder().encode(rest.slice(0, n)).length > 74) n--; out.push(rest.slice(0, n)); rest = ' ' + rest.slice(n); } out.push(rest); return out.join('\r\n'); };
-  const uid = `${utcStamp(new Date(now()).toISOString())}-${Math.random().toString(36).slice(2, 10)}@virtual-world`;
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Virtual World//Agent//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
-    `UID:${uid}`, `DTSTAMP:${utcStamp(new Date(now()).toISOString())}`, `DTSTART:${utcStamp(start)}`, `DTEND:${utcStamp(end)}`,
-    `SUMMARY:${icsText(title)}`, ...(description ? [`DESCRIPTION:${icsText(description)}`] : []), ...(location ? [`LOCATION:${icsText(location)}`] : []),
-    'END:VEVENT', 'END:VCALENDAR'];
-  return lines.map(fold).join('\r\n') + '\r\n';
 }
 
 function hdr(v) { return String(v ?? '').replace(/[\r\n]+/g, ' '); }
