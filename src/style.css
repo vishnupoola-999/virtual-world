@@ -78,3 +78,4 @@ body[data-tab=chat] #topbar,body[data-tab=chat] #fabs,body[data-tab=chat] #sheet
 body[data-tab=world] .msg.typing span{animation:none}
 @media (prefers-reduced-motion:reduce){.msg.typing span{animation:none}.hero,#heroCv{transition:none}}
 @media (min-width:768px){#sheet{border:1px solid var(--line)}}
+.maplibregl-ctrl-group{background:var(--surface);border:1px solid var(--line);box-shadow:none}.maplibregl-ctrl-group button+button{border-top:1px solid var(--line)}.maplibregl-ctrl-icon{filter:invert(1) hue-rotate(180deg)}
