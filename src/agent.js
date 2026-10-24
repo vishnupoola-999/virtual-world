@@ -1,17 +1,18 @@
 import {signIn,logOut,onUser,loadAgent,saveAgent,authMsg,redirectResult} from './firebase.js';
 import {flyTo} from './map.js';
+import {agentsOnMap} from './world-agents.js';
 import {toLook,defaultLook,sanitize,SKIN,HAIR_COLOURS,OUTFIT_COLOURS,HAIRSTYLES,OUTFITS,ACCESSORIES} from './character-data.js';
 import {toast} from './ui.js';
 import {track} from './onboarding.js';
 const $=id=>document.getElementById(id);
-export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=null,agent=null,loadSeq=0,live=null;const av0=lazyAvatar(map);
+export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=null,agent=null,loadSeq=0,live=null;const av0=agentsOnMap(map).mine;
   // While live sharing (or after 📍), draw the character at the live position; the saved spot is not changed.
-  const av={set:a=>av0.set(a&&live?{...a,lat:live.lat,lon:live.lon}:a),play:n=>av0.play(n)};const msg=t=>{$('agMsg').textContent=t;};
+  const av={set:a=>av0.set(a&&live?{...a,lat:live.lat,lon:live.lon,status:'With you · sharing your live location'}:a&&{...a,meta:a.spotApprox?'Your agent · Home: approximate area':'Your agent · Only you see the exact spot'}),play:n=>av0.play(n)};const msg=t=>{$('agMsg').textContent=t;};
   const lk=lookEditor(l=>{if(agent&&$('agForm').dataset.edit)av.set({...agent,look:l});$('agSave').disabled=!lk?.picked();});
   const getPos=()=>new Promise((ok,no)=>navigator.geolocation?navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:true,timeout:20000}):no(new Error('Location not supported')));
   function render(){const signed=!!user;
     for(const id of ['signInBtn','agSignIn'])$(id).hidden=signed;$('userChip').hidden=!signed;$('agentBox').hidden=!signed;
-    $('acctBtn').innerHTML='';if(signed&&user.photoURL){const i=new Image();i.src=user.photoURL;i.referrerPolicy='no-referrer';i.alt='';$('acctBtn').append(i);}else $('acctBtn').textContent='👤';
+    $('acctBtn').innerHTML='';if(signed&&user.photoURL){const i=new Image();i.src=user.photoURL;i.referrerPolicy='no-referrer';i.alt='';$('acctBtn').append(i);}else $('acctBtn').textContent=signed?(user.displayName||user.email||'?')[0].toUpperCase():'';$('acctBtn').classList.toggle('out',!signed);
     if(signed){$('userName').textContent=user.displayName||user.email;$('userMail').textContent=user.email||'';}
     $('agForm').hidden=!signed||!!agent&&!$('agForm').dataset.edit;$('agView').hidden=!agent||!$('agForm').hidden;
     if(agent){$('agTitle').textContent=agent.name;$('agDesc').textContent=agent.personality||'';}
@@ -88,8 +89,3 @@ function lookEditor(onChange){let per={},base=null;
     if(look){const l=toLook(look,name);base=l.base;per[base]=l;}
     paint();}};}
 // three.js (~267 KB gz) is only fetched once there is an agent to draw and the map is zoomed in far enough to see it (perf audit #2).
-function lazyAvatar(map){let real=null,last=null,loading=null,waiting=false;
-  const load=()=>loading||=import('./avatar3d.js').then(m=>{real=m.avatarLayer(map);real.set(last);window.__three3d=true;return real;}).catch(e=>{loading=null;console.warn('avatar3d',e?.message);});
-  const onZoom=()=>{if(map.getZoom()>=10){map.off('zoom',onZoom);waiting=false;load();}};
-  const want=()=>{if(loading)return;if(map.getZoom()>=10||document.body.dataset.tab==='chat')load();else if(!waiting){waiting=true;map.on('zoom',onZoom);}};
-  return {set(a){last=a;if(real)real.set(a);else if(a)want();},play(n){real?.play(n);}};}

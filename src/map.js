@@ -6,8 +6,8 @@ const STYLE=new URL('../assets/map-style-night.json',import.meta.url).href;
 const DEM='https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
 // DPR capped at 1.5 (1 on low-end) and pitch at 60 on low-end: the main cause of pan jank in the perf audit.
 const PIXEL_RATIO=LOW_END?1:Math.min(devicePixelRatio||1,1.5);
-export function createMap(container,{center=HOME,zoom=16.3,pitch=60,bearing=-20}={}){
-  const map=new maplibregl.Map({container,style:STYLE,center:[center.lng,center.lat],zoom,pitch,bearing,maxPitch:LOW_END?60:85,
+export function createMap(container,{center=HOME,zoom=16.3,pitch=60,bearing=-20,onToast}={}){
+  const map=new maplibregl.Map({container,style:STYLE,center:[center.lng,center.lat],zoom,pitch,bearing,maxPitch:LOW_END?60:70,
     pixelRatio:PIXEL_RATIO,fadeDuration:0,maxTileCacheZoomLevels:LOW_END?3:5,hash:true,attributionControl:{compact:true}});
   map.addControl(new maplibregl.NavigationControl({visualizePitch:true,showZoom:innerWidth>=768}),'top-right');
   map.addControl(new maplibregl.ScaleControl(),'bottom-right');
@@ -17,9 +17,11 @@ export function createMap(container,{center=HOME,zoom=16.3,pitch=60,bearing=-20}
     map.addSource('dem',{type:'raster-dem',tiles:[DEM],tileSize:256,encoding:'terrarium',maxzoom:15,attribution:'Terrain: Mapzen/AWS Terrain Tiles'});
     applyTerrain(map,terrainPref());
   });
-  // "High quality 3D" toggle in the Layers sheet; off by default on phones / low-end devices.
-  const btn=document.getElementById('terrBtn'),label=()=>{if(btn)btn.textContent='⛰️ High quality 3D: '+(terrainPref()?'ON':'OFF');};label();
-  if(btn)btn.onclick=()=>{const on=!terrainPref();setTerrainPref(on);applyTerrain(map,on);label();};
+  // "High quality 3D" switch in the Layers sheet (World v2); off by default on phones / low-end devices, and remembered.
+  const sw=document.getElementById('swTerrain'),label=()=>sw?.setAttribute('aria-checked',String(terrainPref()));label();
+  if(sw)sw.onclick=()=>{const on=!terrainPref();setTerrainPref(on);applyTerrain(map,on);label();onToast?.(on?'High quality 3D on':'High quality 3D off');};
+  // Credits start collapsed to the ⓘ button (still one tap away, as the OSM licence requires).
+  map.once('load',()=>{const b=map.getContainer().querySelector('.maplibregl-ctrl-attrib');b?.classList.remove('maplibregl-compact-show');b?.removeAttribute('open');});
   window.__perf={LOW_END,MOBILE,pixelRatio:PIXEL_RATIO,terrain:terrainPref};
   return map;}
 // Terrain + hillshade on/off. Hillshade only with terrain.

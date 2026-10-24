@@ -39,7 +39,6 @@ button.big{min-height:48px;border-radius:var(--pill);font-size:15px}
 .brand{background:var(--s2);border:1px solid var(--line-2);border-radius:var(--pill);padding:6px 12px;font-weight:600;font-size:13.5px;letter-spacing:-.005em}
 .fab{background:var(--s2);border:1px solid var(--line-2);box-shadow:none;color:var(--text);transition:transform var(--t-fast) var(--spring),background-color var(--t-fast)}
 .fab:active{transform:scale(.97)}.fab.on{background:var(--s4);border-color:#8b7bff66}
-#fabs{bottom:calc(var(--tabs) + 24px)}
 .maplibregl-ctrl-group{background:var(--s2);border:1px solid var(--line-2)}
 .maplibregl-ctrl-group button{border-radius:0;box-shadow:none;background:none;min-height:0;padding:0}
 .maplibregl-ctrl-attrib{background:rgba(20,23,34,.92)!important;color:var(--text-2)}.maplibregl-ctrl-attrib a{color:var(--text-2)!important}

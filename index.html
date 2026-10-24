@@ -11,20 +11,19 @@
 <link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
 <link rel="preload" href="fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="src/style.css"><link rel="stylesheet" href="src/ui-v2.css">
+<link rel="stylesheet" href="src/style.css"><link rel="stylesheet" href="src/ui-v2.css"><link rel="stylesheet" href="src/world-v2.css">
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
 <!-- Flatten the module import waterfall for the startup modules (no bundler: the site stays a static Pages deploy). -->
-<link rel="modulepreload" href="src/map.js"><link rel="modulepreload" href="src/device.js"><link rel="modulepreload" href="src/firebase.js"><link rel="modulepreload" href="src/agent.js"><link rel="modulepreload" href="src/chat.js"><link rel="modulepreload" href="src/onboarding.js"><link rel="modulepreload" href="src/ui.js"><link rel="modulepreload" href="src/character-data.js">
+<link rel="modulepreload" href="src/map.js"><link rel="modulepreload" href="src/device.js"><link rel="modulepreload" href="src/firebase.js"><link rel="modulepreload" href="src/agent.js"><link rel="modulepreload" href="src/chat.js"><link rel="modulepreload" href="src/onboarding.js"><link rel="modulepreload" href="src/ui.js"><link rel="modulepreload" href="src/world-agents.js"><link rel="modulepreload" href="src/character-data.js">
 </head><body>
 <div id="map"></div>
-<header id="topbar"><span class="brand">🌍 Virtual World</span><button id="acctBtn" class="fab sm" data-open="account" aria-label="Account">👤</button></header>
-<nav id="fabs" aria-label="Tools">
- <button class="fab" data-open="search" aria-label="Search" title="Search">🔎</button>
- <button class="fab" id="meBtn" aria-label="My location" title="My location">📍</button>
- <button class="fab" data-open="agent" aria-label="My agent" title="My agent">🤖</button>
- <button class="fab" data-open="family" aria-label="Family" title="Family">👪<span id="famN" class="badge">0</span></button>
- <button class="fab" data-open="layers" aria-label="Layers" title="Layers">🗂️</button>
+<header id="topbar"><button id="searchPill" class="search glass" data-open="search" type="button" aria-label="Search places"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Search places or friends</span></button><button id="acctBtn" class="me-btn out" data-open="account" aria-label="Account" type="button"></button></header>
+<nav id="rail" class="glass" aria-label="Map tools">
+ <button class="rb" id="railMe" type="button" aria-label="My agent" title="My agent"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></button>
+ <button class="rb" data-open="family" type="button" aria-label="Family" title="Family"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><circle cx="17" cy="9" r="2.8"/><path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5M15 14.6c2.8-.3 5.3 1.4 6.4 4.9"/></svg><span id="famN" class="badge">0</span></button>
+ <button class="rb" data-open="layers" type="button" aria-label="Layers" title="Layers"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg></button>
 </nav>
+<button class="recenter glass" id="meBtn" type="button" aria-label="Go to my agent" title="Go to my agent"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
 <section id="chatView" hidden aria-label="Chat with my agent">
  <header class="head" id="hero"><div class="av"><canvas id="heroCv" aria-hidden="true"></canvas></div>
   <div class="who"><b id="chatTitle">My agent</b><small><span id="chatDot" class="dot"></span><span id="chatSub">Online</span></small></div>
@@ -46,18 +45,24 @@
   <div class="srow"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span><div><b>Share live location</b><small>Family sees you while the app is open</small></div><button class="switch" role="switch" aria-checked="false" id="chatLive" aria-label="Share live location"></button></div>
   <button class="primary" id="moreDone" type="button">Done</button></div>
 <div id="scrim" hidden></div>
+<div class="scrim" id="profScrim"></div>
+<div class="vsheet glass" id="profile" role="dialog" aria-label="Agent profile" aria-hidden="true"><div class="grab"></div>
+ <div class="prof"><div class="pav"><canvas id="pAv" width="144" height="144" aria-hidden="true"></canvas></div><div><h3 id="pName"></h3><div class="meta" id="pMeta"></div></div></div>
+ <div class="pstatus"><span class="d" id="pDot"></span><span id="pStatus"></span></div>
+ <div class="acts" id="pActs"></div>
+</div>
 <section id="sheet" class="glass" hidden>
  <div id="sheetHead"><div class="grab"></div><b id="sheetTitle"></b><button id="sheetClose" aria-label="Close">✕</button></div>
  <div class="body">
  <div data-sec="search" data-title="Search">
-  <form id="searchF"><input id="q" placeholder="Search any place on Earth…" autocomplete="off" enterkeyhint="search"><button>🔎</button></form>
+  <form id="searchF"><input id="q" placeholder="Search any place on Earth…" autocomplete="off" enterkeyhint="search"><button>Search</button></form>
   <div id="results"></div>
-  <div class="row"><button id="homeBtn">🏠 Hanamkonda</button><button id="globeBtn">🌐 Globe</button></div>
+  <div class="row"><button id="homeBtn">Hanamkonda</button><button id="globeBtn">Globe</button></div>
  </div>
  <div data-sec="agent" data-title="My agent">
-  <button id="agSignIn" class="primary">🔐 Sign in with Google to create your agent</button>
+  <button id="agSignIn" class="primary">Sign in with Google to create your agent</button>
   <div id="agentBox" hidden>
-   <div id="agView" hidden><div id="agTitle"></div><small id="agDesc"></small><div class="row"><button id="agGo">🎯 Go to</button><button id="agMove">📍 Move here</button><button id="agEdit">✏️ Edit</button></div><button id="agLift" class="wide">📍 Move my agent</button></div>
+   <div id="agView" hidden><div id="agTitle"></div><small id="agDesc"></small><div class="row"><button id="agGo">Go to</button><button id="agMove">Move here</button><button id="agEdit">Edit</button></div><button id="agLift" class="wide">Move my agent</button></div>
    <form id="agForm" hidden><input id="agName" placeholder="Agent name" maxlength="40"><div id="lookBox"><div class="pickHead" id="lkPrompt">Pick your agent <small>Tap one. You can change everything later.</small></div><div class="pick" id="lkBase" role="radiogroup" aria-label="Choose a character"><button type="button" role="radio" aria-checked="false" data-base="girl" aria-label="Character 1"><img alt=""></button><button type="button" role="radio" aria-checked="false" data-base="boy" aria-label="Character 2"><img alt=""></button></div><div id="lkMore">
     <div class="lkRow"><span>Skin</span><div class="sw" id="lkSkin"></div></div>
     <div class="lkRow"><span>Hair</span><select id="lkHair"></select><div class="sw" id="lkHairC"></div></div>
@@ -68,17 +73,24 @@
  </div>
  <div data-sec="family" data-title="Family">
   <div><span id="famN2">0</span> live <small id="famConn"></small></div>
-  <div class="row"><button id="liveBtn" class="primary">📡 Share my live location</button><button id="shareBtn" class="brand">🔗 Invite family</button></div>
+  <div class="row"><button id="liveBtn" class="primary">Share my live location</button><button id="shareBtn" class="brand">Invite family</button></div>
   <small class="tip">Your location is shared only while this app is open, and only with people who have your family link.</small>
   <small id="shareMsg"></small><div id="famList"></div>
  </div>
  <div data-sec="layers" data-title="Layers">
-  <div class="row"><button id="fltBtn">✈️ Flights: OFF</button><button id="terrBtn">⛰️ High quality 3D: OFF</button></div><small class="tip">High quality 3D adds hills and terrain. It can make the map slower on phones.</small><small id="fltMsg"></small>
+  <div class="sec">Map style</div>
+  <div class="styles" role="radiogroup" aria-label="Map style"><button class="sty" role="radio" aria-checked="true" type="button"><span class="swatch night"></span>Night</button><button class="sty" role="radio" aria-checked="false" aria-disabled="true" type="button"><span class="swatch day"></span>Day<small>Later</small></button><button class="sty" role="radio" aria-checked="false" aria-disabled="true" type="button"><span class="swatch sat"></span>Satellite<small>Later</small></button></div>
+  <div class="sec">On the map</div>
+  <div class="lrow"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m3 20 6-11 4 6 3-4 5 9z"/></svg></span><div><b>High quality 3D <span class="perf">Uses more battery</span></b><small>Hills and terrain. Can make the map slower on phones.</small></div><button class="switch" role="switch" aria-checked="false" id="swTerrain" type="button" aria-label="High quality 3D Uses more battery"></button></div>
+  <div class="lrow"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M10 13 3 11l1-2 8 1 5-6c1-1 3-1 3 1l-4 7 1 8-2 1-3-6z"/></svg></span><div><b>Flights</b><small>Live aircraft within 250 km</small></div><button class="switch" role="switch" aria-checked="false" id="swFlights" type="button" aria-label="Flights"></button></div>
+  <div class="lrow"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5"/></svg></span><div><b>Friends' agents</b><small>Family who share their live location</small></div><button class="switch" role="switch" aria-checked="true" id="swFriends" type="button" aria-label="Friends' agents"></button></div>
+  <small id="fltMsg" class="tip"></small>
+  <button class="primary" id="layDone" type="button">Done</button>
  </div>
  <div data-sec="account" data-title="Account">
-  <button id="signInBtn" class="primary">🔐 Sign in with Google</button>
+  <button id="signInBtn" class="primary">Sign in with Google</button>
   <div id="userChip" hidden><div><b id="userName"></b><br><small id="userMail"></small></div><button id="signOutBtn">Sign out</button></div>
-  <p class="tip">📲 Install: in Chrome tap ⋮ → <i>Add to Home screen</i>; on iPhone Safari tap Share → <i>Add to Home Screen</i>.</p>
+  <p class="tip">Install: in Chrome tap ⋮ → <i>Add to Home screen</i>; on iPhone Safari tap Share → <i>Add to Home Screen</i>.</p>
  </div>
  </div>
 </section>
