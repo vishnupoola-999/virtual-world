@@ -221,7 +221,7 @@ One line per pull request. Status is `merged` or `open` as of 2026-10-24, after 
 | #11 | Docs: v1 roadmap and product decisions | merged | Adds `docs/ROADMAP.md` and `docs/DECISIONS.md`. |
 | #12 | docs: add the engineering log | merged | This file: the engineering record, this changelog, and pointers to the product docs. |
 | #13 | Agent memory: synced chat history + server-side owner notes | open | `agents/{uid}/messages` (owner-only rules + tests, newest 200) synced across devices; proxy sends the last 20 messages and a server-written `agents/{uid}.memory` summary. Needs `FIREBASE_SERVICE_ACCOUNT` on Render. |
-| TBD | feat: sign Android release builds from CI keystore secrets | open | Release APK and AAB are signed from `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` when those secrets are set. The debug APK build still runs, and it is the only Android artifact when the secrets are unset. |
+| #17 | feat: sign Android release builds from CI keystore secrets | open | Release APK and AAB are signed from `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` when those secrets are set. The debug APK build still runs, and it is the only Android artifact when the secrets are unset. |
 
 ## How to update
 
