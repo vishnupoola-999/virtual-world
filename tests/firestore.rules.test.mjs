@@ -107,6 +107,12 @@ describe('agents/{uid} rules', { concurrency: false }, () => {
     assert.deepEqual(stored.get('approx'), { lat: 18.01, lon: 79.53 });
   });
 
+  test('owner can mark an agent spot as approximate (location fallback)', async () => {
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({ spotApprox: true })));
+    const stored = await assertSucceeds(getDoc(agentRef(ALICE)));
+    assert.equal(stored.get('spotApprox'), true);
+  });
+
   test('owner can create a minimal agent without optional fields', async () => {
     await assertSucceeds(setDoc(agentRef(ALICE), minimal()));
     const stored = await assertSucceeds(getDoc(agentRef(ALICE)));
@@ -209,6 +215,7 @@ describe('agents/{uid} rules', { concurrency: false }, () => {
       { name: 'ownerName longer than 80', data: agent({ ownerName: 'o'.repeat(81) }) },
       { name: 'approx missing lon', data: agent({ approx: { lat: 1 } }) },
       { name: 'approx lat is a string', data: agent({ approx: { lat: '1', lon: 2 } }) },
+      { name: 'spotApprox is not a bool', data: agent({ spotApprox: 'yes' }) },
     ];
 
     const failures = [];
@@ -301,6 +308,34 @@ describe('agent memory and chat history rules', { concurrency: false }, () => {
     await assertFails(setDoc(msgRef(ALICE), msg({ extra: 1 })));
     await assertSucceeds(setDoc(msgRef(ALICE), msg({ content: 'x'.repeat(2000) })));
     await assertFails(setDoc(msgRef(ALICE), msg({ content: 'edited' })));
+  });
+});
+
+describe('rate limit counter rules', { concurrency: false }, () => {
+  before(async () => {
+    const [host, port] = process.env.FIRESTORE_EMULATOR_HOST.split(':');
+    testEnv = await initializeTestEnvironment({
+      projectId: PROJECT_ID,
+      firestore: { rules: readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8'), host, port: Number(port) },
+    });
+  });
+  after(async () => { await testEnv.cleanup(); });
+  beforeEach(async () => { await testEnv.clearFirestore(); });
+
+  const windowRef = (owner, uid = owner) => doc(db(owner), 'rateLimits', uid, 'windows', 'm-1700000000000');
+
+  test('clients cannot read or write rate-limit counters', async () => {
+    await assertFails(setDoc(windowRef(ALICE), { count: 1 }));
+    await assertFails(getDoc(windowRef(ALICE)));
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'rateLimits', ALICE, 'windows', 'm-1700000000000'), { count: 6 });
+    });
+    await assertFails(getDoc(windowRef(ALICE)));
+    await assertFails(getDocs(collection(db(ALICE), 'rateLimits', ALICE, 'windows')));
+    await assertFails(setDoc(windowRef(ALICE), { count: 7 }));
+    await assertFails(deleteDoc(windowRef(ALICE)));
+    await assertFails(getDoc(windowRef(BOB, ALICE)));
+    await assertFails(setDoc(doc(db(null), 'rateLimits', ALICE, 'windows', 'm-1700000000000'), { count: 1 }));
   });
 });
 

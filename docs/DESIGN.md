@@ -1,0 +1,81 @@
+# Virtual World design log (Diggy)
+
+Times are IST. Newest entries are at the bottom; keep appending.
+
+## 2026-10-23: Chat tab (v1)
+- The Chat tab is the default tab, with World as the second. The agent's character sits in a header at the top, and the header shrinks to 64 px on scroll.
+- Night theme tokens: `--bg #070b18`, `--surface #101830`, `--surface-2 #18223f`, `--line #24304f`, `--text #eef2ff`, `--muted #9aa6c7`, `--accent #1e88e5` (kept from the existing app), `--accent-2 #5eb4ff`, `--glow #ffc861` (city lights), `--friend #ff7043`, `--ok/--err #3ddc97/#ff6b6b`.
+- The agent speaks first, offering the chips "Find my friends" and "📍 Show me". Show me flies the World tab to the agent.
+- No raw errors: chat shows "waking up your agent…" after about 3 s, and failures show a banner with Retry. This matches SWE's PR #7 behaviour.
+- Checked the repo: the map runs on MapLibre GL, not CesiumJS.
+- Files: `chat-tab-mockup.html`, `chat-tab-spec.md`, `chat-tab*.png`.
+
+## 2026-10-23: Characters v1 + night map
+- Replaced the robot with two human base characters, girl and boy, built procedurally in three.js (`src/character.js`). There are no third-party assets. Each is under 10k triangles with no textures, so every part can be recoloured instantly.
+- I didn't use Quaternius or Kenney models. Their CC0 licences are fine, but per-part recolouring and Indian outfit options would need Blender work.
+- Customisation: skin (6 tones), hairstyle, hair colour, outfit, outfit colour, and extras (glasses, headphones, cap, bindi).
+- Animations: idle, wave, walk and talk, procedural and capped at 30 fps.
+- Night map style `map-style-night.json` on OpenFreeMap tiles (keyless):
+  - Navy ground and dark water.
+  - Roads coloured by class: amber motorways and primaries, blue secondaries, muted minor streets.
+  - An amber glow under major roads.
+  - 3D buildings in navy to periwinkle. Buildings with no height data get 6–15 m based on their ID, which fixes the flat Hanamkonda blocks.
+  - City lights on the globe.
+- At this point the base was picked from the first name. That was superseded on Oct 24 (see below).
+
+## 2026-10-24: Characters v2 (Vishnu's feedback)
+- **No cheek blush circles.** They looked bad, especially on dark skin.
+- **Boy and girl are clearly distinct:**
+  - Boy: squarer, broader jaw (a deformed skull, so no seams), broader shoulders, thicker straight brows, no lashes. Defaults are short hair and a tee.
+  - Girl: narrower shoulders, thin arched brows and one tiny lash flick. Defaults are long hair and a dress.
+- **Softer style:** a cute, neutral toy/chibi look with matte materials (roughness of about .9) and nothing makeup-like.
+- **Small mouth:** a dark smile arc at rest. When talking, a small dark oval opens and closes with eased, varied syllables. No red lips.
+- **Base-aware options** via `sanitize()`:
+  - Bindi and dress are for the girl only.
+  - The boy gets a straight men's kurta with a band collar.
+  - Long hair, ponytail, bun and bob are girl only.
+- Fixed the Idle-highlight screenshot bug.
+
+## 2026-10-24: PR #9 / #10 integration (Buildy), review notes
+- PRs #9 (characters + night map) and #10 (Chat/World tabs, character header, Show me) are merged to main.
+- Improvements to my code that are now on main, so the design copy was re-synced from main:
+  - Geometries are disposed on rebuild.
+  - The flared hems and kurta use a shared DoubleSide material (`M.top2`) instead of mutating materials per mesh.
+- **MapLibre controls:** `src/style.css` restyles them dark. `.maplibregl-ctrl-group` uses `--surface` and `--line`, and the icons are inverted with `filter:invert(1) hue-rotate(180deg)`. The top-right controls sit below the top bar (`top: calc(48px + safe-area)`).
+- **Open follow-up: the map credits box is still white.** The `.maplibregl-ctrl-attrib` compact box keeps MapLibre's default white background. Suggested CSS:
+  ```css
+  .maplibregl-ctrl-attrib,.maplibregl-ctrl-attrib.maplibregl-compact{background:#101830cc!important;color:var(--muted)}
+  .maplibregl-ctrl-attrib a{color:var(--muted)}
+  .maplibregl-ctrl-attrib-button{filter:invert(1) hue-rotate(180deg)}
+  ```
+  Keep the credits visible, since the OpenStreetMap/OpenMapTiles licence requires them.
+- Note: I couldn't find written PR #10 review comments on GitHub or the box, so the points above come from reading the merged code. Add any review notes Vishnu or SWE gave here.
+
+## 2026-10-24: Picker decision
+- **Vishnu decided:** onboarding shows both base characters (Girl and Boy) side by side as two tappable cards. There's **no name-based guess and nothing preselected**, so the user must tap one.
+- `guessBase()` is kept only to migrate old agents that have no `look.base`.
+- This replaces the "pending" note in `docs/DECISIONS.md` and the open item in `docs/ROADMAP.md`. Buildy should update both.
+
+## 2026-10-24: Onboarding (the first 60 seconds)
+- `onboarding-mockup.html` has six steps:
+  1. Night globe with "Your agent is waiting to be born."
+  2. One-tap Google sign-in.
+  3. "Where should your agent live?" with Use my location or Choose a spot instead, plus the approximate-area privacy line.
+  4. Dive from space to the street, then an orb lands with a bounce and dust puff.
+  5. Girl/Boy cards with no preselection, a name field, Continue enabled only when both are set, and "Customise look later".
+  6. The agent greets you first in chat.
+- Design choice: an **orb** lands in step 4, not a character, because the look is picked after landing. The orb hatches into the chosen character after step 5.
+- The mockup includes Back and Skip buttons, 6 progress pills, reduced-motion support, and the error states (sign-in failed or cancelled, location denied, offline).
+- The spec is in `onboarding-spec.md`: copy, timings, animations, states, analytics events, and performance notes.
+
+## 2026-10-24: Onboarding v2 (Vishnu's feedback)
+- **Character cards have no text labels.** The cards show only the characters. The tick and wave on selection stay, and the accessible names are the neutral "Character 1" and "Character 2".
+- **Removed the "Where should your agent live?" step.** The agent is born at the user's current location automatically.
+  - After Google sign-in, the app shows only the system location prompt (no explainer) and dives straight to the spot.
+  - If location is denied, unavailable or times out after 8 s, the app never blocks. It falls back to a city-level spot (IP or account locale), then to a default (Warangal centre), and marks the agent `approx:true`. A small note at landing says "…in Hanamkonda for now. You can move it later." The greeting mentions it once.
+- **The privacy line moved** to a small caption at the top of the dive: "🔒 Friends only see the approximate area".
+- **New "📍 Move my agent" affordance:**
+  - A button in the chat header (mocked) and in the agent's sheet on the World tab, plus long-press on your own agent on the map.
+  - The agent is lifted, you drag it, then confirm with "My agent lives here". That clears `approx`.
+- **The flow is now 5 steps:** globe → sign-in (plus the system location prompt) → dive and landing → pick and name → first chat. There are 5 progress pills.
+- **Screenshots re-rendered.** The obsolete location screens were deleted. The denied state is kept as `onboarding-3b-denied-fallback.png`.

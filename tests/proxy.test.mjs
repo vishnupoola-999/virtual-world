@@ -17,6 +17,7 @@ import {
   prepareChat,
   verifyFirebaseIdToken,
 } from '../proxy/server.js';
+import { flightAuthHeaders } from '../src/flights.js';
 
 const ORIGIN = 'https://vishnupoola-999.github.io';
 const PROJECT_ID = 'virtual-world-8ac82';
@@ -399,6 +400,16 @@ describe('verifyFirebaseIdToken', () => {
     assert.equal(decoded.uid, 'user_1');
   });
 
+  test('flight client attaches the signed-in user token', async () => {
+    assert.equal(await flightAuthHeaders(null), null);
+    assert.equal(await flightAuthHeaders({}), null);
+    assert.equal(await flightAuthHeaders({ getIdToken: async () => '' }), null);
+    assert.deepEqual(
+      await flightAuthHeaders({ getIdToken: async () => 'aaa.bbb.ccc' }),
+      { Authorization: 'Bearer aaa.bbb.ccc' },
+    );
+  });
+
   test('defaults the Firebase project id and rejects a wildcard', () => {
     assert.equal(firebaseProjectId({}), PROJECT_ID);
     assert.equal(firebaseProjectId({ FIREBASE_PROJECT_ID: '' }), PROJECT_ID);
@@ -487,5 +498,86 @@ describe('agent memory', () => {
     assert.match(patch.u, /documents\/agents\/user_1\?updateMask\.fieldPaths=memory&currentDocument\.exists=true$/);
     assert.equal(patch.init.headers.Authorization, 'Bearer at');
     assert.equal(JSON.parse(patch.init.body).fields.memory.mapValue.fields.facts.stringValue, '- a\n- b');
+  });
+});
+
+describe('GET /flights auth', () => {
+  test('rejects a missing token with 401 and does not call upstream', async () => {
+    let upstream = 0;
+    await withServer({
+      verifyIdToken: async () => { throw new Error('should not run'); },
+      fetchImpl: async () => { upstream += 1; return Response.json({ ac: [] }); },
+    }, async (url) => {
+      const response = await fetch(`${url}/flights?lat=0&lon=0`, { headers: { Origin: ORIGIN } });
+      assert.equal(response.status, 401);
+      assert.equal((await response.json()).error, 'unauthorized');
+      assert.equal(response.headers.get('access-control-allow-origin'), ORIGIN);
+      assert.equal(upstream, 0);
+    });
+  });
+
+  test('rejects an invalid token with 401', async () => {
+    let upstream = 0;
+    await withServer({
+      verifyIdToken: async () => { throw new Error('bad signature'); },
+      fetchImpl: async () => { upstream += 1; return Response.json({ ac: [] }); },
+    }, async (url) => {
+      const response = await fetch(`${url}/flights?lat=1&lon=2`, {
+        headers: { Authorization: 'Bearer aaa.bbb.ccc', Origin: ORIGIN },
+      });
+      assert.equal(response.status, 401);
+      assert.equal((await response.json()).error, 'unauthorized');
+      assert.equal(upstream, 0);
+    });
+  });
+
+  test('maps a key-service failure to 503', async () => {
+    await withServer({
+      verifyIdToken: async () => { throw new HttpError(503, 'upstream unavailable'); },
+    }, async (url) => {
+      const response = await fetch(`${url}/flights?lat=1&lon=2`, {
+        headers: { Authorization: 'Bearer aaa.bbb.ccc' },
+      });
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).error, 'upstream unavailable');
+    });
+  });
+
+  test('returns aircraft for a valid token and does not change the CORS allowlist', async () => {
+    const upstream = [];
+    await withServer({
+      verifyIdToken: async () => ({ uid: 'user_1' }),
+      fetchImpl: async (url) => {
+        upstream.push(url);
+        return Response.json({
+          now: 1,
+          ac: [{ hex: 'abc123', flight: 'VW1', lat: 10.1, lon: 20.2, alt_baro: 1000, gs: 400, track: 90 }],
+        });
+      },
+    }, async (url) => {
+      const ok = await fetch(`${url}/flights?lat=10&lon=20&r=80`, {
+        headers: { Authorization: 'Bearer aaa.bbb.ccc', Origin: ORIGIN },
+      });
+      assert.equal(ok.status, 200);
+      assert.equal(ok.headers.get('access-control-allow-origin'), ORIGIN);
+      const body = await ok.json();
+      assert.equal(body.ac.length, 1);
+      assert.equal(body.ac[0].cs, 'VW1');
+      assert.equal(upstream.length, 1);
+      assert.equal(upstream[0].includes('aaa.bbb.ccc'), false);
+      assert.match(upstream[0], /^https:\/\/api\.adsb\.lol\//);
+      const evil = await fetch(`${url}/flights?lat=10&lon=20`, {
+        headers: { Authorization: 'Bearer aaa.bbb.ccc', Origin: 'https://evil.example' },
+      });
+      assert.equal(evil.status, 200);
+      assert.equal(evil.headers.get('access-control-allow-origin'), null);
+      const local = await fetch(`${url}/flights`, {
+        method: 'OPTIONS',
+        headers: { Origin: 'http://localhost:4173', 'Access-Control-Request-Headers': 'authorization' },
+      });
+      assert.equal(local.status, 204);
+      assert.equal(local.headers.get('access-control-allow-origin'), 'http://localhost:4173');
+      assert.match(local.headers.get('access-control-allow-headers'), /Authorization/);
+    });
   });
 });
