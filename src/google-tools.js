@@ -77,10 +77,25 @@ export function createGoogleTools({ requestAccess, confirm, apiEnabled = () => f
     const api = apiEnabled() === true && name !== 'draft_email';
     if (!api) return runLinks(action);
     // Gate: never trust action.confirm from the server; the client decides which actions need a tap.
+    const scopes = scopeFor(name);
     if (NEEDS_CONFIRM.has(name)) {
-      const ok = (await confirm(sheetAction(action, 'api')))?.confirmed;
+      const sheet = sheetAction(action, 'api');
+      const ok = (await confirm(sheet))?.confirmed;
       if (ok !== true) throw new ToolError('cancelled', TOOL_MESSAGES.cancelled);
+      // Tell the sheet how the API write ended (design shows Sent/Added or an error). Callback errors are ignored.
+      const notify = (r) => { try { sheet.onResult?.(r); } catch { /* sheet callback must not break the tool */ } };
+      try {
+        const msg = await runApi(name, args, scopes);
+        notify({ ok: true });
+        return msg;
+      } catch (err) {
+        notify({ ok: false, error: err?.message || TOOL_MESSAGES.failed });
+        throw err;
+      }
     }
+    return runApi(name, args, scopes);
+  }
+  async function runApi(name, args, scopes) {
     const scopes = scopeFor(name);
     if (name === 'draft_email') {
       await call(scopes, 'https://gmail.googleapis.com/gmail/v1/users/me/drafts', { method: 'POST', body: JSON.stringify({ message: { raw: rawEmail(args) } }) });

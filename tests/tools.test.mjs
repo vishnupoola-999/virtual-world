@@ -211,3 +211,17 @@ test('hdr strips all control characters', () => {
   // eslint-disable-next-line no-control-regex
   assert.doesNotMatch(raw.split('\r\n\r\n')[0], /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/);
 });
+
+test('api-mode onResult reports success/failure and ignores callback throws', async () => {
+  const results = [];
+  const hook = (fn) => async (sheet) => { sheet.onResult = fn; return { confirmed: true }; };
+  let h = harness({ confirm: hook((r) => results.push(r)) });
+  await h.tools.run(send);
+  h = harness({ confirm: hook((r) => results.push(r)), responses: [{ ok: false, status: 503 }] });
+  await assert.rejects(h.tools.run(send), (e) => e.code === 'busy');
+  assert.deepEqual(results[0], { ok: true });
+  assert.equal(results[1].ok, false);
+  assert.match(results[1].error, /busy/);
+  h = harness({ confirm: hook(() => { throw new Error('ui bug'); }) });
+  assert.match(await h.tools.run(send), /Sent/);
+});
