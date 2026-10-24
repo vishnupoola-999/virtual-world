@@ -13,9 +13,16 @@ export function setupUI(){
   for(const b of document.querySelectorAll('[data-open]'))b.onclick=()=>openSheet(b.dataset.open);
   $('sheetClose').onclick=closeSheet;$('scrim').onclick=closeSheet;
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet();});
-  // swipe the grabber down to dismiss
-  let y0=null;const g=$('sheetHead');
-  g.addEventListener('touchstart',e=>y0=e.touches[0].clientY,{passive:true});
-  g.addEventListener('touchend',e=>{if(y0!==null&&e.changedTouches[0].clientY-y0>50)closeSheet();y0=null;});
+  dragToClose($('sheet'),closeSheet);
   $('toast').onclick=()=>toast('');
 }
+// Drag a sheet down to dismiss it (every sheet: map sheets, the chat agent sheet, the World profile sheet).
+// The sheet follows the finger with transform only; past 60 px it closes, otherwise it springs back.
+// Drags that start inside scrolled content are left to the scroll.
+export function dragToClose(sheet,close){let y0=null,dy=0;
+  const scrolled=t=>{for(let n=t;n&&n!==sheet;n=n.parentElement)if(n.scrollTop>0)return true;return false;};
+  sheet.addEventListener('touchstart',e=>{if(e.touches.length!==1||scrolled(e.target))return;y0=e.touches[0].clientY;dy=0;},{passive:true});
+  sheet.addEventListener('touchmove',e=>{if(y0===null)return;dy=Math.max(0,e.touches[0].clientY-y0);if(dy>4){sheet.style.transition='none';sheet.style.transform=`translateY(${dy}px)`;}},{passive:true});
+  const end=()=>{if(y0===null)return;y0=null;sheet.style.transition='';
+    if(dy>60){close();requestAnimationFrame(()=>{sheet.style.transform='';});}else sheet.style.transform='';dy=0;};
+  sheet.addEventListener('touchend',end);sheet.addEventListener('touchcancel',end);}

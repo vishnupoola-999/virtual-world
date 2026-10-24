@@ -30,6 +30,8 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
   const ICON = {
     copy: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
     good: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 11v9H4v-9zM7 11l4-7c1.5 0 2.5 1 2.2 2.6L12.6 10H19a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 17.8 20H7"/></svg>',
+    pin: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+    bolt: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M13 3 5 13h6l-1 8 8-10h-6z"/></svg>',
     read: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
   };
   const REDUCED = matchMedia('(prefers-reduced-motion: reduce)');
@@ -176,18 +178,19 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     for (const old of log.querySelectorAll('.chips')) old.remove();
     const c = document.createElement('div');
     c.className = 'chips';
-    for (const [label, fn, solid] of list) {
+    for (const [label, fn, solid, icon] of list) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'chip' + (solid ? ' on' : '');
-      b.textContent = label;
+      if (icon) b.innerHTML = ICON[icon];
+      b.append(label);
       b.onclick = fn;
       c.append(b);
     }
     log.append(c);
     scrollEnd();
   };
-  const showMe = () => chips([['📍 Show me', () => onShowMe(getAgent()), true]]);
+  const showMe = () => chips([['Show me', () => onShowMe(getAgent()), true, 'pin']]);
   const save = () => localStorage.setItem(key(), JSON.stringify(hist.slice(-40)));
   let writes = 0;
   // Adds a message to the transcript, this device's cache and (when signed in) Firestore, so it follows you to other devices.
@@ -220,14 +223,14 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     const lead = (icon, bold, rest) => {
       const ic = document.createElement('span');
       ic.className = 'ic';
-      ic.textContent = icon;
+      if (ICON[icon]) ic.innerHTML = ICON[icon]; else ic.textContent = icon;
       const t = document.createElement('span');
       const strong = document.createElement('b');
       strong.textContent = bold;
       t.append(strong, ' ' + rest);
       b.append(ic, t);
     };
-    if (kind === 'waking') lead('⚡', `Waking up ${name()}.`, 'The first reply can take up to a minute.');
+    if (kind === 'waking') lead('bolt', `Waking up ${name()}.`, 'The first reply can take up to a minute.');
     if (kind === 'error') {
       lead('!', `${name()} couldn't answer.`, detail);
       const r = document.createElement('button');
@@ -283,13 +286,13 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     clearTimeout(greetTimer);
     greetTimer = setTimeout(() => {
       t.remove();
-      const hi = `Hi ${first} 👋 I'm ${agent.name}. Want me to find your friends?`;
+      const hi = `Hi ${first}, I'm ${agent.name}. Want me to find your friends?`;
       if (openedFor !== who) return;
       remember('assistant', hi);
       hero.state('wave');
       stream(hi).then(() => { if (openedFor === who) chips([
         ['Find my friends', () => { input.value = 'Find my friends'; sync(); $('chatF').requestSubmit(); }, true],
-        ['📍 Show me', () => onShowMe(getAgent())],
+        ['Show me', () => onShowMe(getAgent()), false, 'pin'],
       ]); });
     }, 900);
   }
