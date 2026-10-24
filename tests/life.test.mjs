@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { describe, test } from 'node:test';
 import { createServer } from '../proxy/server.js';
 import {
-  SAFETY_SETTINGS, geminiLlm, lifeSalt, LIFE, capAllows, checkTickSecret, cleanInterests, countAction, dayKey, parseConversation, parseDecision,
+  SAFETY_SETTINGS, geminiLlm, makeStatus, lifeStore, lifeSalt, LIFE, capAllows, checkTickSecret, cleanInterests, countAction, dayKey, parseConversation, parseDecision,
   pickMatch, placeNear, runTick, shouldAct, similarity, hashId, scrub, safeLine, decidePrompt, conversationPrompt, publicProfile,
 } from '../proxy/life.js';
 import { TEST_AGENTS } from '../scripts/seed-test-agents.mjs';
@@ -20,7 +20,7 @@ function agent(uid, interests, extra = {}) {
 function fakeStore(agents) {
   const s = { lives: {}, diary: {}, friends: {} };
   s.listAgents = async () => agents.map((a) => ({ ...a }));
-  s.saveLife = async (uid, life, pre = {}) => { if (s.conflict?.has(uid)) throw new Error('firestore 412'); s.lives[uid] = life; (s.pre ||= {})[uid] = pre.updateTime; };
+  s.saveLife = async (uid, life, pre = {}) => { if (s.conflict?.has(uid)) throw new Error('firestore 412'); s.lives[uid] = life; (s.pre ||= {})[uid] = pre.updateTime; if (pre.status) (s.status ||= {})[uid] = pre.status; };
   s.addDiary = async (uid, e) => { (s.diary[uid] ||= []).push(e); };
   s.addFriend = async (uid, other, fact) => { (s.friends[uid] ||= {})[other] = fact; };
   return s;
@@ -285,5 +285,43 @@ describe('re-review follow-ups (#24)', () => {
       assert.equal(s.lives.a.activity, 'rest');
       assert.deepEqual(s.diary, {});
     }
+  });
+});
+
+describe('agent.status (living-spec)', () => {
+  const keysOk = (st) => Object.keys(st).every((k) => ['kind', 'label', 'since', 'destination', 'withAgentId', 'withName', 'progress'].includes(k));
+  test('move -> walking with destination, no exact home', async () => {
+    const s = fakeStore([agent('a', ['tech', 'ai', 'x'])]);
+    await runTick({ store: s, llm: async () => '{"action":"move","interest":"tech","status":"x"}', now: NOW, salt: SALT });
+    const st = s.status.a;
+    assert.equal(st.kind, 'walking'); assert.equal(st.label, 'Heading to tech spot'); assert.equal(st.since, NOW);
+    assert.equal(st.destination.name, 'tech spot');
+    assert.deepEqual(st.destination.lngLat, [s.lives.a.target.lng, s.lives.a.target.lat]);
+    assert.ok(!JSON.stringify(st).includes('17.123456') && !JSON.stringify(st).includes('78.654321'));
+    assert.ok(keysOk(st));
+  });
+  test('meet -> meeting with display name and hashed id, never the uid', async () => {
+    const s = fakeStore([agent('alice', ['tech', 'ai', 'x']), agent('bob', ['tech', 'ai', 'x'])]);
+    let n = 0;
+    await runTick({ store: s, now: NOW, salt: SALT, llm: async () => (++n === 1 ? '{"action":"meet"}' : 'A: Hi!\nB: Hello!\nA: Tech?\nB: Yes.') });
+    assert.deepEqual(s.status.alice, { kind: 'meeting', label: 'With Agent bob', since: NOW, withAgentId: hashId('bob', SALT), withName: 'Agent bob' });
+    assert.equal(s.status.bob.label, 'With Agent alice');
+    assert.ok(!JSON.stringify(Object.values(s.status)).match(/"(alice|bob)"/));
+  });
+  test('rest -> idle Resting; working progress clamps; labels sanitised to 40', () => {
+    assert.deepEqual(makeStatus('idle', { now: NOW }), { kind: 'idle', label: 'Resting', since: NOW });
+    assert.deepEqual(makeStatus('working', { now: NOW, label: 'Sorting emails', progress: { done: 9, total: 4 } }).progress, { done: 4, total: 4 });
+    const w = makeStatus('walking', { now: NOW, label: 'Heading to https://evil.example now ' + 'x'.repeat(80) });
+    assert.ok(w.label.length <= 40 && !w.label.includes('evil'));
+    assert.equal(makeStatus('bogus', { now: NOW }).kind, 'idle');
+    assert.equal(makeStatus('meeting', { now: NOW, withAgentId: 'rawUid123' }).withAgentId, undefined);
+  });
+  test('lifeStore writes life and status in one patch with since as a timestamp', async () => {
+    const calls = [];
+    const store = lifeStore({ projectId: 'p', accessToken: async () => 't', fetchImpl: async (u, i) => { calls.push([u, i]); return { ok: true, json: async () => ({}) }; } });
+    await store.saveLife('alice', { actions: 1 }, { status: makeStatus('idle', { now: NOW }) });
+    const hit = calls.find(([u]) => String(u).includes('agents/alice'));
+    assert.ok(String(hit[0]).includes('updateMask.fieldPaths=status'));
+    assert.equal(JSON.parse(hit[1].body).fields.status.mapValue.fields.since.timestampValue, new Date(NOW).toISOString());
   });
 });

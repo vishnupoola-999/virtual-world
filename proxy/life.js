@@ -153,6 +153,29 @@ export function parseDecision(text, me, hasMatch) {
   return { action: 'rest' };
 }
 
+// agent.status per design/living-spec.md: { kind, label (<=40), since, destination?{name,lngLat}, withAgentId?, withName?, progress?{done,total} }.
+// Friends may read it, so it never holds a uid or an exact location: withAgentId is the salted hash, lngLat is placeNear's ~1 km-rounded spot.
+export const STATUS_KINDS = ['walking', 'meeting', 'working', 'idle'];
+export function makeStatus(kind, { label, now, destination, withAgentId, withName, progress } = {}) {
+  if (!STATUS_KINDS.includes(kind)) kind = 'idle';
+  const st = { kind, label: safeLine(label, 40) || (kind === 'idle' ? 'Resting' : ''), since: now };
+  if (kind === 'walking' && destination) {
+    const name = safeLine(destination.name, 40);
+    const [lng, lat] = destination.lngLat || [];
+    if (name && Number.isFinite(lng) && Number.isFinite(lat)) st.destination = { name, lngLat: [lng, lat] };
+  }
+  if (kind === 'meeting') {
+    if (/^h_[0-9a-f]{20}$/.test(withAgentId || '')) st.withAgentId = withAgentId;
+    const n = safeLine(withName, 40); if (n) st.withName = n;
+  }
+  if (kind === 'working' && progress) {
+    const total = Math.max(0, Math.floor(progress.total) || 0), done = Math.min(total, Math.max(0, Math.floor(progress.done) || 0));
+    if (total > 0) st.progress = { done, total };
+  }
+  if (!st.label) st.label = kind === 'walking' ? 'On the move' : kind === 'meeting' ? 'Meeting someone' : 'Working';
+  return st;
+}
+
 function oneLine(v, max) {
   // eslint-disable-next-line no-control-regex
   return typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '';
@@ -210,27 +233,29 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       try {
         decision = parseDecision(await llm(decidePrompt(mine, match && publicProfile(match.agent)), 80), mine, !!match);
       } catch (error) {
-        await store.saveLife(me.uid, { ...life, activity: 'rest' }, { updateTime: me.updateTime });
+        await store.saveLife(me.uid, { ...life, activity: 'rest' }, { updateTime: me.updateTime, status: makeStatus('idle', { now }) });
         throw error;
       }
       if (decision.action === 'meet' && !budget(1)) decision = { action: 'rest' };
       if (decision.action === 'move') {
         const target = placeNear(me, decision.interest, now, salt);
         if (target) {
-          await store.saveLife(me.uid, { ...life, status: decision.status, target, activity: 'move' }, { updateTime: me.updateTime });
+          const place = `${decision.interest} spot`;
+          await store.saveLife(me.uid, { ...life, status: decision.status, target, activity: 'move' }, { updateTime: me.updateTime,
+            status: makeStatus('walking', { now, label: `Heading to ${place}`, destination: { name: place, lngLat: [target.lng, target.lat] } }) });
           summary.acted++; summary.moves++;
           continue;
         }
         decision = { action: 'rest' };
       }
       if (decision.action === 'rest') {
-        await store.saveLife(me.uid, { ...life, activity: 'rest' }, { updateTime: me.updateTime });
+        await store.saveLife(me.uid, { ...life, activity: 'rest' }, { updateTime: me.updateTime, status: makeStatus('idle', { now }) });
         summary.rests++;
         continue;
       }
       summary.acted++;
       if (decision.action === 'diary') {
-        await store.saveLife(me.uid, { ...life, activity: 'diary' }, { updateTime: me.updateTime });
+        await store.saveLife(me.uid, { ...life, activity: 'diary' }, { updateTime: me.updateTime, status: makeStatus('idle', { now, label: 'Writing in the diary' }) });
         await store.addDiary(me.uid, { kind: 'diary', text: decision.text, at: now });
         summary.diary++;
         continue;
@@ -238,13 +263,15 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       const other = match.agent, theirs = publicProfile(other);
       summary.calls++;
       const lines = parseConversation(await llm(conversationPrompt(mine, theirs), 400), mine, theirs);
-      if (!lines) { await store.saveLife(me.uid, { ...life, activity: 'rest' }, { updateTime: me.updateTime }); continue; }
+      if (!lines) { await store.saveLife(me.uid, { ...life, activity: 'rest' }, { updateTime: me.updateTime, status: makeStatus('idle', { now }) }); continue; }
       const shared = mine.interests.filter((t) => theirs.interests.includes(t));
       const otherId = hashId(other.uid, salt), meId = hashId(me.uid, salt);
       const otherLife = countAction(other.life, now);
       // Partner first: if their doc changed (412) we throw before touching ours, so no half-saved meet.
-      await store.saveLife(other.uid, { ...otherLife, activity: 'meet', status: `Chatting with ${mine.name}`, met: { ...(other.life?.met || {}), [meId]: now } }, { updateTime: other.updateTime });
-      await store.saveLife(me.uid, { ...life, activity: 'meet', status: `Chatting with ${theirs.name}`, met: { ...(me.life?.met || {}), [otherId]: now } }, { updateTime: me.updateTime });
+      await store.saveLife(other.uid, { ...otherLife, activity: 'meet', status: `Chatting with ${mine.name}`, met: { ...(other.life?.met || {}), [meId]: now } }, { updateTime: other.updateTime,
+        status: makeStatus('meeting', { now, label: `With ${mine.name}`, withAgentId: meId, withName: mine.name }) });
+      await store.saveLife(me.uid, { ...life, activity: 'meet', status: `Chatting with ${theirs.name}`, met: { ...(me.life?.met || {}), [otherId]: now } }, { updateTime: me.updateTime,
+        status: makeStatus('meeting', { now, label: `With ${theirs.name}`, withAgentId: otherId, withName: theirs.name }) });
       touched.add(other.uid);
       await store.addDiary(me.uid, { kind: 'meet', withId: otherId, withName: theirs.name, shared, lines, at: now });
       await store.addDiary(other.uid, { kind: 'meet', withId: meId, withName: mine.name, shared, lines, at: now });
@@ -313,9 +340,17 @@ export function lifeStore(admin) {
     },
     // Precondition on the updateTime read at tick start: if the doc changed since (another tick, the owner), Firestore
     // rejects with 400/409/412 FAILED_PRECONDITION and this agent's turn is dropped instead of overwriting newer state.
-    async saveLife(uid, life, { updateTime } = {}) {
+    async saveLife(uid, life, { updateTime, status } = {}) {
       if (!UID_RE.test(uid)) return;
-      await patch(`agents/${uid}`, { life: toValue(life) }, ['life'], updateTime);
+      const fields = { life: toValue(life) };
+      if (status) {
+        const { since, ...rest } = status;
+        const v = toValue(rest);
+        v.mapValue.fields.since = { timestampValue: new Date(since).toISOString() };
+        fields.status = v;
+      }
+      // life and status go in one patch so they can't disagree.
+      await patch(`agents/${uid}`, fields, Object.keys(fields), updateTime);
     },
     async addDiary(uid, entry) {
       if (!UID_RE.test(uid)) return;
