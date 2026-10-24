@@ -42,3 +42,8 @@ button.primary{background:#1e88e5;color:#fff;border-color:#1e88e5;width:100%;pad
 .msg.me{align-self:flex-end;background:#1e88e5;color:#fff;border-bottom-right-radius:4px}.msg.ag{align-self:flex-start;background:#fff;box-shadow:0 1px 3px #0002;border-bottom-left-radius:4px}.msg.typing{color:#888}
 #chatF{display:flex;gap:6px;padding:8px;background:#fff}#chatIn{flex:1;padding:10px 14px;font-size:16px;border:1px solid #ccd;border-radius:20px}#chatF button{width:44px;border:none;border-radius:50%;background:#1e88e5;color:#fff;font-size:18px}
 #liveBtn.on{background:#e53935;color:#fff}
+#lookBox{margin:6px 0}.seg button.on{outline:2px solid #5eb4ff;font-weight:700}#lkGuess{opacity:.7}
+.lkRow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0}.lkRow>span{width:52px;font-size:13px;opacity:.8}
+.lkRow select{padding:6px;font-size:15px}.sw{display:flex;gap:4px;flex-wrap:wrap}
+.sw button{width:26px;height:26px;border-radius:50%;border:2px solid #0003;padding:0;cursor:pointer}.sw button.on{border-color:#5eb4ff;box-shadow:0 0 0 2px #5eb4ff66}
+#lkAcc label{margin-right:8px;font-size:14px}#lkAcc input{width:auto!important}

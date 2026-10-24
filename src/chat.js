@@ -32,7 +32,7 @@ export function setupChat(getAgent, getUser) {
     const user = getUser();
     if (!user) { signInPrompt(); return; }
     if (!agent) { toast('Create your agent first (🤖 button)'); return; }
-    $('chatTitle').textContent = `${agent.look?.emoji || '🤖'} ${agent.name}`;
+    $('chatTitle').textContent = agent.name;
     $('chatSub').textContent = '';
     try { hist = JSON.parse(localStorage.getItem(key()) || '[]'); } catch { hist = []; }
     if (!Array.isArray(hist)) hist = [];

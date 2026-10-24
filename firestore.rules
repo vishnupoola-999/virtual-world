@@ -9,7 +9,7 @@ service cloud.firestore {
       return d.keys().hasOnly(['name','look','personality','ownerName','lat','lon','approx','preciseVisibility','updatedAt'])
         && d.keys().hasAll(['name','look','lat','lon','preciseVisibility','updatedAt'])
         && d.name is string && d.name.size() > 0 && d.name.size() <= 40
-        && d.look is map && d.look.keys().hasOnly(['color','emoji']) && d.look.color is string && d.look.color.size() <= 9 && d.look.emoji is string && d.look.emoji.size() <= 16
+        && d.look is map && (legacyLook(d.look) || characterLook(d.look))
         && (!('personality' in d) || (d.personality is string && d.personality.size() <= 300))
         && (!('ownerName' in d) || (d.ownerName is string && d.ownerName.size() <= 80))
         && d.lat is number && d.lat >= -90 && d.lat <= 90
@@ -17,6 +17,28 @@ service cloud.firestore {
         && (!('approx' in d) || (d.approx is map && d.approx.lat is number && d.approx.lon is number))
         && d.preciseVisibility == 'private'
         && d.updatedAt == request.time;
+    }
+    // Agents saved before character looks: {color, emoji}.
+    function legacyLook(l) {
+      return l.keys().hasOnly(['color','emoji']) && l.keys().hasAll(['color','emoji'])
+        && l.color is string && l.color.size() <= 9 && l.emoji is string && l.emoji.size() <= 16;
+    }
+    function hex(c) { return c is string && c.matches('^#[0-9a-f]{6}$'); }
+    // v1 character look from src/character.js (sanitize() runs before every save).
+    function characterLook(l) {
+      return l.keys().hasOnly(['v','base','skin','hair','hairColour','outfit','outfitColour','bottomColour','acc'])
+        && l.keys().hasAll(['v','base','skin','hair','hairColour','outfit','outfitColour','bottomColour','acc'])
+        && l.v == 1
+        && hex(l.skin) && hex(l.hairColour) && hex(l.outfitColour) && hex(l.bottomColour)
+        && l.acc is list && l.acc.size() <= 4
+        && ((l.base == 'boy'
+              && l.hair in ['short','spiky','curly','buzz']
+              && l.outfit in ['tee','hoodie','kurta']
+              && l.acc.toSet().hasOnly(['glasses','headphones','cap']))
+          || (l.base == 'girl'
+              && l.hair in ['long','ponytail','bun','bob','curly','short']
+              && l.outfit in ['tee','hoodie','kurta','dress']
+              && l.acc.toSet().hasOnly(['glasses','headphones','cap','bindi'])));
     }
     match /{document=**} { allow read, write: if false; }
   }
