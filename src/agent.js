@@ -32,8 +32,10 @@ export function setupAgent(map,{onAgent=()=>{}}={}){let user=null,agent=null,loa
     if(u){toast(`Signed in as ${u.displayName||u.email}`);
       for(let i=0;i<3&&seq===loadSeq;i++){try{const a=await loadAgent(u.uid);if(seq!==loadSeq)return;agent=a;break;}
         catch(e){if(i===2)toast('⚠️ Could not load your agent: '+(e.code||e.message),8000);else await new Promise(r=>setTimeout(r,1500*(i+1)));}}
-      if(agent){av.set(agent);go();}}
-    render();if(seq===loadSeq)onAgent(agent);});
+      if(agent)av.set(agent);}
+    render();if(seq!==loadSeq)return;
+    // Opening on the Chat tab: skip the fly-to (the map is hidden); it happens from Show me instead.
+    if(!onAgent(agent)&&agent)go();});
   render();lk.load(null,'');return {get agent(){return agent;},_preview(a){agent=a;av.set(a);render();onAgent(a);}};}
 
 // Character look editor in the agent sheet. Girl/Boy is only a starting guess from the first name; once the user taps the

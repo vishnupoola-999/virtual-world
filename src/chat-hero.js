@@ -6,7 +6,7 @@ import {createCharacter} from './character.js';
 import {toLook} from './avatar3d.js';
 const LOW_END=(navigator.hardwareConcurrency||8)<=4;
 const REDUCED=matchMedia('(prefers-reduced-motion: reduce)');
-export function chatHero(canvas){
+export function chatHero(canvas){let lastAgent=null;const ro=new ResizeObserver(()=>size());
   let r=null,scene,cam,ch,raf=0,last=0,active=false,busyUntil=0,key='',state='idle',stateT=0;const clock=new THREE.Clock();
   function init(){if(r)return true;
     try{r=new THREE.WebGLRenderer({canvas,antialias:!LOW_END,alpha:true,powerPreference:'low-power'});}catch(e){console.warn('hero webgl',e?.message);return false;}
@@ -24,12 +24,15 @@ export function chatHero(canvas){
     const busy=t<busyUntil||state==='thinking'||state==='sleeping';if(REDUCED.matches&&!busy){draw();return;}
     if(t-last>=(busy?33:66)){last=t;draw();}raf=requestAnimationFrame(frame);}
   const kick=()=>{if(active&&!raf&&!document.hidden&&init())raf=requestAnimationFrame(frame);};
-  new ResizeObserver(size).observe(canvas);
+  ro.observe(canvas);
+  // Free the GPU context when leaving Chat; a fresh canvas + renderer is made on the next start.
+  function release(){if(!r)return;ch.group.traverse(o=>{if(o.isMesh)o.geometry.dispose();});r.dispose();r.forceContextLoss();r=null;ch=null;key='';
+    const c=canvas.cloneNode(false);ro.unobserve(canvas);canvas.replaceWith(c);canvas=c;ro.observe(c);}
   document.addEventListener('visibilitychange',()=>{if(!document.hidden){clock.getDelta();kick();}});
   return {
-    set(agent){if(!agent||!init())return;const l=toLook(agent.look,agent.ownerName||agent.name),k=JSON.stringify(l);if(k!==key){key=k;ch.setLook(l);draw();}},
-    start(){active=true;clock.getDelta();kick();},
-    stop(){active=false;if(raf)cancelAnimationFrame(raf);raf=0;},
+    set(agent){lastAgent=agent;if(!agent||!init())return;const l=toLook(agent.look,agent.ownerName||agent.name),k=JSON.stringify(l);if(k!==key){key=k;ch.setLook(l);draw();}},
+    start(){active=true;clock.getDelta();if(!r&&lastAgent)this.set(lastAgent);kick();},
+    stop(){active=false;if(raf)cancelAnimationFrame(raf);raf=0;release();},
     // idle | thinking | talking | sleeping | error
     state(s){state=s;stateT=performance.now();if(!ch)return;
       if(s==='talking'){ch.play('talk');busyUntil=stateT+1200;setTimeout(()=>{if(state==='talking'){ch.play('idle');state='idle';}},1200);}

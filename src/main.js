@@ -46,9 +46,9 @@ if(new URLSearchParams(location.search).get('flights'))$('fltBtn').click();
 const hero=chatHero($('heroCv'));let tabs=null,autoChat=true;
 const chat=setupChat({getAgent:()=>window.__vw.agent?.agent,getUser:currentUser,hero,onNeedAgent:()=>openSheet('agent'),
   onShowMe:a=>{tabs.set('world');if(a)flyTo(map,a.lon,a.lat,19);}});
-tabs=setupTabs({map,hero,onChat:()=>{const ok=chat.open();if(ok)closeSheet();return ok;}});
+tabs=setupTabs({map,hero,onSwitch:t=>{flt.pause(t==='chat');famL0.pause(t==='chat');},canChat:()=>!!window.__vw.agent?.agent&&chat.open(),onChat:()=>{const ok=chat.open();if(ok)closeSheet();return ok;}});
 window.__vw.tabs=tabs;
-window.__vw.agent=setupAgent(map,{onAgent:a=>{chat.reset();if(a&&autoChat){autoChat=false;if(chat.open()){closeSheet();tabs.set('chat');}}else if(!a&&tabs.current==='chat')tabs.set('world');else if(a&&tabs.current==='chat')chat.open();}});
+window.__vw.agent=setupAgent(map,{onAgent:a=>{chat.reset();if(a&&autoChat){autoChat=false;if(chat.open()){closeSheet();tabs.set('chat');return true;}}else if(!a&&tabs.current==='chat')tabs.set('world');else if(a&&tabs.current==='chat')chat.open();}});
 $('tabWorld').addEventListener('click',()=>{autoChat=false;});
 // Share my own live location from inside the app, so the map (and my agent) stay on screen.
 let watch=null,timer=null,lastPos=null;

@@ -18,6 +18,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
   let hist = [];
   let openedFor = null;
   let busy = false;
+  let greetTimer = 0;
   const log = $('chatLog');
   const input = $('chatIn');
   const send = $('chatF').querySelector('button');
@@ -104,7 +105,8 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     const first = (user?.displayName || agent.ownerName || '').split(' ')[0] || 'there';
     const t = typing();
     hero.state('thinking');
-    setTimeout(() => {
+    clearTimeout(greetTimer);
+    greetTimer = setTimeout(() => {
       t.remove();
       const hi = `Hi ${first} 👋 I'm ${agent.name}. Want me to find your friends?`;
       hist.push({ role: 'assistant', content: hi });
@@ -215,5 +217,5 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     }
   }
 
-  return { open, reset() { openedFor = null; } };
+  return { open, reset() { clearTimeout(greetTimer); greetTimer = 0; openedFor = null; } };
 }
