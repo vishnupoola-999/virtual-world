@@ -12,7 +12,7 @@ The site is static files at the repo root. GitHub Pages serves them at `https://
 | 3D agent | `src/character.js`, `src/avatar3d.js` | Procedural three.js 0.170.0 girl/boy bodies (no GLB, no textures, about 7–8.5k triangles). MapLibre custom layer. The character waves once when it appears, then idles, turns to face the camera, and has a `#5eb4ff` rim light. The label is the name only. A stored legacy `{color, emoji}` look is drawn with `guessBase(name)` and that colour as `outfitColour` when it matches `#rrggbb`. |
 | Auth and agent docs | `src/firebase.js` | Firebase JS 10.14.1 from the CDN. Project `virtual-world-8ac82`. |
 | Chat and World tabs | `src/tabs.js`, `src/chat.js`, `src/chat-hero.js` | Two bottom tabs. The app opens on Chat when an agent exists; otherwise World. Signed-out Chat stays on World and shows the sign-in toast. `chat-hero.js` draws the same character on a small header canvas (DPR ≤ 1.5, ~30 fps while animating, ~15 fps idle) and releases the WebGL context on the World tab. The map character's animation loop does not run while `document.body.dataset.tab` is `chat`. Flights and family markers pause on Chat. "Show me" switches to World and flies to the agent. Chat still `POST`s `https://virtual-world-ai.onrender.com/chat` with a Firebase ID token. |
-| Flights | `src/flights.js` via the proxy | Optional. Proxy `GET /flights`. |
+| Flights | `src/flights.js` via the proxy | Optional. Proxy `GET /flights` with the signed-in user's Firebase ID token. |
 | Family presence | `src/family.js` | Not Firestore. ntfy.sh topic `vw1-<room>` (HTTPS, no API key in the repo). |
 
 The service worker cache is `vw-shell-v5` and includes `src/character.js`, `src/chat-hero.js`, `src/tabs.js`, and `assets/map-style-night.json`.
@@ -30,16 +30,18 @@ Merged PR #7 says auto-deploy from `main` is on and that the free instance sleep
 - Requires `Authorization: Bearer <Firebase ID token>`. Verification uses Google's securetoken certificates (`securetoken@system.gserviceaccount.com`), RS256, and the same claims as `firebase-admin` `verifyIdToken` with `checkRevoked` false: `aud`, `iss` (`https://securetoken.google.com/<project>`), `exp`, `iat`, `auth_time`, `sub`. No service account and no revocation check. Project id is `FIREBASE_PROJECT_ID` or, if unset, `virtual-world-8ac82`.
 - Builds the system prompt on the server from a fixed template plus `agent.name` (40) and `agent.personality` (300). Client `system`, `systemPrompt`, and `role: "system"` messages are ignored.
 - Calls `generativelanguage.googleapis.com` `v1beta` `generateContent`. Default model `gemini-flash-lite-latest` (`MODEL` overrides it when the name matches `^[A-Za-z0-9._-]{1,80}$`). The API key is sent only as the `x-goog-api-key` header. `maxOutputTokens` 200, temperature 0.9. Upstream timeout 50s.
-- Limits, in order: 6 requests/min per IP (before auth), then token check, 6 chats/min per uid, body parse, then 60 chats/hour and 600/day globally. Body max 64 KB, 20 messages, 1000 characters each. Agent memory (optional `FIREBASE_SERVICE_ACCOUNT`): the proxy reads `agents/{uid}.memory.facts` into the prompt as data and rewrites it on turn 1 and every 4th turn per uid (one extra Gemini call, counted toward the daily cap). Chat history lives in owner-only `agents/{uid}/messages` (app keeps the newest 200); clients can read but never write `memory`. Counters are in-process `Map`s. They reset on restart, are not shared across instances, and a map larger than 5000 keys is cleared entirely.
+- Limits, in order: 6 requests/min per IP (before auth, in-process), then token check, 6 chats/min per uid, body parse, then 60 chats/hour and 600/day globally (in-process). Body max 64 KB, 20 messages, 1000 characters each. The per-uid cap is a Firestore counter at `rateLimits/{uid}/windows/m-<minuteStart>` (field `count`), written with the same Firebase admin client as agent memory: one `FIREBASE_SERVICE_ACCOUNT` and one access-token cache in `firebaseAdmin()`. A missing admin client or a Firestore error falls back to the in-process sliding window for that uid (the map is cleared entirely above 5000 keys). IP and global caps stay in-process and reset on restart. Agent memory (optional `FIREBASE_SERVICE_ACCOUNT`): the proxy reads `agents/{uid}.memory.facts` into the prompt as data and rewrites it on turn 1 and every 4th turn per uid (one extra Gemini call, counted toward the daily cap). Chat history lives in owner-only `agents/{uid}/messages` (app keeps the newest 200); clients can read but never write `memory`.
 - CORS allowlist: `https://vishnupoola-999.github.io`, and `http`/`https` origins whose host is `localhost` (any port). `127.0.0.1` is not allowed. Preflight allows `Content-Type` and `Authorization`. A disallowed origin gets 403 on `POST /chat` and on `OPTIONS`. `ALLOWED_ORIGIN` is not read.
 
-`GET /` returns `ok`. `GET /flights` needs no auth and no allowlist check (CORS headers are still omitted for other origins). It queries adsb.lol, then adsb.fi, caches about 8 seconds, and clamps radius to 5–250 (default 80).
+`GET /` returns `ok`. `GET /flights` requires the same `Authorization: Bearer` Firebase ID token as `POST /chat`. A missing or invalid token is 401. A failure talking to Google's securetoken certificates is 503. `/flights` still does not check the allowlist (CORS headers are omitted for other origins). It queries adsb.lol, then adsb.fi, caches about 8 seconds, and clamps radius to 5–250 (default 80). `src/flights.js` sends `user.getIdToken()` and does not call the proxy when nobody is signed in.
 
 The chat client sends `user.getIdToken()`, times out at 60s, and after 3s shows "waking up your agent…". Transcript storage is described under known issues.
 
 ## Firestore data model and rules
 
-Rules file: `firestore.rules` (`rules_version = '2'`). The only allowed path is `agents/{uid}`, and only when `request.auth.uid == uid`. Reads, creates, updates, and deletes are owner-only. Listing `agents` is denied. Every other path, including subcollections such as `agents/{uid}/notes/{id}`, is denied. There is no users collection and no invites collection.
+Rules file: `firestore.rules` (`rules_version = '2'`). The only client-allowed path is `agents/{uid}`, and only when `request.auth.uid == uid`. Reads, creates, updates, and deletes are owner-only. Listing `agents` is denied. Every other path, including subcollections such as `agents/{uid}/notes/{id}`, is denied. There is no users collection and no invites collection.
+
+`rateLimits/{uid}/windows/{windowId}` holds the per-uid chat counter. The proxy writes it with the Firebase admin client, which bypasses security rules. The rules deny every client read and write on that path, so a signed-in user cannot read or reset the counter. `windowId` is `m-` plus the window start in epoch milliseconds, aligned to 60 seconds. The only field the proxy writes is `count`.
 
 `updatedAt` must equal `request.time`. The client sends `serverTimestamp()`.
 
@@ -98,7 +100,7 @@ No GitHub Actions secret is referenced. Workflows use `contents: read` and `acti
 | Job | Command | Notes |
 | --- | --- | --- |
 | Lint | `npm run lint` | ESLint flat config |
-| Proxy unit tests | `npm run test:proxy` | `node --test tests/proxy.test.mjs` |
+| Proxy unit tests | `npm run test:proxy` | `node --test tests/proxy.test.mjs tests/rate-limit.test.mjs` |
 | Playwright smoke | `npm run test:smoke` | Chromium, `scripts/static-server.mjs` port 4173, mobile 390×844 and desktop 1280×800. CI retries twice. |
 | Firestore rules | `npm run test:rules` | Temurin 21. `firebase emulators:exec --only firestore --project demo-virtual-world`. |
 
@@ -129,11 +131,12 @@ Names only. Do not commit values. No `.env` is in the repo.
 | --- | --- |
 | `GEMINI_API_KEY` | Required for `POST /chat`. Missing key returns 502 after the token is accepted. Stays on the server. |
 | `FIREBASE_PROJECT_ID` | Optional. Unset or empty uses the built-in default project id `virtual-world-8ac82`. Any other value must match `^[a-z0-9-]{6,40}$`. |
+| `FIREBASE_SERVICE_ACCOUNT` | Optional JSON for one Firebase admin client. Shared by agent memory and the per-uid rate-limit counters. Missing or invalid JSON leaves memory off and keeps per-uid limits in process memory. |
 | `MODEL` | Optional. Invalid or unset uses `gemini-flash-lite-latest`. |
 | `PORT` | Set by Render. Local default `8787`. |
 | `ALLOWED_ORIGIN` | Not read. Safe to delete on the service so it is not mistaken for the allowlist. |
 
-Do not add a service account, `GOOGLE_APPLICATION_CREDENTIALS`, or a Firebase JSON key for this proxy.
+That service account is the only admin credential. Do not add a second service account, `GOOGLE_APPLICATION_CREDENTIALS`, or another Firebase JSON key. ID token checks still use Google's public certificates and do not use this account.
 
 **Firebase client config (not server secrets, still not recopied here)**
 
@@ -152,8 +155,8 @@ GitHub Actions has no repository secrets in these workflows.
 
 - **No server-side agent memory.** The prompt is name and personality only. Chat history is `localStorage` key `vw-chat-<uid>` (last 40 kept, last 8 sent). The first greeting is inserted in memory when that log is empty and is written only when a later `save()` runs (after the user sends, or after a model reply). Closing chat before that drops the greeting. Rules deny any memory subcollection.
 - **Location is owner-only in Firestore and public-to-the-room on ntfy.** `preciseVisibility` cannot be anything but `private`. Cross-user reads are denied. Family sharing publishes precise `{id, name, lat, lon, ts}` to `https://ntfy.sh/vw1-<room>` about every 5 seconds while sharing is on. Anyone with the room code can subscribe. There is no invite document and no expiry on the room id (16-character code stored in `localStorage` key `vw-room`).
-- **Proxy limits are per process.** A restart or a second instance does not share them. Revoked ID tokens are accepted until they expire.
-- **`GET /flights` and `GET /` are unauthenticated.** `/flights` is served even when the browser origin is not on the allowlist.
+- **IP and global proxy caps are per process.** They reset on restart and are not shared across instances. Per-uid chat limits are Firestore counters when `FIREBASE_SERVICE_ACCOUNT` is set; a Firestore outage falls back to the in-process window. Revoked ID tokens are accepted until they expire.
+- **`GET /` is unauthenticated.** `GET /flights` requires a Firebase ID token. It is still served when the browser origin is not on the allowlist (those browsers do not receive CORS headers).
 - **Debug APK omits the PWA shell files.** `www/` has `src/` and `assets/` but not `sw.js`, `manifest.json`, or `icons/`. The procedural character does not need `robot.glb` (removed in #9).
 - **Release signing is not set up.** Debug keystore only.
 - **The Android workflow trigger is `push` only.** It does not show up as a `pull_request` check. A push of the head branch still builds the debug APK.
@@ -161,7 +164,7 @@ GitHub Actions has no repository secrets in these workflows.
 
 ## Changelog
 
-One line per pull request. Status is `merged` or `open` as of 2026-10-24, after rebase onto `bfe2408`. #12 is this PR.
+One line per pull request. Status is `merged` or `open` as of 2026-10-24. #14 is this PR.
 
 | PR | Title | Status | Summary |
 | --- | --- | --- | --- |
@@ -177,7 +180,8 @@ One line per pull request. Status is `merged` or `open` as of 2026-10-24, after 
 | #10 | Chat and World tabs (night theme, agent character header, Show me) | merged | Chat and World tabs, night-theme chat, and the agent character in the header. |
 | #11 | Docs: v1 roadmap and product decisions | merged | Adds `docs/ROADMAP.md` and `docs/DECISIONS.md`. |
 | #12 | docs: add the engineering log | merged | This file: the engineering record, this changelog, and pointers to the product docs. |
-| #13 | Agent memory: synced chat history + server-side owner notes | open | `agents/{uid}/messages` (owner-only rules + tests, newest 200) synced across devices; proxy sends the last 20 messages and a server-written `agents/{uid}.memory` summary. Needs `FIREBASE_SERVICE_ACCOUNT` on Render. |
+| #13 | Agent memory: synced chat history + server-side owner notes | merged | `agents/{uid}/messages` (owner-only rules + tests, newest 200) synced across devices; proxy sends the last 20 messages and a server-written `agents/{uid}.memory` summary. Needs `FIREBASE_SERVICE_ACCOUNT` on Render. |
+| #14 | feat: authenticate flights and persist per-user rate limits | open | `GET /flights` requires the chat Firebase ID token. Per-uid chat limits are Firestore minute counters on the existing admin client, with an in-memory fallback. |
 
 ## How to update
 

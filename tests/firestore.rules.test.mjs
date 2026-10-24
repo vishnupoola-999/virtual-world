@@ -304,6 +304,34 @@ describe('agent memory and chat history rules', { concurrency: false }, () => {
   });
 });
 
+describe('rate limit counter rules', { concurrency: false }, () => {
+  before(async () => {
+    const [host, port] = process.env.FIRESTORE_EMULATOR_HOST.split(':');
+    testEnv = await initializeTestEnvironment({
+      projectId: PROJECT_ID,
+      firestore: { rules: readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8'), host, port: Number(port) },
+    });
+  });
+  after(async () => { await testEnv.cleanup(); });
+  beforeEach(async () => { await testEnv.clearFirestore(); });
+
+  const windowRef = (owner, uid = owner) => doc(db(owner), 'rateLimits', uid, 'windows', 'm-1700000000000');
+
+  test('clients cannot read or write rate-limit counters', async () => {
+    await assertFails(setDoc(windowRef(ALICE), { count: 1 }));
+    await assertFails(getDoc(windowRef(ALICE)));
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'rateLimits', ALICE, 'windows', 'm-1700000000000'), { count: 6 });
+    });
+    await assertFails(getDoc(windowRef(ALICE)));
+    await assertFails(getDocs(collection(db(ALICE), 'rateLimits', ALICE, 'windows')));
+    await assertFails(setDoc(windowRef(ALICE), { count: 7 }));
+    await assertFails(deleteDoc(windowRef(ALICE)));
+    await assertFails(getDoc(windowRef(BOB, ALICE)));
+    await assertFails(setDoc(doc(db(null), 'rateLimits', ALICE, 'windows', 'm-1700000000000'), { count: 1 }));
+  });
+});
+
 function omit(data, key) {
   const copy = { ...data };
   delete copy[key];

@@ -56,6 +56,11 @@ service cloud.firestore {
               && l.outfit in ['tee','hoodie','kurta','dress']
               && l.acc.toSet().hasOnly(['glasses','headphones','cap','bindi'])));
     }
+    // Per-uid chat counters. The proxy writes them with admin credentials, which bypass these rules.
+    // Clients cannot read or reset the counter.
+    match /rateLimits/{uid}/windows/{window} {
+      allow read, write: if false;
+    }
     match /{document=**} { allow read, write: if false; }
   }
 }

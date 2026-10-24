@@ -26,7 +26,7 @@ $('meBtn').onclick=()=>{if(!navigator.geolocation)return toast('Location not sup
 $('homeBtn').onclick=()=>{closeSheet();map.flyTo({center:[HOME.lng,HOME.lat],zoom:16.3,pitch:60,bearing:-20});};
 $('globeBtn').onclick=()=>{closeSheet();map.flyTo({zoom:1.6,pitch:0,bearing:0});};
 // flights
-const flt=flightsLayer(map,{onMsg:t=>$('fltMsg').textContent=t});
+const flt=flightsLayer(map,{onMsg:t=>$('fltMsg').textContent=t,getUser:currentUser});
 $('fltBtn').onclick=()=>$('fltBtn').textContent='✈️ Flights: '+(flt.toggle()?'ON':'OFF');
 // family
 const room=roomFromUrl();

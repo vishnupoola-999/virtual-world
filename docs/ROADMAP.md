@@ -38,6 +38,6 @@ Ideator's v1 checklist. [x] = merged to `main`; open PRs are noted next to an it
 - [ ] Girl/boy decision: keep the name guess, or a side-by-side picker with no preselection (owner to decide)
 
 ## Backend follow-ups (from SWE, see [Engineering log](ENGINEERING_LOG.md))
-- [ ] `/flights` on the proxy has no sign-in check
-- [ ] Chat rate limits are kept in memory only (reset on every restart, not shared between instances)
+- [x] `/flights` requires the same Firebase ID token check as `/chat`
+- [x] Per-user chat rate limits are Firestore minute counters on the shared Firebase admin client (in-memory fallback if Firestore cannot be reached)
 - [ ] No release signing for the Android app yet (debug APK only)
