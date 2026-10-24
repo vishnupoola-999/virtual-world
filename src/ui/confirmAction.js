@@ -190,6 +190,8 @@ export function confirmAction(action = {}) {
       clearTimeout(waitTimer);
       if (ok) { showToast(isEmail ? 'Sent' : 'Added'); finish(); return; }
       hideToast();
+      errP.lastChild.textContent = ` Nothing was ${isEmail ? 'sent' : 'added'}. Close this and try again.`;
+      cancel.hidden = true;
       fail('Close');
       sheet.dataset.open = 'true'; scrim.dataset.open = 'true';
       sheet.focus({ preventScroll: true });

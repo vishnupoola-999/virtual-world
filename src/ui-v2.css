@@ -212,3 +212,4 @@ body[data-tab=world] .think::after,body[data-tab=world] .orbit,body[data-tab=wor
 .cs-toast[data-pending=true] .cs-ok{opacity:.45}.cs-toast .cs-ok{transition:opacity .2s;width:22px;height:22px;border-radius:50%;background:rgba(61,220,151,.16);display:grid;place-items:center}.cs-toast .cs-ok svg{stroke:var(--ok);width:14px;height:14px;stroke-width:2.2}
 .cs-toast-title{white-space:nowrap;font-weight:600}.cs-toast-sub{white-space:nowrap;font-size:12px;font-weight:450;color:var(--text-2);margin-top:1px}
 @media (prefers-reduced-motion:reduce){.cs-sheet,.cs-scrim,.cs-toast,.cs-primary{transition:none}}
+.cs-cancel[hidden]{display:none}

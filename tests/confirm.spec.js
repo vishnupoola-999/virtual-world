@@ -62,5 +62,7 @@ test('api mode: onResult swaps Sending for Sent, or shows the error', async ({ p
   await page.evaluate((email) => { window.__b = { kind: 'email', mode: 'api', email }; window.__ca.confirmAction(window.__b); }, email);
   await page.locator('.cs-sheet[data-open=true] .cs-primary').click();
   await page.evaluate(() => window.__b.onResult({ ok: false, error: 'x' }));
-  await expect(page.locator('.cs-sheet[data-open=true] .cs-error')).toBeVisible();
+  await expect(page.locator('.cs-sheet[data-open=true] .cs-error')).toHaveText('Something went wrong. Nothing was sent. Close this and try again.');
+  await expect(page.locator('.cs-sheet[data-open=true] .cs-primary')).toHaveText('Close');
+  await expect(page.locator('.cs-sheet[data-open=true] .cs-cancel')).toBeHidden();
 });
