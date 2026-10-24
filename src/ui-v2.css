@@ -182,7 +182,7 @@ body[data-tab=world] .think::after,body[data-tab=world] .orbit,body[data-tab=wor
 .cs-scrim{position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.55);opacity:0;transition:opacity .25s var(--ease-out)}
 .cs-scrim[data-open=true]{opacity:1}
 .cs-sheet{position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;max-width:480px;margin:0 auto;max-height:calc(100% - 24px);overflow:auto;border-radius:28px;padding:10px 20px 20px;background:var(--s2);border:1px solid var(--line-2);color:var(--text);transform:translateY(110%);transition:transform .25s var(--ease-out)}
-.cs-sheet[data-open=true]{transform:none}
+.cs-sheet[data-open=true]{transform:none}.cs-sheet:focus{outline:none}
 .cs-sheet .grab{width:36px;height:4px;border-radius:2px;background:var(--s4);margin:0 auto 16px}
 .cs-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
 .cs-sheet .tile,.cs-error .tile{width:36px;height:36px;border-radius:12px;background:var(--s3);border:1px solid var(--line-2);display:grid;place-items:center;flex:none}
@@ -200,7 +200,7 @@ body[data-tab=world] .think::after,body[data-tab=world] .orbit,body[data-tab=wor
 .cs-note{font-size:12px;color:var(--muted);margin:12px 2px 16px;line-height:1.45}
 .cs-actions{display:flex;flex-direction:column;gap:6px}
 .cs-primary{height:48px;border-radius:24px;background:#fff;color:#07080d;box-shadow:none;border:0;font-size:16px;font-weight:650;transition:transform .18s var(--spring),opacity .15s}
-.cs-primary:active{transform:scale(.97)}.cs-primary[data-busy=true]{opacity:.7}
+.cs-primary:focus{outline:none}.cs-primary:focus-visible{outline:2px solid #fff;outline-offset:3px}.cs-primary:active{transform:scale(.97)}.cs-primary[data-busy=true]{opacity:.7}
 .cs-cancel{height:44px;background:none;box-shadow:none;border:0;color:var(--text-2);font-size:15px;font-weight:500}
 .cs-ics{display:block;text-align:center;color:var(--text-2);font-size:14px;font-weight:500;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--faint);padding:10px 0 2px}
 .cs-error{display:flex;gap:10px;align-items:flex-start;border-radius:16px;padding:12px;margin-bottom:12px;background:var(--s1);border:1px solid var(--line-2)}
@@ -209,6 +209,6 @@ body[data-tab=world] .think::after,body[data-tab=world] .orbit,body[data-tab=wor
 .cs-error p{font-size:13px;color:var(--text-2);line-height:1.45;margin:0}.cs-error b{color:var(--text)}
 .cs-toast{position:fixed;top:16px;left:50%;z-index:10000;transform:translate(-50%,-80px);opacity:0;border-radius:24px;padding:10px 18px 10px 12px;display:flex;align-items:center;gap:8px;font-size:14px;background:var(--s2);border:1px solid var(--line-2);color:var(--text);pointer-events:none;transition:transform .35s var(--spring),opacity .2s}
 .cs-toast[data-show=true]{transform:translate(-50%,16px);opacity:1}
-.cs-toast .cs-ok{width:22px;height:22px;border-radius:50%;background:rgba(61,220,151,.16);display:grid;place-items:center}.cs-toast .cs-ok svg{stroke:var(--ok);width:14px;height:14px;stroke-width:2.2}
+.cs-toast[data-pending=true] .cs-ok{opacity:.45}.cs-toast .cs-ok{transition:opacity .2s;width:22px;height:22px;border-radius:50%;background:rgba(61,220,151,.16);display:grid;place-items:center}.cs-toast .cs-ok svg{stroke:var(--ok);width:14px;height:14px;stroke-width:2.2}
 .cs-toast-title{white-space:nowrap;font-weight:600}.cs-toast-sub{white-space:nowrap;font-size:12px;font-weight:450;color:var(--text-2);margin-top:1px}
 @media (prefers-reduced-motion:reduce){.cs-sheet,.cs-scrim,.cs-toast,.cs-primary{transition:none}}

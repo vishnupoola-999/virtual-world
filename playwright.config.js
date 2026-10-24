@@ -4,7 +4,7 @@ const port = 4173;
 
 export default defineConfig({
   testDir: 'tests',
-  testMatch: 'smoke.spec.js',
+  testMatch: ['smoke.spec.js', 'confirm.spec.js'],
   timeout: 90_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

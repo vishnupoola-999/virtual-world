@@ -2,7 +2,10 @@
 // Contract (PR #25): confirmAction(action) -> Promise<{confirmed:boolean}>.
 //   action = {kind:'email', email:{to, cc?, subject, body}} | {kind:'calendar', event:{title, start, end, details?, location?, allDay?, guests?}}
 //   action.mode: 'links' (default) opens Gmail / Google Calendar / .ics via src/agentTools.js;
-//                'api' just resolves {confirmed:true} so google-tools.js performs the write.
+//                'api' resolves {confirmed:true} so google-tools.js performs the write.
+// API mode result (PR #25 contract): confirmAction attaches action.onResult({ok, error}); google-tools.js calls it
+// after the write finishes. ok:true swaps "Sending"/"Adding to Calendar" for "Sent"/"Added"; ok:false reopens the
+// sheet in the error state. If onResult is never called the pending toast clears itself after 60 s.
 // Resolves confirmed:true ONLY after an explicit tap; false on Cancel/scrim/Escape. Text is set with textContent only.
 import { buildGmailComposeUrl, buildMailtoUrl, buildCalendarUrl, downloadIcs } from '../agentTools.js';
 const ICON = {
@@ -37,7 +40,7 @@ const kindOf = (action) => (action.kind === 'calendar' ? 'calendar' : 'email');
 const argsOf = (action) => (action.kind === 'calendar' ? action.event : action.email) || {};
 
 let toastTimer;
-function showToast(kind, api) {
+function showToast(title, sub = '', sticky = false) {
   let t = document.querySelector('.cs-toast');
   if (!t) {
     t = el('div', 'cs-toast');
@@ -48,19 +51,20 @@ function showToast(kind, api) {
     t.append(dot, txt);
     document.body.append(t);
   }
-  t.querySelector('.cs-toast-title').textContent = api ? (kind === 'email' ? 'Sending' : 'Adding to Calendar') : (kind === 'email' ? 'Opened in Gmail' : 'Opened Google Calendar');
-  const sub = t.querySelector('.cs-toast-sub');
-  sub.textContent = 'Tap Send there to finish';
-  sub.hidden = api || kind !== 'email';
-  t.dataset.show = 'false';
-  void t.offsetWidth; // restart the transition
-  t.dataset.show = 'true';
+  t.querySelector('.cs-toast-title').textContent = title;
+  const s = t.querySelector('.cs-toast-sub');
+  s.textContent = sub;
+  s.hidden = !sub;
+  t.dataset.pending = String(sticky); // dims the tick while the write is in flight
+  if (t.dataset.show !== 'true') { void t.offsetWidth; t.dataset.show = 'true'; }
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.dataset.show = 'false'; }, TOAST_MS);
+  if (!sticky) toastTimer = setTimeout(() => { t.dataset.show = 'false'; }, TOAST_MS);
 }
+function hideToast() { const t = document.querySelector('.cs-toast'); if (t) t.dataset.show = 'false'; clearTimeout(toastTimer); }
 
-function openUrl(href) {
-  if (!/^(https:|mailto:)/.test(String(href || ''))) throw new Error('bad link');
+export const isAllowedUrl = (href) => /^(https:|mailto:)/i.test(String(href || ''));
+export function openUrl(href) {
+  if (!isAllowedUrl(href)) throw new Error('bad link');
   const a = document.createElement('a');
   a.href = href;
   if (href.startsWith('https:')) { a.target = '_blank'; a.rel = 'noopener'; }
@@ -89,6 +93,7 @@ export function confirmAction(action = {}) {
     sheet.setAttribute('aria-modal', 'true');
     sheet.setAttribute('aria-labelledby', 'csTitle');
     sheet.dataset.open = 'false';
+    sheet.tabIndex = -1;
     sheet.append(el('div', 'grab'));
 
     const head = el('div', 'cs-head');
@@ -164,39 +169,58 @@ export function confirmAction(action = {}) {
     sheet.append(actions);
 
     let done = false;
+    const hide = () => { sheet.dataset.open = 'false'; scrim.dataset.open = 'false'; };
+    const remove = () => { document.removeEventListener('keydown', onKey); setTimeout(() => { scrim.remove(); sheet.remove(); }, 260); };
     const close = (val) => {
       if (done) return;
       done = true;
-      sheet.dataset.open = 'false';
-      scrim.dataset.open = 'false';
-      document.removeEventListener('keydown', onKey);
-      setTimeout(() => { scrim.remove(); sheet.remove(); }, 260);
+      hide();
+      remove();
       resolve({ confirmed: val === true });
     };
-    const fail = () => {
+    const fail = (label = 'Try again') => {
       errBox.hidden = false;
-      primary.textContent = 'Try again';
+      primary.textContent = label;
       primary.dataset.busy = 'false';
     };
+    const pendingTitle = isEmail ? 'Sending' : 'Adding to Calendar';
+    let waitTimer;
+    const finish = () => { clearTimeout(waitTimer); remove(); };
+    const report = ({ ok } = {}) => {
+      clearTimeout(waitTimer);
+      if (ok) { showToast(isEmail ? 'Sent' : 'Added'); finish(); return; }
+      hideToast();
+      fail('Close');
+      sheet.dataset.open = 'true'; scrim.dataset.open = 'true';
+      sheet.focus({ preventScroll: true });
+    };
+    const startPending = () => {
+      hide();
+      showToast(pendingTitle, '', true);
+      waitTimer = setTimeout(() => { hideToast(); finish(); }, 60_000);
+    };
+    if (api) action.onResult = (r) => report(r || {});
     const go = (link) => {
+      if (api && done) { hide(); finish(); return; } // error state after onResult({ok:false}): Close
       if (done) return;
-      if (api) { showToast(kind, true); close(true); return; } // google-tools.js performs the write after this resolves
+      if (api) { done = true; startPending(); resolve({ confirmed: true }); return; }
       primary.dataset.busy = 'true';
       try { OPEN[link](a); } catch { fail(); return; }
-      showToast(kind, false);
+      showToast(isEmail ? 'Opened in Gmail' : 'Opened Google Calendar', isEmail ? 'Tap Send there to finish' : '');
       close(true);
     };
     primary.onclick = () => go(primaryLink);
     if (alt) alt.onclick = (e) => { e.preventDefault(); go(altLink); };
-    cancel.onclick = () => close(false);
-    scrim.onclick = () => close(false);
-    const onKey = (e) => { if (e.key === 'Escape') close(false); };
+    const dismiss = () => { if (done) { hide(); finish(); } else close(false); };
+    cancel.onclick = dismiss;
+    scrim.onclick = dismiss;
+    const onKey = (e) => { if (e.key === 'Escape') dismiss(); };
     document.addEventListener('keydown', onKey);
 
     document.body.append(scrim, sheet);
     void sheet.offsetWidth;
     sheet.dataset.open = 'true';
     scrim.dataset.open = 'true';
-    primary.focus({ preventScroll: true });
+    sheet.focus({ preventScroll: true });
   });
 }
