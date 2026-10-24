@@ -22,7 +22,9 @@ $('searchF').onsubmit=async e=>{e.preventDefault();const q=$('q').value.trim();i
 let me=null;
 $('meBtn').onclick=()=>{if(!navigator.geolocation)return toast('Location not supported');toast('Asking for location…',0);
   navigator.geolocation.getCurrentPosition(p=>{const ll=[p.coords.longitude,p.coords.latitude];
-    if(!me){const el=document.createElement('div');el.className='me';me=new maplibregl.Marker({element:el}).setLngLat(ll).addTo(map);}else me.setLngLat(ll);
+    // With an agent, the character itself stands at your position; the plain dot is only for people without one.
+    if(window.__vw.agent?.setLive({lat:ll[1],lon:ll[0]})){me?.remove();me=null;}
+    else if(!me){const el=document.createElement('div');el.className='me';me=new maplibregl.Marker({element:el}).setLngLat(ll).addTo(map);}else me.setLngLat(ll);
     flyTo(map,...ll,18);toast(`📍 You are here (±${Math.round(p.coords.accuracy)} m). Not shared.`);},e=>toast('Location error: '+e.message),{enableHighAccuracy:true,timeout:20000});};
 $('homeBtn').onclick=()=>{closeSheet();map.flyTo({center:[HOME.lng,HOME.lat],zoom:16.3,pitch:60,bearing:-20});};
 $('globeBtn').onclick=()=>{closeSheet();map.flyTo({zoom:1.6,pitch:0,bearing:0});};
@@ -65,11 +67,12 @@ let watch=null,timer=null,lastPos=null;
 const myName=()=>currentUser()?.displayName||localStorage.getItem('vw-name')||'Family member';
 const sendPos=()=>{if(lastPos){usedKeys.add(myKey());relay.publish(myKey(),{name:myName(),...lastPos,ts:Date.now()});}};
 const clearMe=()=>{for(const k of usedKeys)relay.clear(k);};
-function stopLive(){if(watch!==null)navigator.geolocation.clearWatch(watch);clearInterval(timer);watch=timer=null;lastPos=null;clearMe();$('liveBtn').classList.remove('on');$('liveBtn').textContent='📡 Share my live location';}
+function stopLive(){if(watch!==null)navigator.geolocation.clearWatch(watch);clearInterval(timer);watch=timer=null;lastPos=null;clearMe();window.__vw.agent?.setLive(null);$('liveBtn').classList.remove('on');$('liveBtn').textContent='📡 Share my live location';}
 $('liveBtn').onclick=()=>{if(watch!==null){stopLive();return toast('Stopped sharing');}
   if(!confirm('Share your live location with your family while the app is open?'))return;
   if(!currentUser()&&!localStorage.getItem('vw-name')){const n=prompt('Your name for the family map:');if(!n)return;localStorage.setItem('vw-name',n.slice(0,24));}
-  watch=navigator.geolocation.watchPosition(p=>{const f=!lastPos;lastPos={lat:p.coords.latitude,lon:p.coords.longitude,acc:Math.round(p.coords.accuracy)};if(f){sendPos();toast('📡 Sharing with family');}},e=>{toast('Location error: '+e.message);stopLive();},{enableHighAccuracy:true,maximumAge:5000});
+  watch=navigator.geolocation.watchPosition(p=>{const f=!lastPos;lastPos={lat:p.coords.latitude,lon:p.coords.longitude,acc:Math.round(p.coords.accuracy)};window.__vw.agent?.setLive(lastPos);
+    if(f){sendPos();toast('📡 Sharing with family');if(window.__vw.agent?.agent){me?.remove();me=null;if(!map.getBounds().contains([lastPos.lon,lastPos.lat]))map.easeTo({center:[lastPos.lon,lastPos.lat],essential:true});}}},e=>{toast('Location error: '+e.message);stopLive();},{enableHighAccuracy:true,maximumAge:5000});
   timer=setInterval(sendPos,5000);$('liveBtn').classList.add('on');$('liveBtn').textContent='⛔ Stop sharing';};
 addEventListener('pagehide',()=>{if(watch!==null)clearMe();});
 if(new URLSearchParams(location.search).get('room'))setTimeout(()=>openSheet('family'),800);

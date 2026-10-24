@@ -4,7 +4,9 @@ import {toLook,defaultLook,sanitize,SKIN,HAIR_COLOURS,OUTFIT_COLOURS,HAIRSTYLES,
 import {toast} from './ui.js';
 import {track} from './onboarding.js';
 const $=id=>document.getElementById(id);
-export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=null,agent=null,loadSeq=0;const av=lazyAvatar(map);const msg=t=>{$('agMsg').textContent=t;};
+export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=null,agent=null,loadSeq=0,live=null;const av0=lazyAvatar(map);
+  // While live sharing (or after 📍), draw the character at the live position; the saved spot is not changed.
+  const av={set:a=>av0.set(a&&live?{...a,lat:live.lat,lon:live.lon}:a),play:n=>av0.play(n)};const msg=t=>{$('agMsg').textContent=t;};
   const lk=lookEditor(l=>{if(agent&&$('agForm').dataset.edit)av.set({...agent,look:l});$('agSave').disabled=!lk?.picked();});
   const getPos=()=>new Promise((ok,no)=>navigator.geolocation?navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:true,timeout:20000}):no(new Error('Location not supported')));
   function render(){const signed=!!user;
@@ -53,6 +55,8 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
   for(const ev of ['touchend','mouseup','dragstart','zoomstart'])map.on(ev,cancelLp);
   map.on('touchmove',e=>{if(lpAt&&Math.hypot(e.point.x-lpAt.x,e.point.y-lpAt.y)>10)cancelLp();});
   render();lk.load(null,'');return {get agent(){return agent;},startMove,
+    // Live position for the on-map character (null = back to the saved spot). Returns true when a character is drawn there.
+    setLive(p){live=p&&isFinite(p.lat)&&isFinite(p.lon)?{lat:p.lat,lon:p.lon}:null;if(!moving)av.set(agent);return !!agent;},
     // Agent created by onboarding (local copy first, then the saved one).
     adopt(a,quiet){agent=a;av.set(a);render();if(!quiet)onAgent(a);},
     _preview(a){agent=a;av.set(a);render();onAgent(a);}};}
