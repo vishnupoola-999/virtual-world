@@ -41,8 +41,20 @@ test('page loads with no console errors', async ({ page }) => {
     errors.push({ text: msg.text(), url: location.url || '' });
   });
 
+  // Signed out: onboarding opens on the night globe, and Get started leads to one-tap sign-in.
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page).toHaveTitle('Virtual World');
+  await expect(page.locator('#onb')).toBeVisible();
+  await expect(page.locator('#onb h1')).toContainText('Your agent is waiting to be born.');
+  await page.locator('#onbGo').click();
+  await expect(page.locator('#onbSign')).toBeVisible();
+  await expect(page.locator('#onbSign')).toBeEnabled();
+  await page.locator('#onbBack').click();
+  await expect(page.locator('#onbGo')).toBeVisible();
+
+  // The rest checks the app shell with onboarding off.
+  await page.goto('/?onb=0', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#onb')).toBeHidden();
   await expect(page.locator('#topbar .brand')).toContainText('Virtual World');
   await expect(page.locator('#acctBtn')).toBeVisible();
   await expect(page.locator('#map')).toBeVisible();

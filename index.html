@@ -19,7 +19,7 @@
 </nav>
 <section id="chatView" hidden aria-label="Chat with my agent">
  <header class="hero" id="hero"><div class="lights"></div><canvas id="heroCv" aria-hidden="true"></canvas>
-  <div class="who"><b id="chatTitle">My agent</b><small><span id="chatDot" class="dot"></span><span id="chatSub">Online</span></small></div></header>
+  <button id="chatMove" class="heroMove" type="button">📍 Move my agent</button><div class="who"><b id="chatTitle">My agent</b><small><span id="chatDot" class="dot"></span><span id="chatSub">Online</span></small></div></header>
  <div id="chatBanner" class="banner" hidden role="status"></div>
  <div id="chatLog" aria-live="polite"></div>
  <form id="chatF"><input id="chatIn" placeholder="Message your agent…" autocomplete="off" enterkeyhint="send" maxlength="1000"><button aria-label="Send" disabled>➤</button></form>
@@ -39,12 +39,12 @@
  <div data-sec="agent" data-title="My agent">
   <button id="agSignIn" class="primary">🔐 Sign in with Google to create your agent</button>
   <div id="agentBox" hidden>
-   <div id="agView" hidden><div id="agTitle"></div><small id="agDesc"></small><div class="row"><button id="agGo">🎯 Go to</button><button id="agMove">📍 Move here</button><button id="agEdit">✏️ Edit</button></div></div>
-   <form id="agForm" hidden><input id="agName" placeholder="Agent name" maxlength="40"><div id="lookBox"><div class="row seg" id="lkBase"><button type="button" data-base="girl">👧 Girl</button><button type="button" data-base="boy">👦 Boy</button><small id="lkGuess"></small></div>
+   <div id="agView" hidden><div id="agTitle"></div><small id="agDesc"></small><div class="row"><button id="agGo">🎯 Go to</button><button id="agMove">📍 Move here</button><button id="agEdit">✏️ Edit</button></div><button id="agLift" class="wide">📍 Move my agent</button></div>
+   <form id="agForm" hidden><input id="agName" placeholder="Agent name" maxlength="40"><div id="lookBox"><div class="pickHead" id="lkPrompt">Pick your agent <small>Tap one. You can change everything later.</small></div><div class="pick" id="lkBase" role="radiogroup" aria-label="Choose a character"><button type="button" role="radio" aria-checked="false" data-base="girl" aria-label="Character 1"><img alt=""></button><button type="button" role="radio" aria-checked="false" data-base="boy" aria-label="Character 2"><img alt=""></button></div><div id="lkMore">
     <div class="lkRow"><span>Skin</span><div class="sw" id="lkSkin"></div></div>
     <div class="lkRow"><span>Hair</span><select id="lkHair"></select><div class="sw" id="lkHairC"></div></div>
     <div class="lkRow"><span>Outfit</span><select id="lkOutfit"></select><div class="sw" id="lkOutfitC"></div></div>
-    <div class="lkRow"><span>Extras</span><div id="lkAcc"></div></div></div>
+    <div class="lkRow"><span>Extras</span><div id="lkAcc"></div></div></div></div>
    <textarea id="agPers" placeholder="Short personality, e.g. friendly study buddy" maxlength="300" rows="2"></textarea><button id="agSave" class="primary"></button></form>
   </div><small id="agMsg"></small>
  </div>
@@ -64,6 +64,9 @@
  </div>
  </div>
 </section>
+<div id="moveBar" hidden><div class="liftPin" aria-hidden="true"><span></span></div><div class="bar"><small style="color:var(--muted)">Drag the map to your agent's new home</small><div class="row"><button id="moveCancel">Cancel</button><button id="moveOk" class="primary">My agent lives here</button></div></div></div>
+<section id="onb" hidden aria-label="Welcome"><header class="onbTop"><button id="onbBack" aria-label="Back" hidden>‹</button><div id="onbPills" aria-hidden="true"></div><button id="onbSkip" class="link" hidden></button></header>
+ <div id="onbOffline" class="offPill" hidden role="status">⚡ You're offline. We'll keep trying.</div><div id="onbBody"></div></section>
 <div id="toast" hidden role="status"></div>
 <small id="status" hidden></small>
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>

@@ -107,6 +107,12 @@ describe('agents/{uid} rules', { concurrency: false }, () => {
     assert.deepEqual(stored.get('approx'), { lat: 18.01, lon: 79.53 });
   });
 
+  test('owner can mark an agent spot as approximate (location fallback)', async () => {
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({ spotApprox: true })));
+    const stored = await assertSucceeds(getDoc(agentRef(ALICE)));
+    assert.equal(stored.get('spotApprox'), true);
+  });
+
   test('owner can create a minimal agent without optional fields', async () => {
     await assertSucceeds(setDoc(agentRef(ALICE), minimal()));
     const stored = await assertSucceeds(getDoc(agentRef(ALICE)));
@@ -209,6 +215,7 @@ describe('agents/{uid} rules', { concurrency: false }, () => {
       { name: 'ownerName longer than 80', data: agent({ ownerName: 'o'.repeat(81) }) },
       { name: 'approx missing lon', data: agent({ approx: { lat: 1 } }) },
       { name: 'approx lat is a string', data: agent({ approx: { lat: '1', lon: 2 } }) },
+      { name: 'spotApprox is not a bool', data: agent({ spotApprox: 'yes' }) },
     ];
 
     const failures = [];
