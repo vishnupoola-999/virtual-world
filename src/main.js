@@ -8,7 +8,10 @@ import {setupOnboarding} from './onboarding.js';
 import {setupChat} from './chat.js';
 import {chatHero} from './chat-hero.js';
 import {setupTabs} from './tabs.js';
-import {currentUser,onUser} from './firebase.js';
+import {currentUser,onUser,loadDiary} from './firebase.js';
+import {setupLiving,readStatus} from './living.js';
+import {setupAway,markVisit} from './away.js';
+import {track} from './onboarding.js';
 import {setupUI,toast,closeSheet,openSheet,dragToClose} from './ui.js';
 const $=id=>document.getElementById(id);
 setupUI();
@@ -79,7 +82,13 @@ $('chatMore').onclick=$('chatPlus').onclick=()=>more(true);dragToClose($('moreSh
 $('chatMove').onclick=()=>{more(false);tabs.set('world');window.__vw.agent.startMove('chat');};
 $('chatCustom').onclick=()=>{more(false);tabs.set('world');openSheet('agent');$('agEdit')?.click();};
 $('chatLive').onclick=()=>{$('liveBtn').click();$('chatLive').setAttribute('aria-checked',String(watch!==null));};
-window.__vw.agent=setupAgent(map,{onLoaded:(u,a)=>{if(!u||noOnb)return;if(!a)ob.afterSignIn();else if(ob.active&&ob.step<=2){ob.close();goChat();}},onAgent:a=>{chat.reset();if(a&&autoChat){autoChat=false;if(chat.open()){closeSheet();tabs.set('chat');return true;}}else if(!a&&tabs.current==='chat')tabs.set('world');else if(a&&tabs.current==='chat')chat.open();}});
+// Living agents: status pill / route / link / hint card on the map, and the "While you were away" card on open.
+// V1 (friends test): map walking/meeting/working states, status pill and hint card are off. Flip after V1.
+const LIVING_MAP=false;
+const living=LIVING_MAP?setupLiving(map,{hintEl:$('liveHint')}):{showOwn:a=>readStatus(a),readStatus};const away=setupAway({track});window.__vw.living=living;window.__vw.away=away;
+addEventListener('pagehide',()=>markVisit());document.addEventListener('visibilitychange',()=>{if(document.hidden&&!away.open)markVisit();});
+const showLife=(u,a)=>{living.showOwn(a);if(!u||!a||ob.active)return;loadDiary(u.uid).then(entries=>away.maybeShow({name:a.name,entries})).catch(e=>console.warn('diary',e?.code||e?.message));};
+window.__vw.agent=setupAgent(map,{onLoaded:(u,a)=>{showLife(u,a);if(!u||noOnb)return;if(!a)ob.afterSignIn();else if(ob.active&&ob.step<=2){ob.close();goChat();}},onAgent:a=>{chat.reset();if(a&&autoChat){autoChat=false;if(chat.open()){closeSheet();tabs.set('chat');return true;}}else if(!a&&tabs.current==='chat')tabs.set('world');else if(a&&tabs.current==='chat')chat.open();}});
 $('tabWorld').addEventListener('click',()=>{autoChat=false;});
 // Share my own live location from inside the app, so the map (and my agent) stay on screen.
 let watch=null,timer=null,lastPos=null;

@@ -6,9 +6,17 @@ service cloud.firestore {
       // `memory` (facts the agent remembers about its owner) is written only by the chat proxy with admin credentials.
       // The owner can read it but can never set or change it.
       allow create: if request.auth != null && request.auth.uid == uid && valid(request.resource.data)
-        && !('memory' in request.resource.data);
+        && !request.resource.data.keys().hasAny(['memory','life','friends','isTest','status']);
       allow update: if request.auth != null && request.auth.uid == uid && valid(request.resource.data)
-        && request.resource.data.get('memory', null) == resource.data.get('memory', null);
+        && request.resource.data.get('memory', null) == resource.data.get('memory', null)
+        && request.resource.data.get('life', null) == resource.data.get('life', null)
+        && request.resource.data.get('friends', null) == resource.data.get('friends', null)
+        && request.resource.data.get('isTest', null) == resource.data.get('isTest', null)
+        && request.resource.data.get('status', null) == resource.data.get('status', null);
+      // Life loop diary (proxy /tick writes with admin credentials). Owner reads and may delete, never writes.
+      match /diary/{did} {
+        allow read, delete: if request.auth != null && request.auth.uid == uid;
+      }
       // Chat history, newest MAX_MESSAGES kept by the app. Owner-only; messages are never edited.
       match /messages/{mid} {
         allow read, delete: if request.auth != null && request.auth.uid == uid;
@@ -22,7 +30,7 @@ service cloud.firestore {
         && m.at == request.time;
     }
     function valid(d) {
-      return d.keys().hasOnly(['name','look','personality','ownerName','lat','lon','approx','preciseVisibility','updatedAt','memory','spotApprox'])
+      return d.keys().hasOnly(['name','look','personality','ownerName','lat','lon','approx','preciseVisibility','updatedAt','memory','spotApprox','interests','bio','life','friends','isTest','status'])
         && d.keys().hasAll(['name','look','lat','lon','preciseVisibility','updatedAt'])
         && d.name is string && d.name.size() > 0 && d.name.size() <= 40
         && d.look is map && (legacyLook(d.look) || characterLook(d.look))
@@ -32,6 +40,8 @@ service cloud.firestore {
         && d.lon is number && d.lon >= -180 && d.lon <= 180
         && (!('approx' in d) || (d.approx is map && d.approx.lat is number && d.approx.lon is number))
         && (!('spotApprox' in d) || d.spotApprox is bool)
+        && (!('interests' in d) || interests(d.interests))
+        && (!('bio' in d) || (d.bio is string && d.bio.size() <= 120))
         && d.preciseVisibility == 'private'
         && d.updatedAt == request.time;
     }
@@ -40,6 +50,13 @@ service cloud.firestore {
       return l.keys().hasOnly(['color','emoji']) && l.keys().hasAll(['color','emoji'])
         && l.color is string && l.color.size() <= 9 && l.emoji is string && l.emoji.size() <= 16;
     }
+    // 3 to 5 lowercase tags, each 1-24 chars (same pattern as proxy/life.js INTEREST_RE).
+    function interests(l) {
+      return l is list && l.size() >= 3 && l.size() <= 5 && l.toSet().size() == l.size()
+        && (l.size() < 1 || tag(l[0])) && (l.size() < 2 || tag(l[1])) && (l.size() < 3 || tag(l[2]))
+        && (l.size() < 4 || tag(l[3])) && (l.size() < 5 || tag(l[4]));
+    }
+    function tag(t) { return t is string && t.matches('^[a-z0-9][a-z0-9 &+-]{0,23}$'); }
     function hex(c) { return c is string && c.matches('^#[0-9a-f]{6}$'); }
     // v1 character look from src/character.js (sanitize() runs before every save).
     function characterLook(l) {

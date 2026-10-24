@@ -20,7 +20,7 @@ function create(map){
     .catch(e=>{rLoad=null;console.warn('agent renderer',e?.message);});
   function el(a){const d=document.createElement('div');d.className='ag'+(a.mine?' mine':'');d.setAttribute('role','button');d.tabIndex=0;
     d.innerHTML=`${a.mine?'<span class="halo"></span>':''}<span class="shadow"></span><div class="bob"><canvas width="112" height="128"></canvas></div>`+
-      `<span class="bubble glass" hidden><b></b><b></b><b></b></span><span class="busy" hidden></span><span class="pill glass"><i></i>${a.mine?'You · ':''}<span class="agLabel"></span></span>`;
+      `<span class="stat glass" hidden></span><span class="bubble glass" hidden><b></b><b></b><b></b></span><span class="busy" hidden></span><span class="pill glass"><i></i>${a.mine?'You · ':''}<span class="agLabel"></span></span>`;
     // Tap opens the profile; a 500 ms long-press on your own agent starts Move my agent (PR #14).
     let lp=0,down=null,fired=false;const cancel=()=>{clearTimeout(lp);lp=0;};
     d.addEventListener('pointerdown',e=>{down=[e.clientX,e.clientY];fired=false;if(a.mine)lp=setTimeout(()=>{lp=0;fired=true;navigator.vibrate?.(20);hooks.onLongPress?.(a);},500);});
@@ -30,7 +30,10 @@ function create(map){
     d.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openProfile(a);}});
     return d;}
   function paint(a){const e=a.el;e.setAttribute('aria-label',`${a.name}'s agent${a.mine?' (you)':''}`);e.querySelector('.agLabel').textContent=a.name;
-    e.classList.toggle('walking',a.state==='walking');e.querySelector('.bubble').hidden=a.state!=='talking';e.querySelector('.busy').hidden=a.state!=='busy';
+    const L=a.living,meet=L?.kind==='meeting';e.classList.toggle('walking',a.state==='walking'||L?.kind==='walking');
+    const bb=e.querySelector('.bubble');bb.hidden=a.state!=='talking'&&!(meet&&a.mine);bb.classList.toggle('big',meet&&a.mine);
+    // Living status pill above the head (living.js builds the trusted inner HTML from escaped text).
+    const st=e.querySelector('.stat'),html=L&&L.kind!=='idle'&&L.html||'';if(st.dataset.h!==html){st.dataset.h=html;st.innerHTML=html;st.hidden=!html;}e.querySelector('.busy').hidden=a.state!=='busy';
     e.querySelector('.pill i').hidden=a.state==='busy';a.drawnKey=null;}
   // Adds or updates one agent. a = {id, name, lat, lon, look, ownerName, mine, state, meta, status}
   function put(d){let a=all.get(d.id);const look=toLook(d.look,d.ownerName||d.name);
@@ -61,8 +64,8 @@ function create(map){
         if(!live&&a.drawnKey===anim+JSON.stringify(a.look))return;blit(a,anim,live?dt:0);a.drawnKey=live?null:anim+JSON.stringify(a.look);});
       if(prof)drawProfile(dt);}
     raf=requestAnimationFrame(frame);}
-  const animFor=a=>a.mine&&a.waveUntil>performance.now()?'wave':a.state==='walking'?'walk':a.state==='talking'?'talk':'idle';
-  function blit(a,anim,dt){const src=R.draw(a.id,a.look,anim,dt);a.g.clearRect(0,0,112,128);a.g.drawImage(src,0,0);}
+  const animFor=a=>a.mine&&a.waveUntil>performance.now()?'wave':a.state==='walking'||a.living?.kind==='walking'?'walk':a.state==='talking'||(a.living?.kind==='meeting'&&a.mine)?'talk':'idle';
+  function blit(a,anim,dt){const src=R.draw(a.id,a.look,anim,dt,undefined,a.yaw);a.g.clearRect(0,0,112,128);a.g.drawImage(src,0,0);}
   function drawProfile(dt){const a=all.get(prof.id),cv=document.getElementById('pAv');if(!a||!cv||!R)return;const src=R.draw(a.id,a.look,animFor(a),dt,'portrait');
     const g=cv.getContext('2d');g.clearRect(0,0,144,144);g.drawImage(src,9,0,126,144);}
   const onZoom=()=>{const n=near();for(const a of all.values())a.el.classList.toggle('far',!n);if(n)kick();};
@@ -105,7 +108,12 @@ function create(map){
 
   // Friends' agents switch in Layers: hide everyone except you.
   function showFriends(on){for(const a of all.values())if(!a.mine){a.hidden=!on;a.el.style.visibility=on?'':'hidden';}syncSource();}
-  return {put,remove,setState,openProfile,closeProfile,showFriends,get(id){return all.get(id);},configure(h){Object.assign(hooks,h);},
+  // Living state for one agent: {kind:'walking'|'meeting'|'working'|'idle', html} plus an optional yaw (radians, map view only).
+  function setLiving(id,living,yaw){const a=all.get(id);if(!a)return;a.living=living||null;a.yaw=yaw;a.drawnKey=null;paint(a);kick();}
+  // One portrait frame of an agent into a 2D canvas (the away-card header avatar); loads the shared renderer if needed.
+  function portrait(id,cv,anim,dt){const a=all.get(id);if(!a)return false;if(!R){loadR();return false;}const src=R.draw(a.id,a.look,anim||'idle',dt||0,'portrait');
+    const g=cv.getContext('2d');g.clearRect(0,0,cv.width,cv.height);g.drawImage(src,0,0,112,112,0,0,cv.width,cv.height);a.drawnKey=null;kick();return true;}
+  return {put,remove,setState,setLiving,portrait,openProfile,closeProfile,showFriends,get(id){return all.get(id);},configure(h){Object.assign(hooks,h);},
     // Your own agent, used by agent.js in place of the old full-screen 3D layer.
     mine:{set(a){if(!a){remove('me');return;}put({id:'me',mine:true,name:a.name||'My agent',lat:a.lat,lon:a.lon,look:a.look,ownerName:a.ownerName,meta:a.meta,status:a.status});},
       play(n){const a=all.get('me');if(!a)return;if(n==='walk'){a.state='walking';paint(a);setTimeout(()=>{if(a.state==='walking'){a.state='online';paint(a);}},900);}
