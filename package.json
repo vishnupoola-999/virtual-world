@@ -6,7 +6,7 @@
   "scripts": {
     "lint": "eslint .",
     "test:smoke": "playwright test",
-    "test:proxy": "node --test tests/proxy.test.mjs tests/rate-limit.test.mjs",
+    "test:proxy": "node --test tests/proxy.test.mjs tests/rate-limit.test.mjs tests/tools.test.mjs",
     "test:rules:run": "node --test --test-concurrency=1 tests/firestore.rules.test.mjs",
     "test:rules": "firebase emulators:exec --only firestore --project demo-virtual-world \"npm run test:rules:run\"",
     "copy:web": "node scripts/copy-web.mjs",

@@ -5,7 +5,7 @@
 // "redirect best practices" Option 1 is to use signInWithPopup everywhere; we only fall back to redirect if the popup is blocked.
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {initializeAuth,indexedDBLocalPersistence,browserLocalPersistence,browserPopupRedirectResolver,GoogleAuthProvider,
-  signInWithPopup,signInWithRedirect,signInWithCredential,getRedirectResult,onAuthStateChanged,signOut} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+  signInWithPopup,signInWithRedirect,reauthenticateWithPopup,linkWithPopup,signInWithCredential,getRedirectResult,onAuthStateChanged,signOut} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 const app=initializeApp({apiKey:'AIzaSyCfA2MaUKk-B9L4GNpM-QJiOXp3E6UUZdM',authDomain:'virtual-world-8ac82.firebaseapp.com',projectId:'virtual-world-8ac82',storageBucket:'virtual-world-8ac82.firebasestorage.app',messagingSenderId:'38479190061',appId:'1:38479190061:web:749e619be467e076de80a4',measurementId:'G-MXK91TZGGZ'});
 export const auth=initializeAuth(app,{persistence:[indexedDBLocalPersistence,browserLocalPersistence],popupRedirectResolver:browserPopupRedirectResolver});
 // Firestore (~113 KB gz) is deferred (perf audit #2): loaded on first use, or after first paint when idle.
@@ -85,3 +85,13 @@ export async function addMessage(uid,m){const F=await fs();return F.addDoc(msgs(
 export async function trimMessages(uid){const F=await fs(),{getDocs,query,orderBy,limit,deleteDoc}=F;const s=await getDocs(query(msgs(F,uid),orderBy('at','desc'),limit(MAX_MESSAGES+100)));
   await Promise.all(s.docs.slice(MAX_MESSAGES).map(d=>deleteDoc(d.ref)));}
 export const currentUser=()=>auth.currentUser;
+// Agent tools: asks Google for extra scopes on demand and returns the OAuth access token.
+// The token is returned to src/google-tools.js, which keeps it in memory only. It is never stored here.
+export async function requestGoogleAccess(scopes){
+  const u=auth.currentUser;if(!u)throw Object.assign(new Error('not signed in'),{code:'auth/no-user'});
+  const p=new GoogleAuthProvider();for(const s of scopes)p.addScope(s);p.setCustomParameters({login_hint:u.email||'',include_granted_scopes:'true'});
+  const hasGoogle=u.providerData.some(d=>d.providerId==='google.com');
+  const r=hasGoogle?await reauthenticateWithPopup(u,p):await linkWithPopup(u,p);
+  const c=GoogleAuthProvider.credentialFromResult(r);
+  return {accessToken:c?.accessToken||null,expiresIn:3000};
+}
