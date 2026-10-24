@@ -17,7 +17,8 @@ export function chatHero(canvas){let lastAgent=null;const ro=new ResizeObserver(
     ch=createCharacter();scene.add(ch.group);size();return true;}
   function size(){if(!r)return;const w=canvas.clientWidth,h=canvas.clientHeight;if(!w||!h)return;r.setSize(w,h,false);cam.aspect=w/h;
     // UI v2: the header avatar is a 44 px circle, so frame head and shoulders (about 0.65 m up to the hair top at 1.28 m, plus headroom).
-    if(w<80){cam.position.set(0,1.0,1.9);cam.lookAt(0,.95,0);}else{cam.position.set(0,.62,3.4);cam.lookAt(0,.56,0);}cam.updateProjectionMatrix();draw();}
+    // Head (hair top ≈1.29 m, centre ≈1.07 m) is centred in the circle so the round edge never cuts the hair.
+    if(w<80){cam.fov=22;cam.position.set(0,1.03,1.9);cam.lookAt(0,1.02,0);}else{cam.fov=28;cam.position.set(0,.62,3.4);cam.lookAt(0,.56,0);}cam.updateProjectionMatrix();draw();}
   function draw(){if(!r||!ch)return;ch.update(Math.min(clock.getDelta(),.1));
     // thinking: gentle side-to-side sway; sleeping: dimmed and sinks a little; error: still.
     const T=performance.now()/1000,g=ch.group;g.rotation.y=state==='thinking'?Math.sin(T*3)*.35:0;
