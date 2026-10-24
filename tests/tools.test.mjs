@@ -208,5 +208,6 @@ test('real calendar add includes location', async () => {
 test('hdr strips all control characters', () => {
   assert.equal(hdr('a\x00b\tc\x1fd\x7fe\r\nf'), 'a b c d e f');
   const raw = Buffer.from(rawEmail({ to: 'a@b.com\x0bBcc: x', subject: 's\x00', body: 'b' }), 'base64url').toString();
+  // eslint-disable-next-line no-control-regex
   assert.doesNotMatch(raw.split('\r\n\r\n')[0], /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/);
 });
