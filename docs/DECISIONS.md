@@ -30,3 +30,10 @@ See also: [Engineering log](ENGINEERING_LOG.md) (architecture, PR history, setup
 ## Testing
 - Check on the live site and the Android APK at the end of a batch of work, not after every PR.
 - CI (lint, smoke, proxy and rules tests, debug APK) covers each PR.
+
+## Agent tools (Gmail, Calendar)
+- The model only proposes actions; the proxy never executes them and never sees a Google OAuth token.
+- The browser calls Gmail/Calendar directly with an access token kept in memory only (lost on reload; the user re-consents).
+- Every write (Gmail draft, send, calendar add) needs an explicit Confirm tap showing the exact To/Subject/Body or event. Reading upcoming events does not.
+- Minimal scopes: `gmail.compose`, `gmail.send`, `calendar.events`, requested on demand, not at sign-in.
+- The confirm sheet (`src/ui/confirmAction.js`) is one replaceable component owned by design.
