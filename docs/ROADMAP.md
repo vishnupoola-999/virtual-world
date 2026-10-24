@@ -9,8 +9,8 @@ Ideator's v1 checklist. [x] = merged to `main`; open PRs are noted next to an it
 - [x] Sign in with Google (web and Android APK)
 - [x] Agent is born at your spot (created at your location)
 - [x] Choose your agent's look (girl/boy bases + customisation, PR #9)
-- [ ] First-60-seconds onboarding: globe → sign-in + system location prompt → dive and landing → pick and name → agent greets first (PR #13)
-- [ ] Move my agent (button + long-press drag on the map) (PR #13)
+- [ ] First-60-seconds onboarding: globe → sign-in + system location prompt → dive and landing → pick and name → agent greets first (PR #14)
+- [ ] Move my agent (button + long-press drag on the map) (PR #14)
 
 ## Chat + World tabs
 - [x] Two bottom tabs, Chat first, World = the map (PR #10)
