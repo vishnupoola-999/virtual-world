@@ -13,3 +13,8 @@ firebase-debug.*.log
 firestore-debug.log
 ui-debug.log
 .firebase/
+
+# Android release keystores. android/app/debug.keystore stays tracked.
+*.jks
+*.keystore
+!android/app/debug.keystore
