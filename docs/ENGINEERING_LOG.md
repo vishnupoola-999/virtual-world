@@ -1,8 +1,6 @@
 # Engineering log
 
-This is the engineering record for Virtual World, as of `main` (`68961ce`). Product roadmap and product decisions belong in [ROADMAP.md](ROADMAP.md) and [DECISIONS.md](DECISIONS.md) (`docs/ROADMAP.md` and `docs/DECISIONS.md`, added in open PR #11). Secret values are not listed.
-
-Checked against `origin/main` on 2026-10-24: PRs #9 and #10 are still open, so the character, night-map, and Firestore `look` sections below describe `main` (Liberty style, `assets/robot.glb`, legacy `{color, emoji}` look).
+This is the engineering record for Virtual World, as of `main` (`bfe2408`, PRs #9–#11 merged). Product roadmap and product decisions belong in [ROADMAP.md](ROADMAP.md) and [DECISIONS.md](DECISIONS.md). Secret values are not listed.
 
 ## Architecture
 
@@ -10,14 +8,16 @@ The site is static files at the repo root. GitHub Pages serves them at `https://
 
 | Piece | Where | What it does |
 | --- | --- | --- |
-| Map | `src/map.js` | MapLibre GL JS 5.24.0 (unpkg). Style URL `https://tiles.openfreemap.org/styles/liberty` (OpenFreeMap Liberty, keyless). Globe projection, AWS/Mapzen Terrarium terrain, hillshade. |
-| 3D agent on `main` | `src/avatar3d.js`, `assets/robot.glb` | three.js 0.170.0 (jsDelivr) MapLibre custom layer. Model is RobotExpressive (CC0, Tomás Laulhé). `src/character.js` is not on `main`. |
+| Map | `src/map.js`, `assets/map-style-night.json` | MapLibre GL JS 5.24.0 (unpkg). Night style bundled from `assets/map-style-night.json` (OpenFreeMap planet tiles at `tiles.openfreemap.org`, keyless). The style sets the globe projection, sky, and default heights for buildings that have no height data. `pixelRatio` is capped at 2. `maxPitch` is 70 when `hardwareConcurrency` is 4 or less, otherwise 85. Terrain is AWS/Mapzen Terrarium. A dark hillshade layer is inserted below `water`. |
+| 3D agent | `src/character.js`, `src/avatar3d.js` | Procedural three.js 0.170.0 girl/boy bodies (no GLB, no textures, about 7–8.5k triangles). MapLibre custom layer. The character waves once when it appears, then idles, turns to face the camera, and has a `#5eb4ff` rim light. The label is the name only. A stored legacy `{color, emoji}` look is drawn with `guessBase(name)` and that colour as `outfitColour` when it matches `#rrggbb`. |
 | Auth and agent docs | `src/firebase.js` | Firebase JS 10.14.1 from the CDN. Project `virtual-world-8ac82`. |
-| Chat | `src/chat.js` | `POST https://virtual-world-ai.onrender.com/chat` with a Firebase ID token. |
+| Chat and World tabs | `src/tabs.js`, `src/chat.js`, `src/chat-hero.js` | Two bottom tabs. The app opens on Chat when an agent exists; otherwise World. Signed-out Chat stays on World and shows the sign-in toast. `chat-hero.js` draws the same character on a small header canvas (DPR ≤ 1.5, ~30 fps while animating, ~15 fps idle) and releases the WebGL context on the World tab. The map character's animation loop does not run while `document.body.dataset.tab` is `chat`. Flights and family markers pause on Chat. "Show me" switches to World and flies to the agent. Chat still `POST`s `https://virtual-world-ai.onrender.com/chat` with a Firebase ID token. |
 | Flights | `src/flights.js` via the proxy | Optional. Proxy `GET /flights`. |
 | Family presence | `src/family.js` | Not Firestore. ntfy.sh topic `vw1-<room>` (HTTPS, no API key in the repo). |
 
-The Capacitor app does not load the GitHub Pages URL. `capacitor.config.json` sets `webDir` to `www` and `server.androidScheme` to `https`, so the WebView origin is `https://localhost`. `scripts/copy-web.mjs` fills `www/` from `index.html`, `join.html`, `favicon.svg`, and `src/` only.
+The service worker cache is `vw-shell-v5` and includes `src/character.js`, `src/chat-hero.js`, `src/tabs.js`, and `assets/map-style-night.json`.
+
+The Capacitor app does not load the GitHub Pages URL. `capacitor.config.json` sets `webDir` to `www` and `server.androidScheme` to `https`, so the WebView origin is `https://localhost`. `scripts/copy-web.mjs` copies `index.html`, `join.html`, `favicon.svg`, `src/`, and `assets/` into `www/`. That bundle includes `src/character.js` and the night style. It does not copy `sw.js`, `manifest.json`, or `icons/`. `assets/robot.glb` is no longer in the repo.
 
 ## Gemini proxy
 
@@ -46,7 +46,7 @@ Rules file: `firestore.rules` (`rules_version = '2'`). The only allowed path is 
 | Field | Required | Constraint on `main` |
 | --- | --- | --- |
 | `name` | yes | string, 1–40 |
-| `look` | yes | map, keys exactly `color` and `emoji`. `color` string ≤ 9 (no hex pattern). `emoji` string ≤ 16. |
+| `look` | yes | legacy `{color, emoji}` or v1 character look (below) |
 | `lat`, `lon` | yes | numbers, lat −90…90, lon −180…180 |
 | `preciseVisibility` | yes | must be the string `private` |
 | `updatedAt` | yes | `request.time` |
@@ -56,9 +56,18 @@ Rules file: `firestore.rules` (`rules_version = '2'`). The only allowed path is 
 
 `saveAgent` in `src/firebase.js` always writes `approx` as the exact coordinates rounded to 0.01° (~1 km). Nothing in the repo reads another user's `approx`. The comment in that file calls it storage for a future friends phase.
 
-There is no `look.v` field on `main`. A look map with any extra key is rejected (rules test: `hat`).
+`look` must match `legacyLook` or `characterLook` in `firestore.rules`.
 
-**Not on `main`.** Open PR #9 (`feat/characters-night-map`, base of open PR #10) would keep the same document path and owner-only rules, and would accept either the legacy `{color, emoji}` look or a v1 character look: keys `v`, `base`, `skin`, `hair`, `hairColour`, `outfit`, `outfitColour`, `bottomColour`, `acc`; `v == 1`; `base` `boy` or `girl` with per-base hair, outfit, and accessory allowlists; colours `^#[0-9a-f]{6}$`; `acc` length ≤ 4. That PR also adds `src/character.js` and `assets/map-style-night.json`. Neither file is on `main`. Girl/boy product choices belong in `DECISIONS.md`.
+Legacy (agents saved before PR #9): keys exactly `color` and `emoji`. `color` is a string of length ≤ 9 (no hex pattern). `emoji` is a string of length ≤ 16.
+
+v1, written by `sanitize()` in `src/character.js` before save: keys exactly `v`, `base`, `skin`, `hair`, `hairColour`, `outfit`, `outfitColour`, `bottomColour`, `acc`. `v == 1`. The four colour fields match `^#[0-9a-f]{6}$`. `acc` is a list of length ≤ 4.
+
+| `base` | `hair` | `outfit` | `acc` |
+| --- | --- | --- | --- |
+| `boy` | `short`, `spiky`, `curly`, `buzz` | `tee`, `hoodie`, `kurta` | `glasses`, `headphones`, `cap` |
+| `girl` | `long`, `ponytail`, `bun`, `bob`, `curly`, `short` | `tee`, `hoodie`, `kurta`, `dress` | `glasses`, `headphones`, `cap`, `bindi` |
+
+The editor stores one in-progress look per base and saves `v: 1`. `guessBase` picks the starting base from the first name; the product choice (name guess versus an unselected picker) is in `DECISIONS.md`. Rules tests cover both shapes (`GIRL_LOOK`, `BOY_LOOK`, and the legacy emoji look).
 
 Rules tests use the emulator project id `demo-virtual-world`, not `virtual-world-8ac82`.
 
@@ -78,7 +87,7 @@ A Play release needs a different keystore, plus that certificate's SHA-1 (and th
 
 If the web API key is restricted by HTTP referrer, the WebView also needs `https://localhost/*` allowed. Whether the live key is restricted is not recorded in the repo. The device needs Google Play services.
 
-`copy:web` does not copy `assets/`. The Pages site loads `assets/robot.glb`. The debug APK's `www/` bundle does not include it. Open PR #9 says it copies `assets/`; that change is not on `main`.
+`copy:web` copies `src/` and `assets/`, so the debug APK includes `src/character.js` and `assets/map-style-night.json`. It still omits `sw.js`, `manifest.json`, and `icons/`.
 
 ## CI and local tests
 
@@ -141,19 +150,18 @@ GitHub Actions has no repository secrets in these workflows.
 
 ## Known engineering issues
 
-- **Look v1 and the night map are not on `main`.** Current writes and rules are the legacy `{color, emoji}` look and the Liberty style. PR #9 / #10 are open.
 - **No server-side agent memory.** The prompt is name and personality only. Chat history is `localStorage` key `vw-chat-<uid>` (last 40 kept, last 8 sent). The first greeting is inserted in memory when that log is empty and is written only when a later `save()` runs (after the user sends, or after a model reply). Closing chat before that drops the greeting. Rules deny any memory subcollection.
 - **Location is owner-only in Firestore and public-to-the-room on ntfy.** `preciseVisibility` cannot be anything but `private`. Cross-user reads are denied. Family sharing publishes precise `{id, name, lat, lon, ts}` to `https://ntfy.sh/vw1-<room>` about every 5 seconds while sharing is on. Anyone with the room code can subscribe. There is no invite document and no expiry on the room id (16-character code stored in `localStorage` key `vw-room`).
 - **Proxy limits are per process.** A restart or a second instance does not share them. Revoked ID tokens are accepted until they expire.
 - **`GET /flights` and `GET /` are unauthenticated.** `/flights` is served even when the browser origin is not on the allowlist.
-- **Debug APK omits `assets/robot.glb`.** See the copy list above.
+- **Debug APK omits the PWA shell files.** `www/` has `src/` and `assets/` but not `sw.js`, `manifest.json`, or `icons/`. The procedural character does not need `robot.glb` (removed in #9).
 - **Release signing is not set up.** Debug keystore only.
 - **The Android workflow trigger is `push` only.** It does not show up as a `pull_request` check. A push of the head branch still builds the debug APK.
 - **Pages deploy path is not defined in the repo.** Uncertain which setting publishes `main`.
 
 ## Changelog
 
-One line per pull request. Status is `merged` or `open` as of 2026-10-24. #9 and #10 are not on `main`.
+One line per pull request. Status is `merged` or `open` as of 2026-10-24, after rebase onto `bfe2408`. #12 is this PR.
 
 | PR | Title | Status | Summary |
 | --- | --- | --- | --- |
@@ -165,9 +173,9 @@ One line per pull request. Status is `merged` or `open` as of 2026-10-24. #9 and
 | #6 | perf: 30fps avatar, pause in background, reuse matrices; identify self by account uid | merged | Cap the avatar at 30fps, pause it in the background, reuse matrices, and identify self by account uid. |
 | #7 | feat: require Firebase ID tokens on the Gemini chat proxy | merged | `POST /chat` requires a Firebase ID token; the proxy builds the system prompt and rate-limits per uid. |
 | #8 | fix: PR #6 review follow-ups (own dot on auth, clear all keys, on-screen check, rAF frame pacing) | merged | Own map dot follows auth, chat storage keys are cleared, on-screen check, and rAF frame pacing. |
-| #9 | Characters + night map (PR A) | open | Procedural `src/character.js`, v1 `agents/{uid}.look`, and a night map style. Not on `main`. |
-| #10 | Chat and World tabs (night theme, agent character header, Show me) | open | Chat and World tabs, night-theme chat, and the agent character in the header. Stacked on #9. Not on `main`. |
-| #11 | Docs: v1 roadmap and product decisions | open | Adds `docs/ROADMAP.md` and `docs/DECISIONS.md`. Not on `main`. |
+| #9 | Characters + night map (PR A) | merged | Procedural `src/character.js`, v1 `agents/{uid}.look` (legacy look still accepted), night map style, and `assets/` copied into the Android bundle. |
+| #10 | Chat and World tabs (night theme, agent character header, Show me) | merged | Chat and World tabs, night-theme chat, and the agent character in the header. |
+| #11 | Docs: v1 roadmap and product decisions | merged | Adds `docs/ROADMAP.md` and `docs/DECISIONS.md`. |
 | #12 | docs: add the engineering log | open | This file: the engineering record, this changelog, and pointers to the product docs. |
 
 ## How to update
