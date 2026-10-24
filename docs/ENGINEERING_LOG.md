@@ -167,7 +167,7 @@ keytool -genkeypair -v \
   -validity 10000
 ```
 
-`YOUR_ALIAS` is whatever alias you choose. That same text is the value of `ANDROID_KEY_ALIAS`. `-storetype PKCS12` matches current `keytool` defaults; a `.jks` file is also accepted. `*.keystore` and `*.jks` are gitignored.
+`YOUR_ALIAS` is whatever alias you choose. That same text is the value of `ANDROID_KEY_ALIAS`. `-storetype PKCS12` matches current `keytool` defaults. A PKCS12 keystore has one password, so `ANDROID_KEY_PASSWORD` is the same value as `ANDROID_KEYSTORE_PASSWORD`. A JKS file (`-storetype JKS`) can use a different key password. `*.keystore` and `*.jks` are gitignored.
 
 Base64 for `ANDROID_KEYSTORE_BASE64` is one line (standard base64, not base64url):
 
@@ -181,7 +181,7 @@ base64 -i release.keystore | tr -d '\n'      # macOS
 | `ANDROID_KEYSTORE_BASE64` | Single-line base64 of the upload keystore. CI decodes it with `base64 --decode` after stripping whitespace. Gradle decodes the same variable when `ANDROID_KEYSTORE_FILE` is unset. |
 | `ANDROID_KEYSTORE_PASSWORD` | Keystore store password. |
 | `ANDROID_KEY_ALIAS` | Alias of the key entry inside the keystore. |
-| `ANDROID_KEY_PASSWORD` | Password for that key entry. |
+| `ANDROID_KEY_PASSWORD` | Password for that key entry. For a PKCS12 keystore, the same value as `ANDROID_KEYSTORE_PASSWORD`. |
 
 `ANDROID_KEYSTORE_FILE` is not a repository secret. It is an optional absolute path to a decoded keystore for a local release build. When it is set, Gradle uses that file and does not read `ANDROID_KEYSTORE_BASE64`.
 

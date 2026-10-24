@@ -5,6 +5,8 @@ apply plugin: 'com.android.application'
 // When that is unset, ANDROID_KEYSTORE_BASE64 is decoded here (CI decodes
 // the same secret before Gradle, and a local release build can pass it through).
 // Passwords and the alias are trimmed; they are never written into the repo.
+// A PKCS12 keystore has one password, so ANDROID_KEY_PASSWORD matches
+// ANDROID_KEYSTORE_PASSWORD. A JKS keystore can use two different passwords.
 def releaseEnv = { String name ->
     def value = System.getenv(name)
     if (value == null) {
