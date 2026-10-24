@@ -37,6 +37,13 @@ export const doc = () => ({});
 export const getDoc = async () => ({ exists: () => false });
 export const setDoc = async () => {};
 export const serverTimestamp = () => ({});
+export const collection = () => ({});
+export const addDoc = async () => ({});
+export const getDocs = async () => ({ docs: [] });
+export const deleteDoc = async () => {};
+export const query = () => ({});
+export const orderBy = () => ({});
+export const limit = () => ({});
 `;
 
 export async function resolve(specifier, context, nextResolve) {
