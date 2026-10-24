@@ -55,7 +55,7 @@ test('page loads with no console errors', async ({ page }) => {
   // The rest checks the app shell with onboarding off.
   await page.goto('/?onb=0', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#onb')).toBeHidden();
-  await expect(page.locator('#topbar .brand')).toContainText('Virtual World');
+  await expect(page.locator('#topbar .search')).toContainText('Search places');
   await expect(page.locator('#acctBtn')).toBeVisible();
   await expect(page.locator('#map')).toBeVisible();
   await expect(page.locator('#map canvas')).toBeVisible();
