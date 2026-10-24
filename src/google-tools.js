@@ -96,7 +96,6 @@ export function createGoogleTools({ requestAccess, confirm, apiEnabled = () => f
     return runApi(name, args, scopes);
   }
   async function runApi(name, args, scopes) {
-    const scopes = scopeFor(name);
     if (name === 'draft_email') {
       await call(scopes, 'https://gmail.googleapis.com/gmail/v1/users/me/drafts', { method: 'POST', body: JSON.stringify({ message: { raw: rawEmail(args) } }) });
       return `Draft saved in Gmail for ${args.to}.`;
