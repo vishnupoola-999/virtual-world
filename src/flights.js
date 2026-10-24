@@ -3,8 +3,8 @@ const URL_='https://virtual-world-ai.onrender.com/flights';
 export function flightsLayer(map,{onMsg=()=>{}}={}){
   let on=false,timer=null;const empty={type:'FeatureCollection',features:[]};
   const ensure=()=>{if(map.getSource('flights'))return;map.addSource('flights',{type:'geojson',data:empty});
-    map.addLayer({id:'flights',type:'symbol',source:'flights',layout:{'text-field':['concat','✈ ',['get','cs']],'text-size':12,'text-rotate':0,'text-allow-overlap':true,'text-anchor':'left','text-offset':[.4,0]},paint:{'text-color':'#0d47a1','text-halo-color':'#fff','text-halo-width':1.5}});
-    map.addLayer({id:'flights-dot',type:'circle',source:'flights',paint:{'circle-radius':5,'circle-color':'#1565c0','circle-stroke-color':'#fff','circle-stroke-width':1.5}});};
+    map.addLayer({id:'flights',type:'symbol',source:'flights',layout:{'text-field':['concat','✈ ',['get','cs']],'text-size':12,'text-rotate':0,'text-allow-overlap':true,'text-anchor':'left','text-offset':[.4,0]},paint:{'text-color':'#eef2ff','text-halo-color':'#070b18','text-halo-width':1.5}});
+    map.addLayer({id:'flights-dot',type:'circle',source:'flights',paint:{'circle-radius':5,'circle-color':'#5eb4ff','circle-stroke-color':'#070b18','circle-stroke-width':1.5}});};
   async function fetchNow(){if(!on)return;const c=map.getCenter();onMsg('⏳ fetching flights…');
     try{const r=await fetch(`${URL_}?lat=${c.lat.toFixed(3)}&lon=${c.lng.toFixed(3)}&r=135`);if(!r.ok)throw new Error('HTTP '+r.status);const j=await r.json();
       ensure();map.getSource('flights').setData({type:'FeatureCollection',features:j.ac.map(a=>({type:'Feature',geometry:{type:'Point',coordinates:[a.lon,a.lat]},properties:{cs:`${a.cs||a.hex} ${a.alt?Math.round(a.alt).toLocaleString()+' ft':'gnd'}`}}))});

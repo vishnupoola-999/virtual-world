@@ -73,5 +73,5 @@ That overrides the plugin placeholder `WILL_BE_OVERRIDDEN`. If the build then re
 If the web API key is restricted by HTTP referrer, also allow `https://localhost/*`. The Capacitor WebView origin is `https://localhost` (`androidScheme` is `https`), and `signInWithCredential` runs there. The device or emulator needs Google Play services.
 
 A Play release must use a different keystore that is not committed. Add that app's SHA-1 (and, for installs from Play, the Play App Signing certificate SHA-1) in Firebase, then download `google-services.json` again.
-- **3D agent:** animated RobotExpressive character (CC0, Tomás Laulhé, via three.js examples, `assets/robot.glb`) rendered in a MapLibre custom layer with three.js, tinted with the agent colour; never smaller than ~56 px on screen.
+- **3D agent:** procedural girl or boy character (`src/character.js`, our own code, no model files) rendered in a MapLibre custom layer with three.js, customisable in the 🤖 sheet; never smaller than ~56 px on screen.
 - **UI:** full-screen map, floating buttons, dismissible bottom sheet (side panel ≥768 px), toasts. Installable PWA (`manifest.json`, `sw.js`, `icons/`).

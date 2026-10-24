@@ -54,6 +54,9 @@ function agent(overrides = {}) {
   };
 }
 
+const GIRL_LOOK = { v: 1, base: 'girl', skin: '#d9a07a', hair: 'long', hairColour: '#1b1512', outfit: 'kurta', outfitColour: '#ff7043', bottomColour: '#26324f', acc: ['glasses', 'bindi'] };
+const BOY_LOOK = { v: 1, base: 'boy', skin: '#6e4630', hair: 'curly', hairColour: '#3b2618', outfit: 'kurta', outfitColour: '#eef2ff', bottomColour: '#26324f', acc: ['cap'] };
+
 function minimal(overrides = {}) {
   return {
     name: 'A',
@@ -140,6 +143,14 @@ describe('agents/{uid} rules', { concurrency: false }, () => {
     })));
   });
 
+  test('owner can save v1 character looks for both bases', async () => {
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({ look: GIRL_LOOK })));
+    const stored = await assertSucceeds(getDoc(agentRef(ALICE)));
+    assert.equal(stored.get('look.base'), 'girl');
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({ look: BOY_LOOK })));
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({ look: { ...BOY_LOOK, acc: [] } })));
+  });
+
   test('signed-out users cannot read, write, or delete an agent', async () => {
     await seed(ALICE, agent());
     const guest = db(null);
@@ -182,6 +193,17 @@ describe('agents/{uid} rules', { concurrency: false }, () => {
       { name: 'color longer than 9', data: agent({ look: { color: '#123456789', emoji: '🤖' } }) },
       { name: 'emoji longer than 16', data: agent({ look: { color: '#fff', emoji: 'e'.repeat(17) } }) },
       { name: 'missing look.color', data: agent({ look: { emoji: '🤖' } }) },
+      { name: 'v1 look with unknown base', data: agent({ look: { ...GIRL_LOOK, base: 'cat' } }) },
+      { name: 'v1 look with wrong version', data: agent({ look: { ...GIRL_LOOK, v: 2 } }) },
+      { name: 'v1 look with bad colour', data: agent({ look: { ...GIRL_LOOK, skin: 'red' } }) },
+      { name: 'v1 look with uppercase colour', data: agent({ look: { ...GIRL_LOOK, skin: '#D9A07A' } }) },
+      { name: 'boy look with girl-only hair', data: agent({ look: { ...BOY_LOOK, hair: 'long' } }) },
+      { name: 'boy look with dress', data: agent({ look: { ...BOY_LOOK, outfit: 'dress' } }) },
+      { name: 'boy look with bindi', data: agent({ look: { ...BOY_LOOK, acc: ['bindi'] } }) },
+      { name: 'v1 look with unknown accessory', data: agent({ look: { ...GIRL_LOOK, acc: ['crown'] } }) },
+      { name: 'v1 look missing acc', data: agent({ look: omit(GIRL_LOOK, 'acc') }) },
+      { name: 'v1 look with extra key', data: agent({ look: { ...GIRL_LOOK, hat: true } }) },
+      { name: 'look mixing legacy and v1 keys', data: agent({ look: { ...GIRL_LOOK, emoji: '🤖' } }) },
       { name: 'personality longer than 300', data: agent({ personality: 'p'.repeat(301) }) },
       { name: 'personality is not a string', data: agent({ personality: 12 }) },
       { name: 'ownerName longer than 80', data: agent({ ownerName: 'o'.repeat(81) }) },
