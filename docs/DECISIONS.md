@@ -1,6 +1,6 @@
 # Product decisions
 
-See also: [Backend notes](BACKEND_NOTES.md) (architecture, PR history, setup, open issues; PR #12).
+See also: [Engineering log](ENGINEERING_LOG.md) (architecture, PR history, setup, open issues; PR #12).
 
 ## Privacy and location
 - Your agent's home spot is fixed. Friends see only the approximate area.
