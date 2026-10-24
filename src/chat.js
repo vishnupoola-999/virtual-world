@@ -337,8 +337,12 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
       hero.state('error');
       // Always leave a visible line in the transcript too, so a failure is never silent.
       for (const old of log.querySelectorAll('.msg.retry')) old.remove();
-      const line = add('assistant', "Couldn't reach your agent, tap to retry", 'sys');
+      const line = add('assistant', '', 'sys');
       line.classList.add('retry');
+      line.textContent = "\u26A0\uFE0E Couldn't reach your agent. ";
+      const tap = document.createElement('u');
+      tap.textContent = 'Tap to retry';
+      line.appendChild(tap);
       line.setAttribute('role', 'button');
       line.tabIndex = 0;
       line.onclick = () => { line.remove(); ask(); };

@@ -176,4 +176,5 @@ body[data-tab=world] .think::after,body[data-tab=world] .orbit,body[data-tab=wor
 .liftPin{background:var(--grad);box-shadow:none}
 
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:1ms!important}}
-.msg.sys.retry{cursor:pointer;color:var(--err,#ff6b7a);text-decoration:underline}
+.msg.sys.retry{cursor:pointer;color:var(--text-2);background:none;font-size:13px}
+.msg.sys.retry u{text-underline-offset:2px}
