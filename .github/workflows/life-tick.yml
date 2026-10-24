@@ -1,0 +1,30 @@
+# Life loop heartbeat: wakes the Render proxy (free plan sleeps) and runs one /tick.
+# Needs repo secrets TICK_SECRET (same value as the Render env var) and optionally PROXY_URL.
+name: Life tick
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: life-tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: POST /tick
+        env:
+          TICK_SECRET: ${{ secrets.TICK_SECRET }}
+          PROXY_URL: ${{ secrets.PROXY_URL || 'https://virtual-world-ai.onrender.com' }}
+        run: |
+          if [ -z "$TICK_SECRET" ]; then echo "TICK_SECRET secret is not set; skipping"; exit 0; fi
+          # Wake the free-plan server first (cold start can take ~60 s).
+          curl -sS -o /dev/null --retry 5 --retry-delay 10 --retry-all-errors --max-time 90 "$PROXY_URL/" || true
+          curl -sS --fail-with-body --retry 2 --retry-delay 15 --max-time 240 \
+            -X POST -H "x-tick-secret: $TICK_SECRET" "$PROXY_URL/tick"
