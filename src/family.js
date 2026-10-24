@@ -17,7 +17,8 @@ export function connect(room,{onPresence,onStatus}={}){
     es.onerror=()=>onStatus&&onStatus('reconnecting…');
     es.onmessage=e=>{try{const m=JSON.parse(e.data);if(m.event!=='message')return;const d=JSON.parse(m.message);if(!d.id)return;
       if(!d.stop&&m.time*1000<Date.now()-STALE_MS)return;onPresence&&onPresence(d);}catch{}};};
-  open();
+  // Open the family stream after first paint, off the startup critical path (perf audit #3).
+  let ended=false;(globalThis.requestIdleCallback||(f=>setTimeout(f,1200)))(()=>{if(!ended)open();},{timeout:3000});
   const post=d=>fetch(topic,{method:'POST',body:JSON.stringify(d),keepalive:true}).catch(()=>{});
-  return {publish(id,d){return post({...d,id});},clear(id){return post({id,stop:true});},end(){es.close();}};
+  return {publish(id,d){return post({...d,id});},clear(id){return post({id,stop:true});},end(){ended=true;es?.close();}};
 }

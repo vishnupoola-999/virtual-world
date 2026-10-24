@@ -4,9 +4,16 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Virtual World">
 <link rel="manifest" href="manifest.json"><link rel="icon" href="favicon.svg"><link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>Virtual World</title>
+<!-- Perf audit #3: warm up connections to tile, CDN and Firebase hosts before the scripts ask for them. -->
+<link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin><link rel="preconnect" href="https://s3.amazonaws.com" crossorigin>
+<link rel="preconnect" href="https://unpkg.com" crossorigin><link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin><link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
 <link rel="stylesheet" href="src/style.css">
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<!-- Flatten the module import waterfall for the startup modules (no bundler: the site stays a static Pages deploy). -->
+<link rel="modulepreload" href="src/map.js"><link rel="modulepreload" href="src/device.js"><link rel="modulepreload" href="src/firebase.js"><link rel="modulepreload" href="src/agent.js"><link rel="modulepreload" href="src/chat.js"><link rel="modulepreload" href="src/onboarding.js"><link rel="modulepreload" href="src/ui.js"><link rel="modulepreload" href="src/character-data.js">
 </head><body>
 <div id="map"></div>
 <header id="topbar"><span class="brand">🌍 Virtual World</span><button id="acctBtn" class="fab sm" data-open="account" aria-label="Account">👤</button></header>
@@ -55,7 +62,7 @@
   <small id="shareMsg"></small><div id="famList"></div>
  </div>
  <div data-sec="layers" data-title="Layers">
-  <div class="row"><button id="fltBtn">✈️ Flights: OFF</button></div><small id="fltMsg"></small>
+  <div class="row"><button id="fltBtn">✈️ Flights: OFF</button><button id="terrBtn">⛰️ High quality 3D: OFF</button></div><small class="tip">High quality 3D adds hills and terrain. It can make the map slower on phones.</small><small id="fltMsg"></small>
  </div>
  <div data-sec="account" data-title="Account">
   <button id="signInBtn" class="primary">🔐 Sign in with Google</button>
