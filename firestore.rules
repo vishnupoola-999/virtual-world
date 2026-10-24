@@ -22,7 +22,7 @@ service cloud.firestore {
         && m.at == request.time;
     }
     function valid(d) {
-      return d.keys().hasOnly(['name','look','personality','ownerName','lat','lon','approx','preciseVisibility','updatedAt','memory'])
+      return d.keys().hasOnly(['name','look','personality','ownerName','lat','lon','approx','preciseVisibility','updatedAt','memory','spotApprox'])
         && d.keys().hasAll(['name','look','lat','lon','preciseVisibility','updatedAt'])
         && d.name is string && d.name.size() > 0 && d.name.size() <= 40
         && d.look is map && (legacyLook(d.look) || characterLook(d.look))
@@ -31,6 +31,7 @@ service cloud.firestore {
         && d.lat is number && d.lat >= -90 && d.lat <= 90
         && d.lon is number && d.lon >= -180 && d.lon <= 180
         && (!('approx' in d) || (d.approx is map && d.approx.lat is number && d.approx.lon is number))
+        && (!('spotApprox' in d) || d.spotApprox is bool)
         && d.preciseVisibility == 'private'
         && d.updatedAt == request.time;
     }

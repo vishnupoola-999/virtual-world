@@ -17,9 +17,15 @@ See also: [Engineering log](ENGINEERING_LOG.md) (architecture, PR history, setup
 - All your connections are in one list, where you can remove them.
 - The friend invite replaces the old separate family share link.
 
-## Girl/boy picker: pending
-- For now the base is guessed from the first name, and you can switch it with one tap.
-- A side-by-side picker with no preselection was proposed and then put on hold. The owner hasn't decided yet.
+## Character picker (Vishnu, 2026-10-24)
+- New agents pick from two unlabelled character cards (accessible names "Character 1" / "Character 2"), side by side. Nothing is preselected and there is no name-based guess; Continue/Save stays disabled until one is tapped.
+- Existing agents keep their saved look. `guessBase()` is used only to migrate pre-v1 agents that have no `look.base`.
+
+## Born where you are (Vishnu, 2026-10-24)
+- No "Where should your agent live?" screen and no permission explainer. After Google sign-in the app shows only the system location prompt and dives straight to the spot.
+- Location denied, unavailable or no fix within 8 s never blocks: city-level spot from IP, then Warangal centre. The agent is marked `spotApprox:true`, the landing shows "…for now. You can move it later." and the first greeting mentions it once. No re-prompt in the same session.
+- "📍 Move my agent" (chat header, agent sheet, long-press on your agent on the map) lets you drag the map and confirm "My agent lives here", which clears `spotApprox`.
+- Exact spot stays private to the owner; friends only ever get the ~1 km `approx` grid.
 
 ## Testing
 - Check on the live site and the Android APK at the end of a batch of work, not after every PR.
