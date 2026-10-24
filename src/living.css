@@ -16,7 +16,7 @@
 .chip .ck{display:none;transform:scale(.4);opacity:0}.chip[aria-pressed=true] .ck{display:inline-flex;animation:ckIn 200ms var(--spring) forwards}
 @keyframes ckIn{to{transform:none;opacity:1}}
 .onbInt .about{padding:16px 22px 0}.onbInt .about label{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin-bottom:7px}
-.onbInt .about input{width:100%;height:48px;border-radius:16px;background:var(--s1);border:1px solid var(--line-2);color:var(--text);font:inherit;font-size:15px;padding:0 14px;outline:0}.onbInt .about input:focus{border-color:#8b7bff99}
+.onbInt .about input{width:100%;box-sizing:border-box;height:48px;border-radius:16px;background:var(--s1);border:1px solid var(--line-2);color:var(--text);font:inherit;font-size:15px;padding:0 14px;outline:0}.onbInt .about input:focus{border-color:#8b7bff99}
 .onbInt .about small{display:block;margin-top:7px;font-size:12px;color:var(--muted)}
 .onbInt .bottom{margin-top:auto;padding:14px 20px calc(24px + var(--safe-b,0px));display:flex;flex-direction:column;gap:6px}
 .onbInt .hint{text-align:center;font-size:12.5px;color:var(--muted);height:18px}
@@ -77,3 +77,8 @@ body[data-tab=chat] .ag .stat,body[data-tab=chat] .ag .stat .prog::after{animati
 .intro .acts{display:flex;gap:8px;margin-top:12px}.intro .acts button{flex:1;height:44px;min-height:44px;margin:0;border-radius:var(--pill);font-weight:600}
 .intro .acts .brand{background:var(--grad);color:#0a0b10;box-shadow:none;border:0}
 @media (prefers-reduced-motion:reduce){.ag .stat,.ag .stat .prog::after,#liveHint,#away .card,#away .scrim,.diary li,.chip .ck{animation:none}.chip[aria-pressed=true] .ck{transform:none;opacity:1}}
+/* V1 plain away list: who the agent met (gradient initial + stored name only). */
+.met-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.met-list li{display:flex;align-items:center;gap:10px;font-size:14px}
+.met-list .aav{width:32px;height:32px;font-size:14px}
+.met-list b{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
