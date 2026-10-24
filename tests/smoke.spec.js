@@ -96,3 +96,28 @@ test('page loads with no console errors', async ({ page }) => {
     ].join('\n'),
   ).toEqual([]);
 });
+
+// Live sharing must keep the user's own 3D character on screen at the live position, not swap it for a plain dot.
+test('own character follows live location while sharing', async ({ page, context }) => {
+  await context.grantPermissions(['geolocation'], { origin: 'http://127.0.0.1:4173' });
+  await context.setGeolocation({ latitude: 17.4485, longitude: 78.3908, accuracy: 8 });
+  page.on('dialog', (d) => d.accept('Tester'));
+  await page.goto('/?onb=0#19.3/17.4485/78.3908/0/60', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => globalThis.__map?.loaded() && globalThis.__vw?.agent, null, { timeout: 45_000 });
+  // Saved spot ~400 m away, off screen.
+  await page.evaluate(() => { globalThis.__vw.agent._preview({ name: 'Buddy', lat: 17.451, lon: 78.387, look: { base: 'boy' } }); globalThis.__vw.tabs.set('world'); });
+  await page.waitForFunction(() => globalThis.__avatarReady, null, { timeout: 45_000 });
+  await page.evaluate(() => globalThis.document.getElementById('liveBtn').click());
+  await expect(page.locator('#liveBtn')).toContainText('Stop sharing');
+  await expect(page.locator('.agLabel')).toBeVisible();
+  await expect(page.locator('#map .me')).toHaveCount(0);
+  const near = await page.evaluate(() => {
+    const r = globalThis.document.querySelector('.agLabel').getBoundingClientRect();
+    const q = globalThis.__map.project([78.3908, 17.4485]);
+    return Math.abs(r.left + r.width / 2 - q.x) < 40 && q.y - r.bottom < 200 && q.y > r.bottom;
+  });
+  expect(near).toBe(true);
+  // Stopping puts the character back at its saved spot.
+  await page.evaluate(() => globalThis.document.getElementById('liveBtn').click());
+  await expect(page.locator('#liveBtn')).toContainText('Share my live location');
+});
