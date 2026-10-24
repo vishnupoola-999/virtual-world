@@ -1,6 +1,6 @@
 // Agent tools (Gmail + Calendar) for Gemini function calling.
 // The proxy only PROPOSES actions. It never holds a Google OAuth token and never calls Gmail/Calendar.
-// The client shows a confirm sheet and runs the Google API call itself with an in-memory token.
+// The client shows a confirm sheet; by default it hands off via mailto/Gmail/Calendar links (no OAuth).
 // Every action except list_events needs an explicit confirm tap (see src/google-tools.js).
 export const TOOL_NAMES = ['draft_email', 'send_email', 'list_events', 'add_event'];
 export const CONFIRM_REQUIRED = new Set(['draft_email', 'send_email', 'add_event']);
@@ -11,7 +11,7 @@ export const TOOL_DECLARATIONS = [{
     { name: 'draft_email', description: 'Save a Gmail draft for the owner. The owner confirms first.', parameters: email },
     { name: 'send_email', description: 'Send an email from the owner\'s Gmail. The owner confirms first.', parameters: email },
     { name: 'list_events', description: 'List the owner\'s upcoming Google Calendar events.', parameters: { type: 'OBJECT', properties: { days: { type: 'INTEGER', description: 'How many days ahead, 1-14' } } } },
-    { name: 'add_event', description: 'Add an event to the owner\'s Google Calendar. The owner confirms first.', parameters: { type: 'OBJECT', properties: { title: str('Event title'), start: str('ISO 8601 start, with offset'), end: str('ISO 8601 end, with offset'), description: str('Optional notes') }, required: ['title', 'start', 'end'] } },
+    { name: 'add_event', description: 'Add an event to the owner\'s Google Calendar. The owner confirms first.', parameters: { type: 'OBJECT', properties: { title: str('Event title'), start: str('ISO 8601 start, with offset'), end: str('ISO 8601 end, with offset'), description: str('Optional notes'), location: str('Optional place') }, required: ['title', 'start', 'end'] } },
   ],
 }];
 export const TOOLS_PROMPT = ' You can help with the owner\'s Gmail and Google Calendar using your tools. Only use a tool when the owner clearly asks. Never invent recipient addresses; ask if unsure. The owner always reviews and confirms drafts, sends and new events before anything happens.';
@@ -37,7 +37,7 @@ export function cleanAction(call) {
     args = { days };
   } else {
     if (!isoOk(a.start) || !isoOk(a.end) || Date.parse(a.end) <= Date.parse(a.start)) return null;
-    args = { title: line(a.title, 200) || 'Event', start: a.start.slice(0, 40), end: a.end.slice(0, 40), description: text(a.description, 2000) };
+    args = { title: line(a.title, 200) || 'Event', start: a.start.slice(0, 40), end: a.end.slice(0, 40), description: text(a.description, 2000), location: line(a.location, 200) };
   }
   return { name: call.name, args, confirm: CONFIRM_REQUIRED.has(call.name) };
 }

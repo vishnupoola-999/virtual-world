@@ -1,10 +1,12 @@
 // MINIMAL PLACEHOLDER UI, owned by the design team (Diggy / Buildy Design) to restyle or replace.
-// Contract: confirmAction(action) -> Promise<boolean>. Resolve true ONLY on an explicit Confirm tap.
+// Contract: confirmAction(action) -> Promise<boolean>. Resolve true ONLY on an explicit tap.
+// action.mode === 'links': show action.links ({label, href} or {label, ics, filename}) as buttons instead of Confirm;
+// tapping one opens it (user gesture, so no popup blocker) and resolves true.
 // Tool logic lives in src/google-tools.js and does not depend on anything in this file.
-const LABEL = { draft_email: 'Save this Gmail draft?', send_email: 'Send this email?', add_event: 'Add this calendar event?' };
+const LABEL = { draft_email: 'Email draft', send_email: 'Send this email?', add_event: 'Add this calendar event?' };
 function rows(action) {
   const a = action.args || {};
-  if (action.name === 'add_event') return [['Title', a.title], ['Start', a.start], ['End', a.end], ['Notes', a.description]];
+  if (action.name === 'add_event') return [['Title', a.title], ['Start', a.start], ['End', a.end], ['Where', a.location], ['Notes', a.description]];
   return [['To', a.to], ['Subject', a.subject], ['Body', a.body]];
 }
 export function confirmAction(action) {
@@ -30,9 +32,30 @@ export function confirmAction(action) {
     const bar = document.createElement('div');
     bar.style.cssText = 'display:flex;gap:8px;margin-top:12px';
     const mk = (t, val) => { const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = t; btn.style.cssText = 'flex:1;padding:12px;border-radius:10px;border:0;font:inherit'; btn.onclick = () => { wrap.remove(); resolve(val); }; return btn; };
-    const cancel = mk('Cancel', false), ok = mk('Confirm', true);
-    ok.dataset.confirm = '1';
-    bar.append(cancel, ok);
+    const cancel = mk('Cancel', false);
+    bar.append(cancel);
+    if (action.mode === 'links') {
+      bar.style.flexWrap = 'wrap';
+      for (const l of action.links || []) {
+        const el = document.createElement('a');
+        el.textContent = l.label;
+        el.style.cssText = 'flex:1;padding:12px;border-radius:10px;background:#fff;color:#000;text-align:center;text-decoration:none';
+        if (l.ics) {
+          const url = URL.createObjectURL(new Blob([l.ics], { type: 'text/calendar;charset=utf-8' }));
+          el.href = url; el.download = l.filename || 'event.ics';
+          setTimeout(() => URL.revokeObjectURL(url), 120_000);
+        } else {
+          el.href = l.href;
+          if (/^https:/.test(l.href)) { el.target = '_blank'; el.rel = 'noopener'; }
+        }
+        el.onclick = () => { setTimeout(() => wrap.remove(), 0); resolve(true); };
+        bar.append(el);
+      }
+    } else {
+      const ok = mk('Confirm', true);
+      ok.dataset.confirm = '1';
+      bar.append(ok);
+    }
     box.append(bar);
     wrap.append(box);
     wrap.addEventListener('click', (e) => { if (e.target === wrap) { wrap.remove(); resolve(false); } });

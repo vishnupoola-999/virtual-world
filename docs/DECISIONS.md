@@ -33,7 +33,7 @@ See also: [Engineering log](ENGINEERING_LOG.md) (architecture, PR history, setup
 
 ## Agent tools (Gmail, Calendar)
 - The model only proposes actions; the proxy never executes them and never sees a Google OAuth token.
-- The browser calls Gmail/Calendar directly with an access token kept in memory only (lost on reload; the user re-consents).
-- Every write (Gmail draft, send, calendar add) needs an explicit Confirm tap showing the exact To/Subject/Body or event. Reading upcoming events does not.
-- Minimal scopes: `gmail.compose`, `gmail.send`, `calendar.events`, requested on demand, not at sign-in.
+- Default for every user needs no OAuth (Vishnu, 2026-10-24): email opens Gmail web compose or `mailto:`, calendar opens a Google Calendar template link or a client-made `.ics`. The user finishes the action in Google's own UI.
+- Real APIs (`gmail.send`, `calendar.events`; never `gmail.compose`) sit behind an allowlist flag in `src/tools-config.js`, off for everyone except Vishnu's account, for testing only. Token kept in memory only.
+- Every write needs an explicit tap on the confirm sheet showing the exact To/Subject/Body or event.
 - The confirm sheet (`src/ui/confirmAction.js`) is one replaceable component owned by design.

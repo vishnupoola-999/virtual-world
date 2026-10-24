@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { cleanAction, parseModelReply, TOOL_DECLARATIONS } from '../proxy/tools.js';
 import { prepareChat } from '../proxy/server.js';
-import { createGoogleTools, forgetToken, rawEmail, _tokenState } from '../src/google-tools.js';
+import { createGoogleTools, forgetToken, rawEmail, _tokenState, mailtoUrl, gmailComposeUrl, gcalTemplateUrl, icsEvent, SCOPES } from '../src/google-tools.js';
+import { toolsApiEnabled } from '../src/tools-config.js';
 
 const fc = (name, args) => ({ candidates: [{ content: { parts: [{ text: 'Sure.' }, { functionCall: { name, args } }] } }] });
 const okRes = (body = {}) => ({ ok: true, status: 200, json: async () => body });
@@ -30,19 +31,20 @@ test('prepareChat only adds tools when asked', () => {
   assert.equal(prepareChat({ ...base, tools: 'yes' }).tools, false);
 });
 
-function harness({ confirm = async () => true, responses = [] } = {}) {
+function harness({ confirm = async () => true, responses = [], api = true } = {}) {
   forgetToken();
   const calls = [], asked = [];
   const tools = createGoogleTools({
     requestAccess: async (s) => { asked.push(s); return { accessToken: `tok${asked.length}`, expiresIn: 3600 }; },
     confirm,
+    apiEnabled: () => api,
     fetchImpl: async (url, init) => { calls.push({ url, init }); return responses.shift() || okRes({ items: [] }); },
   });
   return { tools, calls, asked };
 }
 const send = { name: 'send_email', args: { to: 'a@b.com', subject: 'S', body: 'B' }, confirm: false };
 
-for (const name of ['send_email', 'draft_email', 'add_event']) {
+for (const name of ['send_email', 'add_event']) {
   test(`${name} never runs without confirm (even if server says confirm:false)`, async () => {
     const args = name === 'add_event' ? { title: 't', start: '2026-10-25T10:00:00Z', end: '2026-10-25T11:00:00Z' } : send.args;
     for (const answer of [false, undefined, 'yes', 1]) {
@@ -82,9 +84,9 @@ test('busy, consent and network errors are friendly', async () => {
   await assert.rejects(harness({ responses: [{ ok: false, status: 503 }] }).tools.run(send), (e) => e.code === 'busy');
   await assert.rejects(harness({ responses: [{ ok: false, status: 403 }] }).tools.run(send), (e) => e.code === 'consent');
   forgetToken();
-  const t = createGoogleTools({ requestAccess: async () => { throw new Error('popup closed'); }, confirm: async () => true, fetchImpl: async () => okRes() });
+  const t = createGoogleTools({ apiEnabled: () => true, requestAccess: async () => { throw new Error('popup closed'); }, confirm: async () => true, fetchImpl: async () => okRes() });
   await assert.rejects(t.run(send), (e) => e.code === 'consent');
-  const n = createGoogleTools({ requestAccess: async () => ({ accessToken: 't' }), confirm: async () => true, fetchImpl: async () => { throw new TypeError('net'); } });
+  const n = createGoogleTools({ apiEnabled: () => true, requestAccess: async () => ({ accessToken: 't' }), confirm: async () => true, fetchImpl: async () => { throw new TypeError('net'); } });
   await assert.rejects(n.run(send), (e) => e.code === 'busy');
 });
 
@@ -105,4 +107,70 @@ test('rawEmail strips header injection', () => {
   const raw = Buffer.from(rawEmail({ to: 'a@b.com\r\nBcc: evil@x.com', subject: 'hé', body: 'B' }), 'base64url').toString();
   assert.doesNotMatch(raw, /\r\nBcc:/);
   assert.match(raw, /Subject: =\?UTF-8\?B\?/);
+});
+
+const ev = { title: 'Lunch, team; ok\nnext', start: '2026-10-25T10:00:00+05:30', end: '2026-10-25T11:00:00+05:30', description: 'a\\b', location: 'T-Hub & co' };
+
+test('mailto and Gmail compose URLs are encoded', () => {
+  const e = { to: 'a@b.com', subject: 'Hi & bye?', body: 'line1\nline2 #1 100%' };
+  const m = mailtoUrl(e);
+  assert.equal(m, 'mailto:a%40b.com?subject=Hi%20%26%20bye%3F&body=line1%0Aline2%20%231%20100%25');
+  const g = new URL(gmailComposeUrl(e));
+  assert.equal(g.origin + g.pathname, 'https://mail.google.com/mail/');
+  assert.equal(g.searchParams.get('view'), 'cm');
+  assert.equal(g.searchParams.get('to'), 'a@b.com');
+  assert.equal(g.searchParams.get('su'), 'Hi & bye?');
+  assert.equal(g.searchParams.get('body'), e.body);
+  assert.doesNotMatch(mailtoUrl({ ...e, to: 'a@b.com\r\nBcc: x@y.com' }), /%0D|%0A.*subject/i);
+});
+
+test('Google Calendar template URL uses UTC dates and encodes fields', () => {
+  const u = new URL(gcalTemplateUrl(ev));
+  assert.equal(u.searchParams.get('action'), 'TEMPLATE');
+  assert.equal(u.searchParams.get('dates'), '20261025T043000Z/20261025T053000Z');
+  assert.equal(u.searchParams.get('text'), 'Lunch, team; ok next');
+  assert.equal(u.searchParams.get('location'), 'T-Hub & co');
+  assert.equal(u.searchParams.get('details'), 'a\\b');
+});
+
+test('.ics is valid RFC 5545 with escaping and UTC times', () => {
+  const ics = icsEvent({ ...ev, description: 'x'.repeat(200) + ', é' }, () => Date.parse('2026-10-24T17:00:00Z'));
+  assert.ok(ics.startsWith('BEGIN:VCALENDAR\r\nVERSION:2.0\r\n'));
+  assert.ok(ics.endsWith('END:VEVENT\r\nEND:VCALENDAR\r\n'));
+  assert.doesNotMatch(ics.replace(/\r\n/g, ''), /\n/);
+  assert.match(ics, /\r\nDTSTART:20261025T043000Z\r\n/);
+  assert.match(ics, /\r\nDTEND:20261025T053000Z\r\n/);
+  assert.match(ics, /\r\nDTSTAMP:20261024T170000Z\r\n/);
+  assert.match(ics, /SUMMARY:Lunch\\, team\\; ok\\nnext/);
+  assert.match(ics, /LOCATION:T-Hub & co/);
+  for (const l of ics.split('\r\n')) assert.ok(new TextEncoder().encode(l).length <= 75, l);
+  assert.match(ics, /\r\n UID|\r\n x|\r\n /);
+});
+
+test('flag off: no scope request, no Google API call, links offered after confirm', async () => {
+  for (const name of ['draft_email', 'send_email', 'add_event', 'list_events']) {
+    const seen = [];
+    const h = harness({ api: false, confirm: async (a) => { seen.push(a); return true; } });
+    const args = name === 'add_event' ? ev : name === 'list_events' ? { days: 3 } : send.args;
+    await h.tools.run({ name, args });
+    assert.equal(h.asked.length, 0, name);
+    assert.equal(h.calls.length, 0, name);
+    if (name !== 'list_events') { assert.equal(seen[0].mode, 'links'); assert.ok(seen[0].links.length >= 2); }
+  }
+  const h = harness({ api: false, confirm: async () => false });
+  await assert.rejects(h.tools.run(send), (e) => e.code === 'cancelled');
+});
+
+test('draft_email never uses the API (no gmail.compose scope)', async () => {
+  const h = harness({ api: true });
+  await h.tools.run({ name: 'draft_email', args: send.args });
+  assert.equal(h.asked.length, 0);
+  assert.deepEqual(SCOPES.gmail, ['https://www.googleapis.com/auth/gmail.send']);
+});
+
+test('API flag is allowlist-only', () => {
+  assert.equal(toolsApiEnabled(null), false);
+  assert.equal(toolsApiEnabled({ email: 'someone@gmail.com' }), false);
+  assert.equal(toolsApiEnabled({ email: 'SrilathaPoola6@gmail.com', emailVerified: true }), true);
+  assert.equal(toolsApiEnabled({ email: 'srilathapoola6@gmail.com', emailVerified: false }), false);
 });

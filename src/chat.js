@@ -1,11 +1,13 @@
 // Chat with the user's agent through the Gemini proxy. History stays on this device for now.
 // The proxy builds the system prompt. This client sends only the agent name, personality, and transcript.
 import {toast} from './ui.js';
-import {loadMessages, addMessage, trimMessages, MAX_MESSAGES, requestGoogleAccess} from './firebase.js';
+import {loadMessages, addMessage, trimMessages, MAX_MESSAGES, requestGoogleAccess, currentUser} from './firebase.js';
 import {createGoogleTools, TOOL_MESSAGES} from './google-tools.js';
 import {confirmAction} from './ui/confirmAction.js';
 
-const googleTools = createGoogleTools({ requestAccess: requestGoogleAccess, confirm: confirmAction });
+import {toolsApiEnabled} from './tools-config.js';
+
+const googleTools = createGoogleTools({ requestAccess: requestGoogleAccess, confirm: confirmAction, apiEnabled: () => toolsApiEnabled(currentUser()) });
 
 const API = 'https://virtual-world-ai.onrender.com/chat';
 const REPLY_TIMEOUT_MS = 60_000;

@@ -1,8 +1,12 @@
-// Runs agent tool actions (Gmail + Calendar) from the browser with the owner's Google OAuth access token.
-// The token lives only in this module's memory: never localStorage, sessionStorage, IndexedDB or Firestore.
-// draft_email, send_email and add_event run ONLY after confirm() resolves true. list_events is read-only.
+// Runs agent tool actions (email + calendar) from the browser.
+// DEFAULT (all users, no OAuth): the confirm sheet shows the exact email/event with links the user taps:
+//   mailto: + Gmail web compose, or a Google Calendar template link + a client-side .ics download.
+// FLAGGED (allowlisted emails in src/tools-config.js only): send_email and add_event/list_events use the real
+//   Gmail/Calendar APIs with gmail.send / calendar.events, requested on demand. The OAuth token lives only in
+//   this module's memory: never localStorage, sessionStorage, IndexedDB or Firestore.
+// Every write needs confirm() to resolve true. Nothing happens on its own.
 export const SCOPES = {
-  gmail: ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.send'],
+  gmail: ['https://www.googleapis.com/auth/gmail.send'],
   calendar: ['https://www.googleapis.com/auth/calendar.events'],
 };
 export const NEEDS_CONFIRM = new Set(['draft_email', 'send_email', 'add_event']);
@@ -26,7 +30,7 @@ export const _tokenState = () => (cache ? { scopes: [...cache.scopes], exp: cach
 export function forgetToken() { cache = null; }
 
 // requestAccess(scopes) -> {accessToken, expiresIn?}; provided by src/firebase.js (Google popup with extra scopes).
-export function createGoogleTools({ requestAccess, confirm, fetchImpl = (...a) => fetch(...a), now = () => Date.now() }) {
+export function createGoogleTools({ requestAccess, confirm, apiEnabled = () => false, fetchImpl = (...a) => fetch(...a), now = () => Date.now() }) {
   async function token(scopes, force = false) {
     const fresh = cache && cache.exp > now() + 30_000 && scopes.every((s) => cache.scopes.has(s));
     if (fresh && !force) return cache.token;
@@ -54,6 +58,8 @@ export function createGoogleTools({ requestAccess, confirm, fetchImpl = (...a) =
   async function run(action) {
     if (!action || typeof action.name !== 'string' || !action.args) throw new ToolError('invalid', TOOL_MESSAGES.invalid);
     const { name, args } = action;
+    const api = apiEnabled() === true && name !== 'draft_email';
+    if (!api) return runLinks(action);
     // Gate: never trust action.confirm from the server; the client decides which actions need a tap.
     if (NEEDS_CONFIRM.has(name)) {
       const ok = await confirm(action);
@@ -84,10 +90,57 @@ export function createGoogleTools({ requestAccess, confirm, fetchImpl = (...a) =
     }
     throw new ToolError('invalid', TOOL_MESSAGES.invalid);
   }
+  // No-OAuth path: the user finishes the action in Gmail / Google Calendar (or with the .ics file).
+  async function runLinks(action) {
+    const { name, args } = action;
+    if (name === 'list_events') return 'I can\'t read your calendar yet. Open Google Calendar to check your schedule.';
+    if (name === 'draft_email' || name === 'send_email') {
+      const ok = await confirm({ ...action, mode: 'links', links: [
+        { label: 'Open in Gmail', href: gmailComposeUrl(args) },
+        { label: 'Open in mail app', href: mailtoUrl(args) },
+      ] });
+      if (ok !== true) throw new ToolError('cancelled', TOOL_MESSAGES.cancelled);
+      return `Opened your email to ${args.to}. Review it and press Send there.`;
+    }
+    if (name === 'add_event') {
+      const ok = await confirm({ ...action, mode: 'links', links: [
+        { label: 'Add to Google Calendar', href: gcalTemplateUrl(args) },
+        { label: 'Download .ics', ics: icsEvent(args, now), filename: 'event.ics' },
+      ] });
+      if (ok !== true) throw new ToolError('cancelled', TOOL_MESSAGES.cancelled);
+      return `Opened "${args.title}" for your calendar. Save it there.`;
+    }
+    throw new ToolError('invalid', TOOL_MESSAGES.invalid);
+  }
   return { run };
 }
 
-const hdr = (v) => String(v ?? '').replace(/[\r\n]+/g, ' ');
+const enc = encodeURIComponent;
+export function mailtoUrl({ to, subject, body }) {
+  return `mailto:${enc(hdr(to))}?subject=${enc(hdr(subject))}&body=${enc(String(body ?? ''))}`;
+}
+export function gmailComposeUrl({ to, subject, body }) {
+  return `https://mail.google.com/mail/?view=cm&fs=1&to=${enc(hdr(to))}&su=${enc(hdr(subject))}&body=${enc(String(body ?? ''))}`;
+}
+// 20261025T043000Z
+export const utcStamp = (iso) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+export function gcalTemplateUrl({ title, start, end, description, location }) {
+  const q = `action=TEMPLATE&text=${enc(hdr(title))}&dates=${utcStamp(start)}/${utcStamp(end)}&details=${enc(String(description || ''))}`;
+  return `https://calendar.google.com/calendar/render?${q}${location ? `&location=${enc(hdr(location))}` : ''}`;
+}
+const icsText = (v) => String(v ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+// RFC 5545 VEVENT with UTC times and escaped text, CRLF line endings, lines folded at 75 octets.
+export function icsEvent({ title, start, end, description, location }, now = () => Date.now()) {
+  const fold = (l) => { const out = []; let rest = l; while (new TextEncoder().encode(rest).length > 75) { let n = 74; while (new TextEncoder().encode(rest.slice(0, n)).length > 74) n--; out.push(rest.slice(0, n)); rest = ' ' + rest.slice(n); } out.push(rest); return out.join('\r\n'); };
+  const uid = `${utcStamp(new Date(now()).toISOString())}-${Math.random().toString(36).slice(2, 10)}@virtual-world`;
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Virtual World//Agent//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
+    `UID:${uid}`, `DTSTAMP:${utcStamp(new Date(now()).toISOString())}`, `DTSTART:${utcStamp(start)}`, `DTEND:${utcStamp(end)}`,
+    `SUMMARY:${icsText(title)}`, ...(description ? [`DESCRIPTION:${icsText(description)}`] : []), ...(location ? [`LOCATION:${icsText(location)}`] : []),
+    'END:VEVENT', 'END:VCALENDAR'];
+  return lines.map(fold).join('\r\n') + '\r\n';
+}
+
+function hdr(v) { return String(v ?? '').replace(/[\r\n]+/g, ' '); }
 const b64url = (s) => {
   const bytes = new TextEncoder().encode(s);
   let bin = '';
