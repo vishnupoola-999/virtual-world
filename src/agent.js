@@ -1,12 +1,10 @@
 import {signIn,logOut,onUser,loadAgent,saveAgent,authMsg,redirectResult} from './firebase.js';
 import {flyTo} from './map.js';
-import {avatarLayer,toLook} from './avatar3d.js';
-import {defaultLook,sanitize,createCharacter,SKIN,HAIR_COLOURS,OUTFIT_COLOURS,HAIRSTYLES,OUTFITS,ACCESSORIES} from './character.js';
+import {toLook,defaultLook,sanitize,SKIN,HAIR_COLOURS,OUTFIT_COLOURS,HAIRSTYLES,OUTFITS,ACCESSORIES} from './character-data.js';
 import {toast} from './ui.js';
 import {track} from './onboarding.js';
-import * as THREE from 'three';
 const $=id=>document.getElementById(id);
-export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=null,agent=null,loadSeq=0;const av=avatarLayer(map);const msg=t=>{$('agMsg').textContent=t;};
+export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=null,agent=null,loadSeq=0;const av=lazyAvatar(map);const msg=t=>{$('agMsg').textContent=t;};
   const lk=lookEditor(l=>{if(agent&&$('agForm').dataset.edit)av.set({...agent,look:l});$('agSave').disabled=!lk?.picked();});
   const getPos=()=>new Promise((ok,no)=>navigator.geolocation?navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:true,timeout:20000}):no(new Error('Location not supported')));
   function render(){const signed=!!user;
@@ -63,16 +61,6 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
 // of two character cards (rendered from character.js) before Save is enabled. Existing agents open on their saved look.
 // Each base keeps its own edits. Live-previews on the map character when editing.
 const LABEL={none:'None',glasses:'👓 Glasses',headphones:'🎧 Headphones',cap:'🧢 Cap',bindi:'🔴 Bindi'};
-let thumbs=null;
-// One-off snapshots of the two default characters for the picker cards (one renderer, disposed right after).
-function cardThumbs(){if(thumbs)return thumbs;thumbs={};
-  try{const r=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});r.setPixelRatio(Math.min(devicePixelRatio||1,2));r.setSize(150,190);
-    const scene=new THREE.Scene();scene.add(new THREE.HemisphereLight(0xffffff,0x334466,2.2));const d=new THREE.DirectionalLight(0xffffff,2);d.position.set(2,4,5);scene.add(d);
-    const rim=new THREE.DirectionalLight('#5eb4ff',1.4);rim.position.set(-2,3,-4);scene.add(rim);
-    const cam=new THREE.PerspectiveCamera(30,150/190,.1,10);cam.position.set(0,.55,3.2);cam.lookAt(0,.5,0);
-    for(const b of ['girl','boy']){const ch=createCharacter(defaultLook(b));scene.add(ch.group);r.render(scene,cam);thumbs[b]=r.domElement.toDataURL('image/png');scene.remove(ch.group);ch.dispose?.();}
-    r.dispose();r.forceContextLoss?.();}catch(e){console.warn('picker thumbs',e?.message);}
-  return thumbs;}
 function lookEditor(onChange){let per={},base=null;
   const cur=()=>per[base]||(per[base]=defaultLook(base));
   const swatches=(id,list,key)=>{const el=$(id);el.innerHTML='';for(const c of list){const b=document.createElement('button');b.type='button';b.style.background=c;b.ariaLabel=c;b.dataset.c=c;
@@ -89,9 +77,15 @@ function lookEditor(onChange){let per={},base=null;
   swatches('lkSkin',SKIN,'skin');swatches('lkHairC',HAIR_COLOURS,'hairColour');swatches('lkOutfitC',OUTFIT_COLOURS,'outfitColour');
   $('lkHair').onchange=()=>{cur().hair=$('lkHair').value;paint();};$('lkOutfit').onchange=()=>{cur().outfit=$('lkOutfit').value;paint();};
   for(const b of $('lkBase').querySelectorAll('button'))b.onclick=()=>{base=b.dataset.base;paint();};
-  let shown=false;const showThumbs=()=>{if(shown)return;shown=true;const t=cardThumbs();for(const b of $('lkBase').querySelectorAll('button')){const img=b.querySelector('img');if(t[b.dataset.base])img.src=t[b.dataset.base];}};
+  let shown=false;const showThumbs=()=>{if(shown)return;shown=true;import('./cards3d.js').then(m=>{const t=m.cardThumbs();for(const b of $('lkBase').querySelectorAll('button')){const img=b.querySelector('img');if(t[b.dataset.base])img.src=t[b.dataset.base];}}).catch(e=>console.warn('picker thumbs',e?.message));};
   new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))showThumbs();}).observe($('lkBase'));
   function value(){return base?sanitize({...cur(),v:1,base}):null;}
   return {value,picked:()=>!!base,load(look,name){per={};base=null;
     if(look){const l=toLook(look,name);base=l.base;per[base]=l;}
     paint();}};}
+// three.js (~267 KB gz) is only fetched once there is an agent to draw and the map is zoomed in far enough to see it (perf audit #2).
+function lazyAvatar(map){let real=null,last=null,loading=null,waiting=false;
+  const load=()=>loading||=import('./avatar3d.js').then(m=>{real=m.avatarLayer(map);real.set(last);window.__three3d=true;return real;}).catch(e=>{loading=null;console.warn('avatar3d',e?.message);});
+  const onZoom=()=>{if(map.getZoom()>=10){map.off('zoom',onZoom);waiting=false;load();}};
+  const want=()=>{if(loading)return;if(map.getZoom()>=10||document.body.dataset.tab==='chat')load();else if(!waiting){waiting=true;map.on('zoom',onZoom);}};
+  return {set(a){last=a;if(real)real.set(a);else if(a)want();},play(n){real?.play(n);}};}

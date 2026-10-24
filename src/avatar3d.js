@@ -1,14 +1,11 @@
 // The user's agent as an animated 3D character standing on the map (MapLibre custom layer rendered by three.js).
 // Character: procedural girl/boy bases from src/character.js (our own code, no external model or textures).
 import * as THREE from 'three';
-import {createCharacter,defaultLook,guessBase,sanitize} from './character.js';
+import {createCharacter} from './character.js';
+import {toLook} from './character-data.js';
+export {toLook};
 const MIN_PX=56;      // character is never drawn smaller than this on screen…
 const REAL_H=2.2;     // …and never smaller than ~2.2 m in the world
-const HEX=/^#[0-9a-f]{6}$/i;
-// Agents saved before v1 looks only have {color,emoji}: start from the name's default base and keep their colour as the outfit.
-export function toLook(look,name=''){
-  if(look?.v===1&&(look.base==='girl'||look.base==='boy'))return sanitize({...defaultLook(look.base),...look});
-  const l=defaultLook(guessBase(name).base);if(HEX.test(look?.color||''))l.outfitColour=look.color.toLowerCase();return l;}
 export function avatarLayer(map){
   let agent=null,renderer,scene,camera,model,ch=null,baseH=1,waved=false;const clock=new THREE.Clock();
   const label=document.createElement('div');label.className='agLabel';label.hidden=true;map.getContainer().appendChild(label);
@@ -35,7 +32,8 @@ export function avatarLayer(map){
       ch=createCharacter(toLook(agent?.look,agent?.ownerName||agent?.name));model=ch.group;model.traverse(o=>{o.frustumCulled=false;});
       baseH=new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).y||1;scene.add(model);
       applyLook();placeLabel();map.triggerRepaint();window.__avatarReady=true;},
-    render(gl,args){if(!visible()){topPx=null;return;}
+    // Paused while the Chat tab covers the map (perf audit #4).
+    render(gl,args){if(!visible()||document.body.dataset.tab==='chat'){topPx=null;return;}
       if(!waved){waved=true;ch.play('wave');}
       ch.update(Math.min(clock.getDelta(),.1));
       const s=sizeM()/baseH,elev=elevation();

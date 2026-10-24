@@ -2,9 +2,8 @@
 // 5 steps over the real map: night globe → Google sign-in + system location prompt → dive and landing →
 // pick (two unlabelled cards, nothing preselected, no name guess) and name → the agent greets first.
 // Returning users (signed in with an agent) never see it. Never blocks on location: city fallback, then Warangal centre.
-import * as THREE from 'three';
 import {signIn,saveAgent,currentUser} from './firebase.js';
-import {createCharacter,defaultLook,sanitize} from './character.js';
+import {defaultLook,sanitize} from './character-data.js';
 import {toast} from './ui.js';
 const $=id=>document.getElementById(id);
 const DEFAULT_SPOT={lat:17.9689,lon:79.5941,name:'Warangal'};
@@ -79,7 +78,8 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
 
   // ---- 3. dive + landing
   let landed=false;
-  async function s3(){chrome(3,{skip:'Skip'});landed=false;
+  async function s3(){chrome(3,{skip:'Skip'});import('./cards3d.js').catch(()=>{});// warm three.js during the dive, so step 4's cards are ready
+    landed=false;
     body.append(el('div','onbCap','🔒 Friends only see the approximate area'),el('div','orb',''),el('div','onbBottom fade','<span class="onbChip" id="onbChip">📍 Finding your spot…</span><h2>Your agent has landed ✨</h2><p id="onbNote">Let\'s give it a name and a look.</p><button class="primary big" id="onbNext3">Continue</button>'));
     $('onbNext3').onclick=()=>show(4);
     spot=await (locP||=locate());if(step!==3)return;
@@ -104,7 +104,7 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
       cards?.wave(base);track('look_base_selected',{base});upd();};
     $('onbLater').onclick=()=>{track('customise_later_tap');if(!go.disabled)go.click();else toast(base?'Give your agent a name first':'Tap a character first');};
     go.onclick=()=>{const n=name.value.trim().slice(0,16);if(!base||!n)return;track('agent_named',{len:n.length});create(n);};
-    cards=cardRenderer($('onbCv'),btns);}
+    const want=step;import('./cards3d.js').then(m=>{if(step!==want||!btns[0].isConnected)return;cards=m.cardRenderer($('onbCv'),btns);if(base)cards?.wave(base);}).catch(e=>console.warn('cards',e?.message));}
   function disposeCards(){cards?.dispose();cards=null;}
   function create(n){const u=currentUser();if(!u||!spot)return;const look=sanitize({...defaultLook(base),v:1,base});
     const a={name:n,look,personality:'',ownerName:(u.displayName||'').slice(0,80),lat:spot.lat,lon:spot.lon,spotApprox:!!spot.approx};
@@ -128,19 +128,3 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
 
   return {open,close,afterSignIn,_show:show,get active(){return active;},get step(){return step;}};}
 
-// Shared renderer for the two picker cards.
-function cardRenderer(canvas,btns){let r;try{r=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true,powerPreference:'low-power'});}catch(e){console.warn('cards webgl',e?.message);return null;}
-  r.setPixelRatio(Math.min(devicePixelRatio||1,2));r.setScissorTest(true);
-  const scenes=['girl','boy'].map(b=>{const s=new THREE.Scene();s.add(new THREE.HemisphereLight(0xffffff,0x334466,2.2));const d=new THREE.DirectionalLight(0xffffff,2);d.position.set(2,4,5);s.add(d);
-    const rim=new THREE.DirectionalLight('#5eb4ff',1.4);rim.position.set(-2,3,-4);s.add(rim);const ch=createCharacter(defaultLook(b));s.add(ch.group);return {b,s,ch};});
-  const cam=new THREE.PerspectiveCamera(30,.8,.1,10);cam.position.set(0,.55,3.2);cam.lookAt(0,.5,0);
-  const clock=new THREE.Clock();let raf=0,last=0,busy=0;
-  function draw(){const W=canvas.clientWidth,H=canvas.clientHeight;if(!W||!H)return;r.setSize(W,H,false);const cr=canvas.getBoundingClientRect();
-    const dt=Math.min(clock.getDelta(),.1);
-    for(let i=0;i<2;i++){const br=btns[i].getBoundingClientRect(),x=br.left-cr.left,y=H-(br.bottom-cr.top),w=br.width,h=br.height;
-      r.setViewport(x,y,w,h);r.setScissor(x,y,w,h);cam.aspect=w/h;cam.updateProjectionMatrix();scenes[i].ch.update?.(dt);r.render(scenes[i].s,cam);}}
-  function loop(t){raf=requestAnimationFrame(loop);if(document.hidden||t-last<33)return;last=t;draw();if(performance.now()>busy&&last>0){cancelAnimationFrame(raf);raf=0;}}
-  const kick=ms=>{busy=Math.max(busy,performance.now()+ms);if(!raf)raf=requestAnimationFrame(loop);};
-  const ro=new ResizeObserver(()=>kick(100));ro.observe(canvas);kick(300);
-  return {wave(b){const sc=scenes.find(s=>s.b===b);sc?.ch.play?.('wave');kick(2500);},
-    dispose(){cancelAnimationFrame(raf);ro.disconnect();for(const s of scenes)s.s.traverse(o=>{if(o.isMesh)o.geometry.dispose();});r.dispose();r.forceContextLoss?.();}};}

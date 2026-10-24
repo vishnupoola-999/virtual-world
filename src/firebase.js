@@ -6,10 +6,11 @@
 import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {initializeAuth,indexedDBLocalPersistence,browserLocalPersistence,browserPopupRedirectResolver,GoogleAuthProvider,
   signInWithPopup,signInWithRedirect,signInWithCredential,getRedirectResult,onAuthStateChanged,signOut} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
-import {getFirestore,doc,getDoc,setDoc,serverTimestamp,collection,addDoc,getDocs,deleteDoc,query,orderBy,limit} from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 const app=initializeApp({apiKey:'AIzaSyCfA2MaUKk-B9L4GNpM-QJiOXp3E6UUZdM',authDomain:'virtual-world-8ac82.firebaseapp.com',projectId:'virtual-world-8ac82',storageBucket:'virtual-world-8ac82.firebasestorage.app',messagingSenderId:'38479190061',appId:'1:38479190061:web:749e619be467e076de80a4',measurementId:'G-MXK91TZGGZ'});
 export const auth=initializeAuth(app,{persistence:[indexedDBLocalPersistence,browserLocalPersistence],popupRedirectResolver:browserPopupRedirectResolver});
-const db=getFirestore(app);
+// Firestore (~113 KB gz) is deferred (perf audit #2): loaded on first use, or after first paint when idle.
+let fsP=null;const fs=()=>fsP||=import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js').then(m=>({...m,db:m.getFirestore(app)}));
+(globalThis.requestIdleCallback||(f=>setTimeout(f,1500)))(()=>fs().catch(()=>{fsP=null;}),{timeout:4000});
 const provider=()=>{const p=new GoogleAuthProvider();p.setCustomParameters({prompt:'select_account'});return p;};
 const FRIENDLY={'auth/popup-closed-by-user':'Sign-in window was closed before finishing.','auth/cancelled-popup-request':'Sign-in already in progress.',
  'auth/unauthorized-domain':'This site is not in Firebase Authorized domains.','auth/network-request-failed':'Network problem, check your connection.',
@@ -68,19 +69,19 @@ export async function logOut(){
   return signOut(auth);
 }
 export const onUser=cb=>onAuthStateChanged(auth,cb);
-export async function loadAgent(uid){const s=await getDoc(doc(db,'agents',uid));return s.exists()?s.data():null;}
+export async function loadAgent(uid){const {getDoc,doc,db}=await fs();const s=await getDoc(doc(db,'agents',uid));return s.exists()?s.data():null;}
 // ~1 km grid (0.01°) for the future friends phase; exact coords stay owner-only.
 const r2=x=>Math.round(x*100)/100;
-export async function saveAgent(uid,a){const d={name:a.name,look:a.look,personality:a.personality||'',ownerName:a.ownerName||'',lat:a.lat,lon:a.lon,
+export async function saveAgent(uid,a){const {setDoc,doc,db,serverTimestamp}=await fs();const d={name:a.name,look:a.look,personality:a.personality||'',ownerName:a.ownerName||'',lat:a.lat,lon:a.lon,
   approx:{lat:r2(a.lat),lon:r2(a.lon)},spotApprox:!!a.spotApprox,preciseVisibility:'private',updatedAt:serverTimestamp()};
   // merge keeps the server-written `memory` field (rules reject any client change to it).
   await setDoc(doc(db,'agents',uid),d,{merge:true});return d;}
 // Chat history: agents/{uid}/messages, owner-only. Kept to the newest MAX_MESSAGES.
 export const MAX_MESSAGES=200;
-const msgs=uid=>collection(db,'agents',uid,'messages');
-export async function loadMessages(uid){const s=await getDocs(query(msgs(uid),orderBy('at','desc'),limit(MAX_MESSAGES)));
+const msgs=({collection,db},uid)=>collection(db,'agents',uid,'messages');
+export async function loadMessages(uid){const F=await fs(),{getDocs,query,orderBy,limit}=F;const s=await getDocs(query(msgs(F,uid),orderBy('at','desc'),limit(MAX_MESSAGES)));
   return s.docs.map(d=>d.data()).filter(m=>m&&(m.role==='user'||m.role==='assistant')&&typeof m.content==='string').reverse().map(m=>({role:m.role,content:m.content}));}
-export const addMessage=(uid,m)=>addDoc(msgs(uid),{role:m.role,content:String(m.content).slice(0,2000),at:serverTimestamp()});
-export async function trimMessages(uid){const s=await getDocs(query(msgs(uid),orderBy('at','desc'),limit(MAX_MESSAGES+100)));
+export async function addMessage(uid,m){const F=await fs();return F.addDoc(msgs(F,uid),{role:m.role,content:String(m.content).slice(0,2000),at:F.serverTimestamp()});}
+export async function trimMessages(uid){const F=await fs(),{getDocs,query,orderBy,limit,deleteDoc}=F;const s=await getDocs(query(msgs(F,uid),orderBy('at','desc'),limit(MAX_MESSAGES+100)));
   await Promise.all(s.docs.slice(MAX_MESSAGES).map(d=>deleteDoc(d.ref)));}
 export const currentUser=()=>auth.currentUser;
