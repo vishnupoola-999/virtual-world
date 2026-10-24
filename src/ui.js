@@ -2,16 +2,16 @@
 const $=id=>document.getElementById(id);
 let cur=null;
 export function openSheet(sec){const s=$('sheet');
-  if(cur===sec&&!s.hidden)return closeSheet();if(sec!=='agent')document.dispatchEvent(new Event('vw-agent-sheet-leave'));cur=sec;s.hidden=false;document.body.classList.add('sheet-open');
+  if(cur===sec&&!s.hidden)return closeSheet();if(sec!=='agent')document.dispatchEvent(new Event('vw-agent-sheet-leave'));cur=sec;s.hidden=false;$('scrim').hidden=false;document.body.classList.add('sheet-open');
   for(const el of s.querySelectorAll('[data-sec]'))el.hidden=el.dataset.sec!==sec;
   for(const b of document.querySelectorAll('.fab[data-open]'))b.classList.toggle('on',b.dataset.open===sec);
   $('sheetTitle').textContent=s.querySelector(`[data-sec="${sec}"]`)?.dataset.title||'';
   if(sec==='search')setTimeout(()=>$('q').focus({preventScroll:true}),50);}
-export function closeSheet(){document.dispatchEvent(new Event('vw-agent-sheet-leave'));$('sheet').hidden=true;document.body.classList.remove('sheet-open');cur=null;for(const b of document.querySelectorAll('.fab'))b.classList.remove('on');}
-let tt;export function toast(t,ms=3500){const el=$('toast');el.textContent=t;el.hidden=!t;clearTimeout(tt);if(t&&ms)tt=setTimeout(()=>el.hidden=true,ms);}
+export function closeSheet(){document.dispatchEvent(new Event('vw-agent-sheet-leave'));$('sheet').hidden=true;$('scrim').hidden=true;document.body.classList.remove('sheet-open');cur=null;for(const b of document.querySelectorAll('.fab'))b.classList.remove('on');}
+let tt;export function toast(t,ms=2400){const el=$('toast');el.textContent=t;el.hidden=!t;clearTimeout(tt);if(t&&ms)tt=setTimeout(()=>el.hidden=true,ms);}
 export function setupUI(){
   for(const b of document.querySelectorAll('[data-open]'))b.onclick=()=>openSheet(b.dataset.open);
-  $('sheetClose').onclick=closeSheet;
+  $('sheetClose').onclick=closeSheet;$('scrim').onclick=closeSheet;
   document.addEventListener('keydown',e=>{if(e.key==='Escape')closeSheet();});
   // swipe the grabber down to dismiss
   let y0=null;const g=$('sheetHead');

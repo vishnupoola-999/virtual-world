@@ -41,8 +41,8 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
       const c=map.getCenter();map.jumpTo({center:[c.lng+6*dt,c.lat]});};globeRaf=requestAnimationFrame(f);}
   function stopGlobe(){cancelAnimationFrame(globeRaf);globeRaf=0;}
   function s1(){chrome(1,{skip:'Skip intro'});startGlobe();
-    body.append(el('div','onbBottom',`<h1>Your agent is waiting to be <em>born.</em></h1><p>A tiny AI that lives where you live, makes friends and helps you get things done.</p><button class="primary big" id="onbGo">Get started</button>`));
-    $('onbGo').onclick=()=>show(2);}
+    body.append(el('div','onbBottom',`<span class="cap">Virtual World</span><h1>Your agent is waiting to be <em>born.</em></h1><p>It lives where you live, makes friends, and gets things done for you.</p><button class="primary big" id="onbGo">Get started</button><button class="ghost" id="onbHave" type="button">I already have an agent</button>`));
+    $('onbGo').onclick=()=>show(2);$('onbHave').onclick=()=>show(2);}
 
   // ---- 2. sign in (then the system location prompt, no explainer)
   function s2(){chrome(2,{back:true});startGlobe();
@@ -119,7 +119,7 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
     const msg=spot.approx?`${hi} I'm in ${esc(spot.city||spot.name||'your city')} for now. You can move me to your exact spot anytime. Want me to find your friends?`
       :`${hi} I'm here on ${esc((spot.name||'your street').split(',')[0])}. Want me to find your friends?`;
     body.append(el('div','onbChat',`<div class="onbHead"><b>${esc(document.querySelector('.agLabel')?.textContent||'Your agent')}</b><button id="onbMove" type="button">📍 Move my agent</button></div>
-      <div class="log"><div class="bub typing" id="onbBub"><i></i><i></i><i></i></div></div><div class="onbChips fade" id="onbChips"><button class="primary" id="onbFind">Find my friends</button><button id="onbNot">Not now</button></div>`));
+      <div class="log"><div class="bub typing" id="onbBub"><i></i><i></i><i></i></div></div><div class="onbChips fade" id="onbChips"><button class="brand" id="onbFind">Find friends</button><button id="onbNot">Not now</button></div>`));
     later(()=>{const b=$('onbBub');b.classList.remove('typing');b.innerHTML=msg;track('first_message_shown',{ms_since_open:Math.round(performance.now()-T0)});},1200);
     later(()=>$('onbChips').classList.add('in'),RM()?1200:2200);
     $('onbFind').onclick=()=>{track('find_friends_tap');close();onFindFriends();};

@@ -8,7 +8,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const webDir = join(root, 'www');
 
 const files = ['index.html', 'join.html', 'favicon.svg'];
-const dirs = ['src', 'assets'];
+const dirs = ['src', 'assets', 'fonts'];
 
 for (const entry of [...files, ...dirs]) {
   statSync(join(root, entry));

@@ -59,7 +59,14 @@ const ob=setupOnboarding(map,{onCreated:(a,saved)=>window.__vw.agent.adopt(a,sav
   onFindFriends:()=>{tabs.set('world');openSheet('family');}});
 window.__vw.onb=ob;
 onUser(u=>{if(!u&&!noOnb)ob.open(1);});
-$('chatMove').onclick=()=>{tabs.set('world');window.__vw.agent.startMove('chat');};
+// Chat header: Show on map, and More (also ＋ in the composer) opens the agent sheet with Move my agent, Customise and live sharing.
+const more=on=>{$('moreSheet').classList.toggle('on',on);$('moreScrim').classList.toggle('on',on);$('moreSheet').setAttribute('aria-hidden',String(!on));
+  if(on){const a=window.__vw.agent?.agent;$('moreName').textContent=a?.name||'My agent';$('moreMono').textContent=(a?.name||'A')[0].toUpperCase();$('chatLive').setAttribute('aria-checked',String(watch!==null));}};
+$('chatShow').onclick=()=>{const a=window.__vw.agent?.agent;tabs.set('world');if(a)flyTo(map,a.lon,a.lat,19);};
+$('chatMore').onclick=$('chatPlus').onclick=()=>more(true);$('moreDone').onclick=$('moreScrim').onclick=()=>more(false);
+$('chatMove').onclick=()=>{more(false);tabs.set('world');window.__vw.agent.startMove('chat');};
+$('chatCustom').onclick=()=>{more(false);tabs.set('world');openSheet('agent');$('agEdit')?.click();};
+$('chatLive').onclick=()=>{$('liveBtn').click();$('chatLive').setAttribute('aria-checked',String(watch!==null));};
 window.__vw.agent=setupAgent(map,{onLoaded:(u,a)=>{if(!u||noOnb)return;if(!a)ob.afterSignIn();else if(ob.active&&ob.step<=2){ob.close();goChat();}},onAgent:a=>{chat.reset();if(a&&autoChat){autoChat=false;if(chat.open()){closeSheet();tabs.set('chat');return true;}}else if(!a&&tabs.current==='chat')tabs.set('world');else if(a&&tabs.current==='chat')chat.open();}});
 $('tabWorld').addEventListener('click',()=>{autoChat=false;});
 // Share my own live location from inside the app, so the map (and my agent) stay on screen.
