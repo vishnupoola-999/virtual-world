@@ -164,7 +164,7 @@ GitHub Actions has no repository secrets in these workflows.
 
 ## Changelog
 
-One line per pull request. Status is `merged` or `open` as of 2026-10-24. #14 is this PR.
+One line per pull request. Status is `merged` or `open` as of 2026-10-24. #15 is this PR.
 
 | PR | Title | Status | Summary |
 | --- | --- | --- | --- |
@@ -181,7 +181,7 @@ One line per pull request. Status is `merged` or `open` as of 2026-10-24. #14 is
 | #11 | Docs: v1 roadmap and product decisions | merged | Adds `docs/ROADMAP.md` and `docs/DECISIONS.md`. |
 | #12 | docs: add the engineering log | merged | This file: the engineering record, this changelog, and pointers to the product docs. |
 | #13 | Agent memory: synced chat history + server-side owner notes | merged | `agents/{uid}/messages` (owner-only rules + tests, newest 200) synced across devices; proxy sends the last 20 messages and a server-written `agents/{uid}.memory` summary. Needs `FIREBASE_SERVICE_ACCOUNT` on Render. |
-| #14 | feat: authenticate flights and persist per-user rate limits | open | `GET /flights` requires the chat Firebase ID token. Per-uid chat limits are Firestore minute counters on the existing admin client, with an in-memory fallback. |
+| #15 | feat: authenticate flights and persist per-user rate limits | open | `GET /flights` requires the chat Firebase ID token. Per-uid chat limits are Firestore minute counters on the existing admin client, with an in-memory fallback. |
 
 ## How to update
 
