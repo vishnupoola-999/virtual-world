@@ -10,7 +10,7 @@ const AGENTS = { documents: [
   doc('h_a', { name: 'Mira', lat: 17.45065, lon: 78.38068, status: { kind: 'walking', label: 'Heading to the lake for an evening walk with friends' } }),
   doc('h_b', { name: 'Ravi', lat: 17.45035, lon: 78.38035, status: { kind: 'meeting', label: 'Talking chess' } }),
   doc('h_c', { name: 'Tara', lat: 17.45035, lon: 78.38035 }),
-  doc('h_d', { name: 'Kiran', lat: 17.45035, lon: 78.38035, status: 'Reading' }),
+  doc('h_d', { name: 'Kiran', lat: 17.45035, lon: 78.38035, status: 'Reading', updatedAt: '2026-10-25T10:40:00Z' }),
 ] };
 const FEED = { myId: 'h_me', mine: [
   { id: '1', kind: 'meet', withName: 'Mira', shared: ['music', 'chess'], lines: [{ speaker: 'Bs', text: 'You like chess too?' }, { speaker: 'Mira', text: 'Every evening.' }], at: ago(12) },
@@ -47,8 +47,51 @@ test('others drawn at 85% with own card skipped, fanned out', async ({ page }) =
   expect(new Set(xs).size).toBeGreaterThan(1);
   await page.waitForFunction(() => globalThis.__avatarReady, null, { timeout: 45_000 }).catch(() => {});
   await page.waitForTimeout(800);
-  if (SHOTS) { await page.evaluate(() => globalThis.__map.jumpTo({ center: [78.3805, 17.4505], zoom: 18.3, pitch: 20 })); await page.waitForTimeout(2500); await page.screenshot({ path: `${SHOTS}/map-others.png` }); }
-  if (SHOTS) { await page.evaluate(() => globalThis.__map.jumpTo({ center: [78.38035, 17.45038], zoom: 19.5, pitch: 0 })); await page.waitForTimeout(800); await page.screenshot({ path: `${SHOTS}/fan-out.png` }); }
+  if (SHOTS) { await page.evaluate(() => globalThis.__map.jumpTo({ center: [78.3805, 17.4505], zoom: 18.3, pitch: 20 })); await page.waitForTimeout(2500); await page.evaluate(() => globalThis.__vw.town.keepClear()); await page.waitForTimeout(200); await page.screenshot({ path: `${SHOTS}/map-others-v2.png` }); }
+  if (SHOTS) { await page.evaluate(() => globalThis.__map.jumpTo({ center: [78.38035, 17.45038], zoom: 19.5, pitch: 0 })); await page.waitForTimeout(800); await page.evaluate(() => globalThis.__vw.town.keepClear()); await page.waitForTimeout(200); await page.screenshot({ path: `${SHOTS}/fan-out-v2.png` }); }
+});
+
+// Other people's characters on screen stay 16px inside the edges and clear of the rail.
+async function charReport(page) {
+  return page.evaluate(() => {
+    const d = globalThis.document, W = globalThis.innerWidth, H = globalThis.innerHeight, rl = d.getElementById('rail').getBoundingClientRect();
+    const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    const vis = [...d.querySelectorAll('.maplibregl-marker.ag.other canvas')].map((c) => c.getBoundingClientRect())
+      .filter((r) => r.width && r.bottom > 0 && r.top < H && r.right > 0 && r.left < W).map((r) => ({ x: r.left, y: r.top, w: r.width, h: r.height }));
+    return { n: vis.length, edge: vis.filter((b) => b.x < 15.5 || b.x + b.w > W - 15.5).length, underRail: vis.filter((b) => hit(b, { x: rl.left, y: rl.top, w: rl.width, h: rl.height })).length };
+  });
+}
+
+test('characters stay 16px inside the edges and clear of the rail', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => globalThis.__vw.town.refreshMap(globalThis.__fakeUser));
+  // Put Mira's spot under the rail, then at the left edge.
+  for (const at of ['rail', 'left']) {
+    await page.evaluate((w) => { const m = globalThis.__map, rl = globalThis.document.getElementById('rail').getBoundingClientRect();
+      m.jumpTo({ center: [78.38068, 17.45065], zoom: 18.3, pitch: 0, bearing: 0 });
+      const p = m.project([78.38068, 17.45065]), t = w === 'rail' ? [rl.left + 20, rl.top + 140] : [4, 500];
+      m.panBy([p.x - t[0], p.y - t[1]], { duration: 0 }); }, at);
+    await page.waitForTimeout(700);
+    await page.evaluate(() => globalThis.__vw.town.keepClear());
+    const r = await charReport(page);
+    expect(r.n).toBeGreaterThan(0);
+    expect(r.edge).toBe(0); expect(r.underRail).toBe(0);
+  }
+});
+
+test('40px fan-out, tapping a group zooms in and spreads it', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => globalThis.__vw.town.refreshMap(globalThis.__fakeUser));
+  const x0 = await page.evaluate(() => globalThis.__vw.agents.get('h_c').marker.getOffset().x);
+  expect(Math.abs(x0)).toBe(35);
+  const z0 = await page.evaluate(() => globalThis.__map.getZoom());
+  await page.evaluate(() => globalThis.__vw.agents.get('h_d').el.dispatchEvent(new globalThis.MouseEvent('click', { bubbles: true })));
+  await expect(page.locator('#profile[aria-hidden="false"]')).toHaveCount(0);
+  const x1 = await page.evaluate(() => globalThis.__vw.agents.get('h_c').marker.getOffset().x);
+  expect(Math.abs(x1)).toBeGreaterThan(40);
+  await page.waitForTimeout(900);
+  expect(await page.evaluate(() => globalThis.__map.getZoom())).toBeGreaterThan(z0);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/fan-out-spread-v2.png` });
 });
 
 test('anonymous users get no others and a calm feed message', async ({ page }) => {
@@ -74,8 +117,10 @@ test('feed: skeleton, sections, expandable meets', async ({ page }) => {
   await expect(meet).toHaveClass(/open/);
   await expect(meet.locator('.fdHead')).toHaveAttribute('aria-expanded', 'true');
   await expect(meet).toContainText('Every evening.');
+  await expect(meet.locator('.fdChips span')).toHaveText(['music', 'chess']);
+  await expect(meet).not.toContainText('Both like');
   await page.waitForTimeout(300);
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/feed-data.png` });
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/feed-data-v2.png` });
 });
 
 test('feed: empty state and error', async ({ page }) => {

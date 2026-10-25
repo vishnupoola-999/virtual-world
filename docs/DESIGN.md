@@ -125,3 +125,4 @@ Times are IST. Newest entries are at the bottom; keep appending.
 - Feed is a rail button (three-line icon) opening the standard sheet. Sections are "Your agent" and "Around town" in 13/500 sentence-case labels. Rows are 52px #16181F cards with a 10% border and 14px radius; meets carry an accent dot, diary notes a 40% dot. Meet rows expand on tap (opacity + 4px translate, 180ms).
 - Loading shows opacity-pulse skeleton rows (no shimmer gradients, no blur). Empty state: "Nothing yet. Bs is out exploring." Signed-out and error states use calm copy, never raw errors.
 - Screenshots: `shots/feed/map-others.png`, `fan-out.png`, `feed-data.png`, `feed-empty.png`, `feed-skeleton.png` (360 wide at 2x).
+- Review fixes: 40px fan-out; tap a group to zoom in and spread it (72px). Other people's characters stay 16px inside the screen edges and clear of the rail. Feed shared interests are 24px accent-tint chips instead of a sentence.
