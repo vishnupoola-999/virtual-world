@@ -144,9 +144,16 @@ test('Agent chats: one-line log with gist, worth-meeting only for interest match
   await expect(ac.locator('.wm')).not.toContainText('Dev');
   await expect(ac.locator('.wm .fdChips span')).toHaveText(['music', 'chess']);
   await expect(page.locator('#agentDot')).toBeHidden();
-  await expect(ac.locator('.fd.meet .fdT')).toHaveText(['Met Mira', 'Met Dev', 'Met Sam']);
+  await expect(ac.locator('.fd .fdT')).toHaveText(['Met Mira', 'Met Dev', 'Met Sam', /Walked to the park/]);
+  await expect(ac.locator('.wm button')).toHaveCount(2);
+  await expect(ac.locator('.wm .acts button')).toHaveText(['Say hi']);
+  const x = await ac.locator('.wm button[aria-label="Dismiss"]').boundingBox(), card = await ac.locator('.wm').boundingBox(), hi = await ac.locator('.wm .hi').boundingBox();
+  expect([Math.round(x.width), Math.round(x.height)]).toEqual([32, 32]);
+  expect(x.x + x.width).toBeGreaterThan(card.x + card.width - 20); expect(x.y).toBeLessThan(card.y + 20);
+  expect(hi.width).toBeGreaterThan(card.width - 40);
+  await expect(ac).not.toContainText('Maybe later');
   await expect(ac).not.toContainText('Ravi and Tara met');
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/agent-chats-highlight-v3.png` });
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/agent-chats-highlight-v4.png` });
   const meet = ac.locator('.fd.meet').first();
   await meet.locator('.fdHead').click();
   await expect(meet.locator('.fdBody')).toContainText('Talked about music and chess.');
@@ -160,10 +167,10 @@ test('Agent chats: one-line log with gist, worth-meeting only for interest match
   await page.waitForTimeout(300);
   expect(sent.slice(n0).filter((u) => !u.includes('google') && !u.includes('gstatic'))).toEqual([]);
   expect(await page.evaluate(() => globalThis.localStorage.getItem('vw-wm-draft:1'))).toBe('Hey Mira!');
-  await ac.locator('.wm .later').click();
+  await ac.locator('.wm button[aria-label="Dismiss"]').click();
   await expect(ac.locator('.wm')).toHaveCount(0);
   await page.waitForTimeout(300);
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/agent-chats-log-v3.png` });
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/agent-chats-log-v4.png` });
 });
 
 test('feed: empty state and error', async ({ page }) => {

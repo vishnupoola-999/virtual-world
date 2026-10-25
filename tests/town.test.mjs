@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fanOut, cardStatus, clip, feedHtml, activityHtml, noteText, worthMeeting, setupTown, EMPTY, clearShift, FAN_PX } from '../src/town.js';
+import { fanOut, cardStatus, clip, feedHtml, activityHtml, noteText, worthMeeting, byNewest, setupTown, EMPTY, clearShift, FAN_PX } from '../src/town.js';
 
 test('clip caps at 40 chars with ellipsis', () => { assert.equal(clip('a'.repeat(50)).length, 40); assert.equal(clip('short'), 'short'); });
 test('cardStatus handles string, object and junk', () => {
@@ -61,4 +61,12 @@ test('worth-meeting: note from /feed wins, escaped and capped at 90', () => {
   assert.equal(noteText({ withName: 'P', shared: ['x'], note: 'Priya would <3 to meet you' }), 'Priya would &lt;3 to meet you');
   const long = noteText({ shared: ['x'], note: 'a'.repeat(300) });
   assert.equal(long.length, 90); assert.ok(long.endsWith('…'));
+});
+
+test('Agent chats log is newest first by timestamp', () => {
+  const now = Date.now(), m = (n) => now - n * 60000;
+  const list = [{ id: 'a', at: m(12) }, { id: 'b', at: m(120) }, { id: 'c', at: m(40) }, { id: 'd', at: new Date(m(50)).toISOString() }, { id: 'e', at: m(1) }];
+  assert.deepEqual(byNewest(list).map((e) => e.id), ['e', 'a', 'c', 'd', 'b']);
+  const h = activityHtml({ mine: [{ kind: 'meet', id: '1', withName: 'Old', at: m(90) }, { kind: 'meet', id: '2', withName: 'New', at: m(5) }] });
+  assert.ok(h.indexOf('Met New') < h.indexOf('Met Old'));
 });

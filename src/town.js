@@ -53,9 +53,12 @@ export const worthMeeting=f=>(f.mine||[]).filter(e=>e.kind==='meet'&&!e.town&&Ar
 const gist=e=>{const sh=(e.shared||[]).slice(0,3);const l=(e.lines||[]).find(x=>x&&x.text);
   return (sh.length?`Talked about ${esc(andList(sh))}.`:'Said hello and swapped notes.')+(l?` <span class="q">"${esc(clip(l.text,80))}"</span>`:'');};
 const logRow=e=>e.kind==='meet'?`<li class="fd meet"><button type="button" class="fdHead" aria-expanded="false"><span class="fdDot"></span><span class="fdT">Met ${esc(e.withName||'another agent')}</span><small>${ago(e.at)}</small></button><div class="fdBody"><p>${gist(e)}</p></div></li>`:diaryRow(e);
-export function activityHtml(f,{dismissed=new Set()}={}){const mine=(f.mine||[]);if(!mine.length)return `<p class="fdEmpty">${EMPTY}</p>`;
+const atMs=e=>typeof e.at==='number'?e.at:Date.parse(e.at)||0;
+// Log order: newest first by timestamp (the /feed list can arrive mixed).
+export const byNewest=list=>[...list].sort((a,b)=>atMs(b)-atMs(a));
+export function activityHtml(f,{dismissed=new Set()}={}){const mine=byNewest(f.mine||[]);if(!mine.length)return `<p class="fdEmpty">${EMPTY}</p>`;
   const wm=worthMeeting(f).filter(e=>!dismissed.has(e.id));
-  const hl=wm.length?`<div class="wmSec"><div class="fdSec">Worth meeting</div><ul>${wm.map(e=>`<li class="wm" data-id="${esc(e.id)}"><p>${noteText(e)}</p><div class="fdChips">${(e.shared||[]).slice(0,3).map(t=>`<span>${esc(t)}</span>`).join('')}</div><div class="acts"><button type="button" class="hi" data-name="${esc(e.withName||'')}">Say hi</button><button type="button" class="later">Maybe later</button></div></li>`).join('')}</ul></div>`:'';
+  const hl=wm.length?`<div class="wmSec"><div class="fdSec">Worth meeting</div><ul>${wm.map(e=>`<li class="wm" data-id="${esc(e.id)}"><button type="button" class="later x" aria-label="Dismiss"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button><p>${noteText(e)}</p><div class="fdChips">${(e.shared||[]).slice(0,3).map(t=>`<span>${esc(t)}</span>`).join('')}</div><div class="acts"><button type="button" class="hi" data-name="${esc(e.withName||'')}">Say hi</button></div></li>`).join('')}</ul></div>`:'';
   return hl+`<div class="fdSec">Log</div><ul>${mine.map(logRow).join('')}</ul>`;}
 export const SKELETON=`<div class="fdSec">Around town</div><ul class="fdSk" aria-hidden="true"><li></li><li></li><li></li></ul>`;
 export const ACT_SKELETON=`<div class="fdSec">Log</div><ul class="fdSk" aria-hidden="true"><li></li><li></li><li></li></ul>`;
