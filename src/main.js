@@ -97,3 +97,7 @@ addEventListener('pagehide',()=>{if(watch!==null)clearMe();});
 if(new URLSearchParams(location.search).get('room'))setTimeout(()=>openSheet('family'),800);
 // PWA
 if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(e=>console.warn('sw',e));
+
+// Keep-warm: the Render proxy sleeps when idle (30-60 s cold start). Wake it on app open so the first chat reply is not slow.
+// Not on the agent's path; fire-and-forget.
+fetch('https://virtual-world-ai.onrender.com/',{mode:'no-cors',cache:'no-store'}).catch(()=>{});

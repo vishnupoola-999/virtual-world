@@ -61,6 +61,7 @@ export async function signIn(){
   catch(e){if(e.code==='auth/popup-blocked'||e.code==='auth/operation-not-supported-in-environment'){sessionStorage.setItem('vw-redirect','1');return signInWithRedirect(auth,provider());}throw e;}
   finally{busy=false;}}
 export async function logOut(){
+  try{const u=auth.currentUser;if(u)localStorage.removeItem('vw-agent:'+u.uid);}catch(e){}
   const cap=nativeCap();
   if(cap&&typeof cap.nativePromise==='function'){
     try{await cap.nativePromise('FirebaseAuthentication','signOut',{});}
@@ -69,13 +70,30 @@ export async function logOut(){
   return signOut(auth);
 }
 export const onUser=cb=>onAuthStateChanged(auth,cb);
-export async function loadAgent(uid){const {getDoc,doc,db}=await fs();const s=await getDoc(doc(db,'agents',uid));return s.exists()?s.data():null;}
+// Fast agent load (fix/fast-agent-load): on some mobile networks the SDK's streaming channel stalls and getDoc only gives up
+// with "unavailable" after ~30 s, and we retried that 3 times (about a minute). The REST API is one plain HTTPS GET, so try it first
+// (same Firestore rules, using the user's ID token), and fall back to the SDK with its own time limit.
+const PROJ='virtual-world-8ac82';
+const withTimeout=(p,ms)=>Promise.race([p,new Promise((_,no)=>setTimeout(()=>no(Object.assign(new Error('timeout'),{code:'deadline-exceeded'})),ms))]);
+export const fromRest=v=>v==null?null:'stringValue' in v?v.stringValue:'doubleValue' in v?v.doubleValue:'integerValue' in v?Number(v.integerValue)
+  :'booleanValue' in v?v.booleanValue:'nullValue' in v?null:'timestampValue' in v?v.timestampValue:'mapValue' in v?fromRestFields(v.mapValue.fields||{})
+  :'arrayValue' in v?(v.arrayValue.values||[]).map(fromRest):null;
+const fromRestFields=f=>Object.fromEntries(Object.entries(f).map(([k,v])=>[k,fromRest(v)]));
+async function loadAgentRest(uid){const u=auth.currentUser;if(!u||u.uid!==uid)throw new Error('no user');const t=await u.getIdToken();
+  const r=await fetch(`https://firestore.googleapis.com/v1/projects/${PROJ}/databases/(default)/documents/agents/${encodeURIComponent(uid)}`,{headers:{Authorization:'Bearer '+t}});
+  if(r.status===404)return null;if(!r.ok)throw Object.assign(new Error('REST '+r.status),{code:'rest-'+r.status});return fromRestFields((await r.json()).fields||{});}
+async function loadAgentSdk(uid){const {getDoc,doc,db}=await fs();const s=await getDoc(doc(db,'agents',uid));return s.exists()?s.data():null;}
+export async function loadAgent(uid){let a;try{a=await withTimeout(loadAgentRest(uid),8000);}catch{a=await withTimeout(loadAgentSdk(uid),12000);}cacheAgent(uid,a);return a;}
+// Last known agent per uid, so a returning user sees their agent at once while Firestore confirms it.
+const CK=uid=>'vw-agent:'+uid;
+export function cachedAgent(uid){try{return JSON.parse(localStorage.getItem(CK(uid))||'null');}catch{return null;}}
+export function cacheAgent(uid,a){try{if(a)localStorage.setItem(CK(uid),JSON.stringify({...a,updatedAt:null,memory:undefined}));else localStorage.removeItem(CK(uid));}catch{/* storage full or blocked */}}
 // ~1 km grid (0.01°) for the future friends phase; exact coords stay owner-only.
 const r2=x=>Math.round(x*100)/100;
 export async function saveAgent(uid,a){const {setDoc,doc,db,serverTimestamp}=await fs();const d={name:a.name,look:a.look,personality:a.personality||'',ownerName:a.ownerName||'',lat:a.lat,lon:a.lon,
   approx:{lat:r2(a.lat),lon:r2(a.lon)},spotApprox:!!a.spotApprox,preciseVisibility:'private',updatedAt:serverTimestamp()};
   // merge keeps the server-written `memory` field (rules reject any client change to it).
-  await setDoc(doc(db,'agents',uid),d,{merge:true});return d;}
+  await setDoc(doc(db,'agents',uid),d,{merge:true});cacheAgent(uid,d);return d;}
 // Chat history: agents/{uid}/messages, owner-only. Kept to the newest MAX_MESSAGES.
 export const MAX_MESSAGES=200;
 const msgs=({collection,db},uid)=>collection(db,'agents',uid,'messages');
