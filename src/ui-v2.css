@@ -178,3 +178,38 @@ body[data-tab=world] .think::after,body[data-tab=world] .orbit,body[data-tab=wor
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:1ms!important}}
 .msg.sys.retry{cursor:pointer;color:var(--text-2);background:none;font-size:13px}
 .msg.sys.retry u{text-underline-offset:2px}
+/* Confirm sheet (V1), src/ui/confirmAction.js. No blur; transform and opacity only. */
+.cs-scrim{position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.55);opacity:0;transition:opacity .25s var(--ease-out)}
+.cs-scrim[data-open=true]{opacity:1}
+.cs-sheet{position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;max-width:480px;margin:0 auto;max-height:calc(100% - 24px);overflow:auto;border-radius:28px;padding:10px 20px 20px;background:var(--s2);border:1px solid var(--line-2);color:var(--text);transform:translateY(110%);transition:transform .25s var(--ease-out)}
+.cs-sheet[data-open=true]{transform:none}.cs-sheet:focus{outline:none}
+.cs-sheet .grab{width:36px;height:4px;border-radius:2px;background:var(--s4);margin:0 auto 16px}
+.cs-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.cs-sheet .tile,.cs-error .tile{width:36px;height:36px;border-radius:12px;background:var(--s3);border:1px solid var(--line-2);display:grid;place-items:center;flex:none}
+.cs-sheet svg,.cs-toast svg{width:20px;height:20px;stroke:var(--text);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.cs-title{font-size:17px;font-weight:650}.cs-sub{font-size:13px;color:var(--muted);margin-top:2px}
+.cs-card{background:var(--s1);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+.cs-card .row{display:flex;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line);font-size:14px;line-height:1.4}.cs-card .row:last-child{border:0}
+.cs-card .k{width:62px;flex:none;color:var(--muted);font-size:13px;padding-top:1px}.cs-card .v{color:var(--text);min-width:0;overflow-wrap:anywhere}
+.cs-strong{font-weight:600}.cs-dim{color:var(--text-2)}.cs-hint{font-size:12px;color:var(--muted)}
+.cs-body{color:var(--text-2);white-space:pre-line;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cs-body[data-expanded=true]{-webkit-line-clamp:unset;display:block}
+.cs-sheet .more{background:none;box-shadow:none;border:0;color:var(--muted);font-size:13px;font-weight:500;padding:8px 0 0;min-height:0}
+.cs-sheet .guest{display:inline-flex;align-items:center;gap:6px;background:var(--s3);border-radius:14px;padding:3px 10px 3px 3px;margin:0 4px 4px 0;font-size:13px}
+.cs-sheet .guest i{width:20px;height:20px;border-radius:50%;background:var(--s4);font-style:normal;font-size:10px;display:grid;place-items:center;font-weight:600}
+.cs-note{font-size:12px;color:var(--muted);margin:12px 2px 16px;line-height:1.45}
+.cs-actions{display:flex;flex-direction:column;gap:6px}
+.cs-primary{height:48px;border-radius:24px;background:#fff;color:#07080d;box-shadow:none;border:0;font-size:16px;font-weight:650;transition:transform .18s var(--spring),opacity .15s}
+.cs-primary:focus{outline:none}.cs-primary:focus-visible{outline:2px solid #fff;outline-offset:3px}.cs-primary:active{transform:scale(.97)}.cs-primary[data-busy=true]{opacity:.7}
+.cs-cancel{height:44px;background:none;box-shadow:none;border:0;color:var(--text-2);font-size:15px;font-weight:500}
+.cs-ics{display:block;text-align:center;color:var(--text-2);font-size:14px;font-weight:500;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--faint);padding:10px 0 2px}
+.cs-error{display:flex;gap:10px;align-items:flex-start;border-radius:16px;padding:12px;margin-bottom:12px;background:var(--s1);border:1px solid var(--line-2)}
+.cs-error[hidden]{display:none}
+.cs-error .tile{width:28px;height:28px;border-radius:9px;background:rgba(255,107,122,.14);border:0}.cs-error svg{stroke:var(--err);width:16px;height:16px}
+.cs-error p{font-size:13px;color:var(--text-2);line-height:1.45;margin:0}.cs-error b{color:var(--text)}
+.cs-toast{position:fixed;top:16px;left:50%;z-index:10000;transform:translate(-50%,-80px);opacity:0;border-radius:24px;padding:10px 18px 10px 12px;display:flex;align-items:center;gap:8px;font-size:14px;background:var(--s2);border:1px solid var(--line-2);color:var(--text);pointer-events:none;transition:transform .35s var(--spring),opacity .2s}
+.cs-toast[data-show=true]{transform:translate(-50%,16px);opacity:1}
+.cs-toast[data-pending=true] .cs-ok{opacity:.45}.cs-toast .cs-ok{transition:opacity .2s;width:22px;height:22px;border-radius:50%;background:rgba(61,220,151,.16);display:grid;place-items:center}.cs-toast .cs-ok svg{stroke:var(--ok);width:14px;height:14px;stroke-width:2.2}
+.cs-toast-title{white-space:nowrap;font-weight:600}.cs-toast-sub{white-space:nowrap;font-size:12px;font-weight:450;color:var(--text-2);margin-top:1px}
+@media (prefers-reduced-motion:reduce){.cs-sheet,.cs-scrim,.cs-toast,.cs-primary{transition:none}}
+.cs-cancel[hidden]{display:none}
