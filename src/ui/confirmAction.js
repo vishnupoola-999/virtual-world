@@ -84,7 +84,8 @@ export function confirmAction(action = {}) {
     const a = argsOf(action);
     const api = action.mode === 'api';
     const primaryLink = isEmail ? 'gmail' : 'calendar';
-    const altLink = api ? null : (isEmail ? 'mailto' : 'ics');
+    // Calendar always has an .ics link. In API mode it stays hidden until the real insert fails.
+    const altLink = isEmail ? (api ? null : 'mailto') : 'ics';
     const primaryLabel = api ? (isEmail ? 'Send email' : 'Add to Calendar') : (isEmail ? 'Open in Gmail' : 'Add to Calendar');
 
     const scrim = el('div', 'cs-scrim');
@@ -150,8 +151,9 @@ export function confirmAction(action = {}) {
       }
     }
     sheet.append(card);
-    sheet.append(el('p', 'cs-note', api ? (isEmail ? 'Sends from your Gmail when you tap Send email.' : 'Saves to your Google Calendar when you tap Add.')
-      : (isEmail ? 'Opens Gmail. Nothing sends until you tap Send there.' : 'Opens Google Calendar. Guests are invited only when you save it there.')));
+    const note = el('p', 'cs-note', api ? (isEmail ? 'Sends from your Gmail when you tap Send email.' : 'Saves to your Google Calendar when you tap Add.')
+      : (isEmail ? 'Opens Gmail. Nothing sends until you tap Send there.' : 'Opens Google Calendar. Guests are invited only when you save it there.'));
+    sheet.append(note);
 
     const actions = el('div', 'cs-actions');
     const primary = el('button', 'cs-primary', primaryLabel);
@@ -161,6 +163,7 @@ export function confirmAction(action = {}) {
     if (altLink) {
       alt = el('a', isEmail ? 'cs-ics cs-alt' : 'cs-ics', isEmail ? 'Use another mail app' : 'Download .ics');
       alt.href = '#';
+      if (api) alt.hidden = true;
       actions.append(alt);
     }
     const cancel = el('button', 'cs-cancel', 'Cancel');
@@ -186,10 +189,25 @@ export function confirmAction(action = {}) {
     const pendingTitle = isEmail ? 'Sending' : 'Adding to Calendar';
     let waitTimer;
     const finish = () => { clearTimeout(waitTimer); remove(); };
-    const report = ({ ok } = {}) => {
+    const report = ({ ok, fallback } = {}) => {
       clearTimeout(waitTimer);
       if (ok) { showToast(isEmail ? 'Sent' : 'Added'); finish(); return; }
       hideToast();
+      // Insert failed for the allowlisted account: offer the same template link and .ics everyone else gets.
+      if (!isEmail && fallback) {
+        errP.lastChild.textContent = ' Nothing was added. Open Google Calendar or download the .ics file instead.';
+        errBox.hidden = false;
+        primary.textContent = 'Open in Google Calendar';
+        primary.dataset.busy = 'false';
+        primary.dataset.fallback = 'calendar';
+        if (alt) alt.hidden = false;
+        note.textContent = 'Opens Google Calendar. Nothing is saved until you save it there.';
+        cancel.hidden = false;
+        cancel.textContent = 'Close';
+        sheet.dataset.open = 'true'; scrim.dataset.open = 'true';
+        sheet.focus({ preventScroll: true });
+        return;
+      }
       errP.lastChild.textContent = ` Nothing was ${isEmail ? 'sent' : 'added'}. Close this and try again.`;
       cancel.hidden = true;
       fail('Close');
@@ -203,6 +221,13 @@ export function confirmAction(action = {}) {
     };
     if (api) action.onResult = (r) => report(r || {});
     const go = (link) => {
+      if (primary.dataset.fallback) {
+        try { OPEN[link](a); } catch { return; }
+        showToast(link === 'ics' ? 'Downloaded .ics' : 'Opened Google Calendar', link === 'ics' ? '' : 'Save it there');
+        hide();
+        finish();
+        return;
+      }
       if (api && done) { hide(); finish(); return; } // error state after onResult({ok:false}): Close
       if (done) return;
       if (api) { done = true; startPending(); resolve({ confirmed: true }); return; }

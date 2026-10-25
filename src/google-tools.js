@@ -5,6 +5,8 @@
 //   Gmail/Calendar APIs with gmail.send / calendar.events, requested on demand. The OAuth token lives only in
 //   this module's memory: never localStorage, sessionStorage, IndexedDB or Firestore.
 // Every write needs confirm() to resolve true. Nothing happens on its own.
+import { ensureRfc3339, sanitizeZone } from './calendarWhen.js';
+
 export const SCOPES = {
   gmail: ['https://www.googleapis.com/auth/gmail.send'],
   calendar: ['https://www.googleapis.com/auth/calendar.events'],
@@ -31,6 +33,20 @@ export function composeReply(reply, results) {
 export class ToolError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
+
+// Calendar events.insert requires an RFC3339 offset or start.timeZone. The model often sends a
+// wall time with neither (`2025-05-13T21:30:00`), which Google rejects with 400 and the sheet
+// used to hide. Always send both: the offset is the instant, timeZone is the owner's zone.
+export function calendarInsertBody(args, timeZone) {
+  const zone = sanitizeZone(timeZone);
+  return {
+    summary: args.title,
+    description: args.description || '',
+    location: args.location || '',
+    start: { dateTime: ensureRfc3339(args.start, zone), timeZone: zone },
+    end: { dateTime: ensureRfc3339(args.end, zone), timeZone: zone },
+  };
+}
 export const TOOL_MESSAGES = {
   cancelled: 'Okay, I didn\'t do it.',
   consent: 'I need your Google permission for that. Tap the request again and allow access.',
@@ -46,16 +62,36 @@ export const _tokenState = () => (cache ? { scopes: [...cache.scopes], exp: cach
 export function forgetToken() { cache = null; }
 
 // requestAccess(scopes) -> {accessToken, expiresIn?}; provided by src/firebase.js (Google popup with extra scopes).
-export function createGoogleTools({ requestAccess, confirm, apiEnabled = () => false, fetchImpl = (...a) => fetch(...a), now = () => Date.now() }) {
+export function createGoogleTools({ requestAccess, confirm, apiEnabled = () => false, fetchImpl = (...a) => fetch(...a), now = () => Date.now(), timeZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'UTC'; } }, log = (...parts) => console.error(...parts) }) {
+  const zone = () => sanitizeZone(typeof timeZone === 'function' ? timeZone() : timeZone);
   async function token(scopes, force = false) {
     const fresh = cache && cache.exp > now() + 30_000 && scopes.every((s) => cache.scopes.has(s));
     if (fresh && !force) return cache.token;
     let r;
-    try { r = await requestAccess(scopes); } catch { throw new ToolError('consent', TOOL_MESSAGES.consent); }
+    try { r = await requestAccess(scopes); } catch (err) {
+      log('google access failed', err?.code || err?.name || 'consent');
+      throw new ToolError('consent', TOOL_MESSAGES.consent);
+    }
     if (!r?.accessToken) throw new ToolError('consent', TOOL_MESSAGES.consent);
     const keep = cache && cache.exp > now() ? cache.scopes : [];
     cache = { token: r.accessToken, scopes: new Set([...keep, ...scopes]), exp: now() + (Number(r.expiresIn) || 3000) * 1000 };
     return cache.token;
+  }
+  async function errorInfo(res) {
+    if (typeof res?.json !== 'function') return { reason: '', message: '' };
+    try {
+      const data = await res.json();
+      const message = String(data?.error?.message || data?.error_description || '').replace(/\s+/g, ' ').slice(0, 300);
+      const reason = String(data?.error?.errors?.[0]?.reason || data?.error?.status || '').slice(0, 80);
+      return { reason, message };
+    } catch {
+      return { reason: '', message: '' };
+    }
+  }
+  function failApi(status, info, code, message) {
+    // Status, reason, and Google's message only. Never the bearer token or the request headers.
+    log('google api failed', status, info.reason, info.message);
+    throw new ToolError(code, message);
   }
   async function call(scopes, url, init = {}) {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -63,13 +99,27 @@ export function createGoogleTools({ requestAccess, confirm, apiEnabled = () => f
       let res;
       try {
         res = await fetchImpl(url, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' } });
-      } catch { throw new ToolError('busy', TOOL_MESSAGES.busy); }
-      if (res.status === 401) { forgetToken(); if (attempt === 0) continue; throw new ToolError('expired', TOOL_MESSAGES.expired); }
-      if (res.status === 403) { forgetToken(); throw new ToolError('consent', TOOL_MESSAGES.consent); }
-      if (res.status === 429 || res.status >= 500) throw new ToolError('busy', TOOL_MESSAGES.busy);
-      if (!res.ok) throw new ToolError('failed', TOOL_MESSAGES.failed);
+      } catch (err) {
+        log('google api network', err?.name || 'error');
+        throw new ToolError('busy', TOOL_MESSAGES.busy);
+      }
+      if (res.status === 401) {
+        forgetToken();
+        if (attempt === 0) continue;
+        failApi(401, await errorInfo(res), 'expired', TOOL_MESSAGES.expired);
+      }
+      if (res.status === 403) {
+        const info = await errorInfo(res);
+        forgetToken();
+        const disabled = /SERVICE_DISABLED|accessNotConfigured|has not been used|is disabled/i.test(`${info.reason} ${info.message}`);
+        if (disabled) failApi(403, info, 'disabled', url.includes('calendar') ? 'Google Calendar is not enabled for this app.' : 'That Google API is not enabled for this app.');
+        failApi(403, info, 'consent', TOOL_MESSAGES.consent);
+      }
+      if (res.status === 429 || res.status >= 500) failApi(res.status, await errorInfo(res), 'busy', TOOL_MESSAGES.busy);
+      if (!res.ok) failApi(res.status, await errorInfo(res), 'failed', TOOL_MESSAGES.failed);
       return res.json();
     }
+    throw new ToolError('failed', TOOL_MESSAGES.failed);
   }
   async function run(action) {
     if (!action || typeof action.name !== 'string' || !action.args) throw new ToolError('invalid', TOOL_MESSAGES.invalid);
@@ -89,7 +139,8 @@ export function createGoogleTools({ requestAccess, confirm, apiEnabled = () => f
         notify({ ok: true });
         return msg;
       } catch (err) {
-        notify({ ok: false, error: err?.message || TOOL_MESSAGES.failed });
+        // Real insert failed: the sheet offers the template link and a .ics file (same as the non-API path).
+        notify({ ok: false, error: err?.message || TOOL_MESSAGES.failed, fallback: name === 'add_event' });
         throw err;
       }
     }
@@ -105,8 +156,8 @@ export function createGoogleTools({ requestAccess, confirm, apiEnabled = () => f
       return `Sent to ${args.to}.`;
     }
     if (name === 'add_event') {
-      await call(scopes, 'https://www.googleapis.com/calendar/v3/calendars/primary/events', { method: 'POST',
-        body: JSON.stringify({ summary: args.title, description: args.description || '', location: args.location || '', start: { dateTime: args.start }, end: { dateTime: args.end } }) });
+      const body = calendarInsertBody(args, zone());
+      await call(scopes, 'https://www.googleapis.com/calendar/v3/calendars/primary/events', { method: 'POST', body: JSON.stringify(body) });
       return `Added "${args.title}" to your calendar.`;
     }
     if (name === 'list_events') {
