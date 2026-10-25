@@ -7,6 +7,7 @@
 // If the admin client is missing, or Firestore cannot be reached, the in-process
 // sliding window is used so a store outage does not turn into an open proxy.
 
+const FIRESTORE_DB = encodeURIComponent(process.env.FIRESTORE_DATABASE_ID || 'default');
 const UID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const PROJECT_ID_RE = /^[a-z0-9-]{6,40}$/;
 
@@ -28,7 +29,7 @@ export function rateWindowId(now, windowMs) {
 }
 
 export function rateLimitDocName(projectId, uid, windowId) {
-  return `projects/${projectId}/databases/(default)/documents/rateLimits/${uid}/windows/${windowId}`;
+  return `projects/${projectId}/databases/${FIRESTORE_DB}/documents/rateLimits/${uid}/windows/${windowId}`;
 }
 
 function integerField(value) {
@@ -91,7 +92,7 @@ async function readCount(admin, docName) {
 async function increment(admin, docName) {
   const response = await firestoreFetch(
     admin,
-    `https://firestore.googleapis.com/v1/projects/${admin.projectId}/databases/(default)/documents:commit`,
+    `https://firestore.googleapis.com/v1/projects/${admin.projectId}/databases/${FIRESTORE_DB}/documents:commit`,
     {
       method: 'POST',
       body: JSON.stringify({

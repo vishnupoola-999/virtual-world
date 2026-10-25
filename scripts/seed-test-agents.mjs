@@ -30,7 +30,7 @@ async function main() {
   } else {
     const admin = firebaseAdmin(process.env);
     if (!admin) { console.error('FIREBASE_SERVICE_ACCOUNT is missing'); process.exit(2); }
-    base = `https://firestore.googleapis.com/v1/projects/${admin.projectId}/databases/(default)/documents`;
+    base = `https://firestore.googleapis.com/v1/projects/${admin.projectId}/databases/${encodeURIComponent(process.env.FIRESTORE_DATABASE_ID || 'default')}/documents`;
     headers = { Authorization: `Bearer ${await admin.accessToken()}`, 'Content-Type': 'application/json' };
   }
   const req = async (url, init = {}) => {

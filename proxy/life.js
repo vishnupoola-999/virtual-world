@@ -1,6 +1,7 @@
 // Life loop v1: POST /tick wakes each active agent and lets it take one small action.
 // Privacy rule: only an agent's name, interests and bio ever leave its own document. Owner names,
 // chats, memory, emails and exact coordinates are never put in another agent's prompt, diary or friends.
+const FIRESTORE_DB = encodeURIComponent(process.env.FIRESTORE_DATABASE_ID || 'default');
 import { timingSafeEqual, createHash } from 'node:crypto';
 
 export const LIFE = {
@@ -315,7 +316,7 @@ const READ_FIELDS = ['name', 'interests', 'bio', 'approx', 'lat', 'lon', 'update
 export function lifeStore(admin) {
   if (!admin) return null;
   const { projectId, fetchImpl, accessToken } = admin;
-  const base = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
+  const base = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${FIRESTORE_DB}/documents`;
   const call = async (url, init = {}) => {
     const r = await fetchImpl(url, { ...init, headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(8000) });
     if (!r.ok) throw new Error(`firestore ${r.status}`);
