@@ -91,12 +91,11 @@ $('chatLive').onclick=()=>{$('liveBtn').click();$('chatLive').setAttribute('aria
 const LIVING_MAP=true;
 const living=LIVING_MAP?setupLiving(map,{hintEl:$('liveHint')}):{showOwn:a=>readStatus(a),readStatus};const away=setupAway({track});window.__vw.living=living;window.__vw.away=away;
 // Other people's public agents on the map + the Feed sheet (signed-in, non-anonymous users only).
-const town=setupTown({agents,living,map,getUser:currentUser,el:$('feedList'),actEl:$('chatAct')});window.__vw.town=town;
-onUser(u=>{if(u&&!u.isAnonymous)town.refreshMap(u);else town.clearMap();});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);
+const town=setupTown({agents,living,map,getUser:currentUser,el:$('feedList'),actEl:$('agentChats'),dotEl:$('agentDot')});window.__vw.town=town;
+onUser(u=>{if(u&&!u.isAnonymous){town.refreshMap(u);town.checkUnread(u);}else town.clearMap();});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);
 $('railFeed').addEventListener('click',()=>town.loadFeed());
-// Chat > Activity: toggles the chat log for what your agent did (meets with what was said, diary notes).
-const showAct=on=>{$('chatAct').hidden=!on;$('chatLog').hidden=on;$('chatF').hidden=on;$('chatActBtn').setAttribute('aria-pressed',String(on));if(on)town.loadActivity();};
-$('chatActBtn').onclick=()=>showAct($('chatAct').hidden);window.__vw.showAct=showAct;
+// Agent chats (rail): the agent's own log + worth-meeting notes. Opening it clears the unread dot.
+$('railAgent').addEventListener('click',()=>town.loadActivity());
 addEventListener('pagehide',()=>markVisit());document.addEventListener('visibilitychange',()=>{if(document.hidden&&!away.open)markVisit();});
 const showLife=(u,a)=>{living.showOwn(a);if(!u||!a||ob.active)return;loadDiary(u.uid).then(entries=>away.maybeShow({name:a.name,entries})).catch(e=>console.warn('diary',e?.code||e?.message));};
 window.__vw.agent=setupAgent(map,{onLoaded:(u,a)=>{

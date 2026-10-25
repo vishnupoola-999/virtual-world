@@ -40,18 +40,31 @@ function meetRow(e,mine){const who=mine?esc(e.withName||'another agent'):`${esc(
   return `<li class="fd meet"><button type="button" class="fdHead" aria-expanded="false"><span class="fdDot"></span><span class="fdT">${mine?'Met '+who:who+' met'}</span><small>${ago(e.at)}</small></button>${body?`<div class="fdBody">${body}</div>`:''}</li>`;}
 const diaryRow=e=>`<li class="fd"><div class="fdHead"><span class="fdDot dim"></span><span class="fdT">${esc(clip(e.text,120))}</span><small>${ago(e.at)}</small></div></li>`;
 export const EMPTY='Nothing yet. Bs is out exploring.';
-// Feed sheet: public "Around town" meets only. Your own agent's history lives in Chat > Activity, so nothing shows twice.
+// Feed sheet: public "Around town" meets only. Your own agent's history lives in Agent chats, so nothing shows twice.
 export function feedHtml(f){const town=(f.town||[]);
   return `<div class="fdSec">Around town</div>`+(town.length?`<ul>${town.map(e=>meetRow(e,false)).join('')}</ul>`:`<p class="fdEmpty">No meets around town yet.</p>`);}
-// Chat > Activity: who your agent met and what they said (same /feed data, `mine` list), plus diary notes.
-export function activityHtml(f){const mine=(f.mine||[]);if(!mine.length)return `<p class="fdEmpty">${EMPTY}</p>`;
-  return `<div class="fdSec">What your agent did</div><ul>${mine.map(e=>e.kind==='meet'?meetRow(e,true):diaryRow(e)).join('')}</ul>`;}
+// Agent chats: the agent's own log (one line each, a short gist on expand) and "Worth meeting" notes.
+const andList=a=>a.length<2?(a[0]||''):a.slice(0,-1).join(', ')+' and '+a[a.length-1];
+// Worth-meeting copy: the backend `note` (PR #42) when present, escaped and capped at 90; otherwise one plain line.
+export function noteText(e){if(typeof e.note==='string'&&e.note.trim())return esc(clip(e.note,90));
+  const sh=(e.shared||[]).filter(x=>typeof x==='string'&&x.trim()).slice(0,2);if(!sh.length)return '';
+  const n=esc(String(e.withName||'').trim()||'someone new');return `Met ${n}, you both like ${esc(sh.join(' and '))}.`;}
+export const worthMeeting=f=>(f.mine||[]).filter(e=>e.kind==='meet'&&!e.town&&Array.isArray(e.shared)&&e.shared.length);
+const gist=e=>{const sh=(e.shared||[]).slice(0,3);const l=(e.lines||[]).find(x=>x&&x.text);
+  return (sh.length?`Talked about ${esc(andList(sh))}.`:'Said hello and swapped notes.')+(l?` <span class="q">"${esc(clip(l.text,80))}"</span>`:'');};
+const logRow=e=>e.kind==='meet'?`<li class="fd meet"><button type="button" class="fdHead" aria-expanded="false"><span class="fdDot"></span><span class="fdT">Met ${esc(e.withName||'another agent')}</span><small>${ago(e.at)}</small></button><div class="fdBody"><p>${gist(e)}</p></div></li>`:diaryRow(e);
+export function activityHtml(f,{dismissed=new Set()}={}){const mine=(f.mine||[]);if(!mine.length)return `<p class="fdEmpty">${EMPTY}</p>`;
+  const wm=worthMeeting(f).filter(e=>!dismissed.has(e.id));
+  const hl=wm.length?`<div class="wmSec"><div class="fdSec">Worth meeting</div><ul>${wm.map(e=>`<li class="wm" data-id="${esc(e.id)}"><p>${noteText(e)}</p><div class="fdChips">${(e.shared||[]).slice(0,3).map(t=>`<span>${esc(t)}</span>`).join('')}</div><div class="acts"><button type="button" class="hi" data-name="${esc(e.withName||'')}">Say hi</button><button type="button" class="later">Maybe later</button></div></li>`).join('')}</ul></div>`:'';
+  return hl+`<div class="fdSec">Log</div><ul>${mine.map(logRow).join('')}</ul>`;}
 export const SKELETON=`<div class="fdSec">Around town</div><ul class="fdSk" aria-hidden="true"><li></li><li></li><li></li></ul>`;
-export const ACT_SKELETON=`<div class="fdSec">What your agent did</div><ul class="fdSk" aria-hidden="true"><li></li><li></li><li></li></ul>`;
+export const ACT_SKELETON=`<div class="fdSec">Log</div><ul class="fdSk" aria-hidden="true"><li></li><li></li><li></li></ul>`;
+const store=k=>{try{return new Set(JSON.parse(localStorage.getItem(k)||'[]'));}catch{return new Set();}};
+const save=(k,v)=>{try{localStorage.setItem(k,JSON.stringify([...v].slice(-200)));}catch{/* storage blocked */}};
 const toggleMeet=e=>{const h=e.target.closest('.meet>.fdHead');if(!h)return;const li=h.parentElement,on=!li.classList.contains('open');li.classList.toggle('open',on);h.setAttribute('aria-expanded',String(on));};
 
-export function setupTown({agents,living,getUser,el,actEl,map,deps={}}){const F={fetchPublicAgents,fetchFeed,...deps};let myId=null,drawn=new Set(),seq=0,aseq=0,last=[];const spread=new Set();
-  // One /feed request serves the map (myId), the Feed sheet and Chat > Activity; reused for 30 s.
+export function setupTown({agents,living,getUser,el,actEl,dotEl,map,deps={}}){const F={fetchPublicAgents,fetchFeed,...deps};let myId=null,drawn=new Set(),seq=0,aseq=0,last=[];const spread=new Set();
+  // One /feed request serves the map (myId), the Feed sheet and Agent chats; reused for 30 s.
   let fc=null;const feed=u=>{if(fc&&fc.u===u&&Date.now()-fc.t<30000)return fc.p;const p=F.fetchFeed(u);fc={u,t:Date.now(),p};p.catch(()=>{if(fc?.p===p)fc=null;});return p;};
   async function ensureMyId(u){if(myId)return myId;try{myId=(await feed(u)).myId;}catch{/* feed down: still draw others */}return myId;}
   function draw(list){last=list;const keep=list.filter(d=>d&&d.id&&d.id!==myId&&Number.isFinite(d.lat)&&Number.isFinite(d.lon));const now=new Set();
@@ -84,9 +97,19 @@ export function setupTown({agents,living,getUser,el,actEl,map,deps={}}){const F=
     el.removeAttribute('aria-busy');}
   async function loadActivity(user=getUser()){if(!actEl)return;const n=++aseq;actEl.innerHTML=ACT_SKELETON;actEl.setAttribute('aria-busy','true');
     if(!isReal(user)){actEl.innerHTML='<p class="fdEmpty">Sign in to see what your agent has been up to.</p>';actEl.removeAttribute('aria-busy');return;}
-    try{const f=await feed(user);if(n!==aseq)return;if(f.myId)myId=f.myId;actEl.innerHTML=activityHtml(f);}
+    try{const f=await feed(user);if(n!==aseq)return;if(f.myId)myId=f.myId;actEl.innerHTML=activityHtml(f,{dismissed:store('vw-wm-done')});
+      const seen=store('vw-wm-seen');for(const e of worthMeeting(f))seen.add(e.id);save('vw-wm-seen',seen);if(dotEl)dotEl.hidden=true;}
     catch(e){if(n!==aseq)return;console.warn('activity',e?.message);actEl.innerHTML='<p class="fdEmpty">Activity is resting. Try again in a minute.</p>';}
     actEl.removeAttribute('aria-busy');}
-  el?.addEventListener('click',toggleMeet);actEl?.addEventListener('click',toggleMeet);
+  // Unread dot on the Agent chats rail button: worth-meeting notes not opened yet.
+  async function checkUnread(user=getUser()){if(!dotEl||!isReal(user))return 0;try{const seen=store('vw-wm-seen');const n=worthMeeting(await feed(user)).filter(e=>!seen.has(e.id)).length;dotEl.hidden=!n;return n;}catch{return 0;}}
+  el?.addEventListener('click',toggleMeet);
+  actEl?.addEventListener('click',ev=>{const b=ev.target.closest('.wm button');if(!b)return toggleMeet(ev);const li=b.closest('.wm'),id=li.dataset.id;
+    // "Say hi" only opens a local draft on this device. Nothing is sent anywhere.
+    if(b.classList.contains('hi')){if(!li.querySelector('.draft')){const t=document.createElement('textarea');t.className='draft';t.maxLength=280;t.rows=2;t.setAttribute('aria-label','Draft message (not sent)');
+      const k='vw-wm-draft:'+id;t.value=localStorage.getItem(k)||`Hi ${b.dataset.name||'there'}, my agent said we might get along.`;t.oninput=()=>{try{localStorage.setItem(k,t.value);}catch{/* blocked */}};
+      const sm=document.createElement('small');sm.className='draftNote';sm.textContent='Draft saved on this device. Nothing is sent.';li.querySelector('.acts').before(t,sm);t.focus({preventScroll:true});}return;}
+    else{const sec=li.closest('.wmSec');li.remove();if(sec&&!sec.querySelector('.wm'))sec.remove();}
+    const d=store('vw-wm-done');d.add(id);save('vw-wm-done',d);});
   const fresh=()=>{fc=null;};
-  return {refreshMap,clearMap,loadFeed,loadActivity,fresh,draw,keepClear,expand,get myId(){return myId;},set myId(v){myId=v;}};}
+  return {refreshMap,clearMap,loadFeed,loadActivity,checkUnread,fresh,draw,keepClear,expand,get myId(){return myId;},set myId(v){myId=v;}};}

@@ -118,27 +118,52 @@ test('feed: skeleton, sections, expandable meets', async ({ page }) => {
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/feed-data-v2.png` });
 });
 
-test('chat activity: my agent\'s meets with chips and what was said, not duplicated in Feed', async ({ page }) => {
+test('Chat has no activity view', async ({ page }) => {
   await boot(page);
-  await page.evaluate(() => { globalThis.__vw.tabs.set('chat'); globalThis.document.getElementById('chatView').hidden = false; globalThis.__vw.showAct(true); globalThis.__vw.town.loadActivity(globalThis.__fakeUser); });
-  const act = page.locator('#chatAct');
-  await expect(act).toContainText('What your agent did');
-  await expect(act).toContainText('Met Mira');
-  await expect(act).toContainText('Walked to the park');
-  await expect(act).not.toContainText('Ravi and Tara met');
-  await expect(page.locator('#chatLog')).toBeHidden();
-  const meet = act.locator('.fd.meet').first();
+  await page.evaluate(() => { globalThis.__vw.tabs.set('chat'); globalThis.document.getElementById('chatView').hidden = false; });
+  await expect(page.locator('#chatActBtn, #chatAct')).toHaveCount(0);
+  await expect(page.locator('#chatView')).not.toContainText('Met Mira');
+  if (SHOTS) { await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}/chat-clean-v3.png` }); }
+});
+
+test('Agent chats: one-line log with gist, worth-meeting only for interest matches, unread dot', async ({ page }) => {
+  const feed = { ...FEED, mine: [...FEED.mine, { id: '3', kind: 'meet', withName: 'Dev', shared: [], lines: [{ speaker: 'Dev', text: 'Nice weather.' }], at: ago(40) },
+    { id: '4', kind: 'meet', town: true, withName: 'Sam', shared: ['music'], at: ago(50) }] };
+  const sent = []; page.on('request', (r) => { if (r.method() !== 'GET') sent.push(r.url()); });
+  await boot(page, { feed });
+  expect(await page.evaluate(() => globalThis.__vw.town.checkUnread(globalThis.__fakeUser))).toBe(1);
+  await expect(page.locator('#agentDot')).toBeVisible();
+  await page.evaluate(() => globalThis.document.querySelector('#rail [data-open="agentchats"]').dispatchEvent(new globalThis.MouseEvent('click')));
+  await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser));
+  const ac = page.locator('#agentChats');
+  await expect(ac).toContainText('Log');
+  await expect(ac.locator('.wm')).toHaveCount(1);
+  await expect(ac.locator('.wm p')).toHaveText('Met Mira, you both like music and chess.');
+  await expect(ac.locator('.wm')).not.toContainText('Sam');
+  await expect(ac.locator('.wm p')).not.toContainText(/undefined|null|\$\{/);
+  await expect(ac.locator('.wm')).not.toContainText('Dev');
+  await expect(ac.locator('.wm .fdChips span')).toHaveText(['music', 'chess']);
+  await expect(page.locator('#agentDot')).toBeHidden();
+  await expect(ac.locator('.fd.meet .fdT')).toHaveText(['Met Mira', 'Met Dev', 'Met Sam']);
+  await expect(ac).not.toContainText('Ravi and Tara met');
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/agent-chats-highlight-v3.png` });
+  const meet = ac.locator('.fd.meet').first();
   await meet.locator('.fdHead').click();
-  await expect(meet.locator('.fdHead')).toHaveAttribute('aria-expanded', 'true');
-  await expect(meet).toContainText('Every evening.');
-  await expect(meet.locator('.fdChips span')).toHaveText(['music', 'chess']);
-  await expect(meet).not.toContainText('Both like');
-  await expect(page.locator('#chatActBtn')).toHaveAttribute('aria-pressed', 'true');
+  await expect(meet.locator('.fdBody')).toContainText('Talked about music and chess.');
+  // Say hi is a ghost button that only opens a local draft; nothing is sent.
+  expect(await ac.locator('.wm .hi').evaluate((b) => globalThis.getComputedStyle(b).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+  const n0 = sent.length;
+  await ac.locator('.wm .hi').click();
+  await expect(ac.locator('.wm .draft')).toHaveValue(/Hi Mira/);
+  await expect(ac.locator('.wm')).toContainText('Nothing is sent.');
+  await ac.locator('.wm .draft').fill('Hey Mira!');
   await page.waitForTimeout(300);
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/chat-activity-v2.png` });
-  await page.evaluate(() => globalThis.document.getElementById('chatActBtn').click());
-  await expect(page.locator('#chatLog')).toBeVisible();
-  await expect(act).toBeHidden();
+  expect(sent.slice(n0).filter((u) => !u.includes('google') && !u.includes('gstatic'))).toEqual([]);
+  expect(await page.evaluate(() => globalThis.localStorage.getItem('vw-wm-draft:1'))).toBe('Hey Mira!');
+  await ac.locator('.wm .later').click();
+  await expect(ac.locator('.wm')).toHaveCount(0);
+  await page.waitForTimeout(300);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/agent-chats-log-v3.png` });
 });
 
 test('feed: empty state and error', async ({ page }) => {
@@ -147,7 +172,7 @@ test('feed: empty state and error', async ({ page }) => {
   await page.evaluate(() => globalThis.__vw.town.loadFeed(globalThis.__fakeUser));
   await expect(page.locator('#feedList')).toContainText('No meets around town yet.');
   await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser));
-  await expect(page.locator('#chatAct')).toContainText('Nothing yet. Bs is out exploring.');
+  await expect(page.locator('#agentChats')).toContainText('Nothing yet. Bs is out exploring.');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/feed-empty.png` });
   await page.unroute('https://virtual-world-ai.onrender.com/feed**');
   await page.route('https://virtual-world-ai.onrender.com/feed**', (r) => r.fulfill({ status: 500, json: {} }));
