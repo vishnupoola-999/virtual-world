@@ -280,7 +280,7 @@ export function notePrompt(me, them, shared) {
 ${UNTRUSTED_NOTE}
 Write ONE sentence in first person telling your owner about ${them.name}, naming ${them.name} and one or two of: ${topics}. Warm, not salesy. Max ${NOTE_MAX} characters. No emoji, no exclamation marks, no quotes. Example: "I met Priya, she's into space and building things, you two would get along." Output only the sentence.`;
 }
-const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/u;
+const EMOJI_RE = /\p{Extended_Pictographic}|\u200D|\uFE0F/u;
 // Returns a clean note or '' (caller omits the field).
 export function parseNote(text, themName, shared) {
   let t = String(text || '').trim();
