@@ -5,7 +5,7 @@ import { createServer } from '../proxy/server.js';
 import {
   cooldownFor, pickTown, shardOf, publicCard, maxCallsFromEnv, TOWN_AGENTS,
   SAFETY_SETTINGS, geminiLlm, makeStatus, lifeStore, lifeSalt, LIFE, capAllows, checkTickSecret, cleanInterests, countAction, dayKey, parseConversation, parseDecision,
-  pickMatch, placeNear, runTick, shouldAct, similarity, hashId, scrub, safeLine, decidePrompt, conversationPrompt, publicProfile,
+  pickMatch, placeNear, runTick, shouldAct, similarity, hashId, scrub, safeLine, decidePrompt, conversationPrompt, publicProfile, parseNote, notePrompt, NOTE_MAX,
 } from '../proxy/life.js';
 import { TEST_AGENTS } from '../scripts/seed-test-agents.mjs';
 
@@ -441,5 +441,56 @@ describe('life v2: reliable world (#39)', () => {
       assert.equal(j.town[0].bName, 'B');
       assert.ok(!JSON.stringify(j).includes('BOB_PRIVATE'));
     } finally { server.close(); }
+  });
+});
+
+describe('meet notes', () => {
+  const CONVO = 'A: Hi there\nB: Hello\nA: You like tech?\nB: Yes, and science.\nA: Cool.';
+  test('parseNote validates and trims', () => {
+    const sh = ['space', 'building'];
+    assert.equal(parseNote('"I met Priya, she\'s into space and building things, you two would get along."', 'Priya', sh), "I met Priya, she's into space and building things, you two would get along.");
+    assert.equal(parseNote('I met Priya, she loves space!', 'Priya', sh), '');
+    assert.equal(parseNote('I met Priya, she loves space \u{1F680}', 'Priya', sh), '');
+    assert.equal(parseNote('I met Priya and she loves space ' + 'x'.repeat(NOTE_MAX), 'Priya', sh), '');
+    assert.equal(parseNote('I met someone who loves space.', 'Priya', sh), '');
+    assert.equal(parseNote('I met Priya, she is lovely.', 'Priya', sh), '');
+    assert.equal(parseNote('I met Priya, she likes space, visit priya.com', 'Priya', sh), '');
+    assert.equal(parseNote('I met Priya.\nShe likes space.', 'Priya', sh), '');
+    assert.equal(parseNote('', 'Priya', sh), '');
+    assert.ok(notePrompt({ name: 'A' }, { name: 'Priya', bio: 'b' }, sh).includes('space and building'));
+  });
+  test('real meet stores a note per side and /feed-ready diary carries it', async () => {
+    const store = fakeStore([agent('a', ['tech', 'science']), agent('b', ['tech', 'music'])]);
+    let n = 0;
+    const llm = async (p) => { n++; if (n === 1) return '{"action":"meet"}'; if (n === 2) return CONVO;
+      const m = p.match(/You just met (.+?)\./); return `I met ${m[1]}, they're into tech, you two would get along.`; };
+    const r = await runTick({ store, llm, now: NOW, salt: SALT });
+    assert.equal(r.meets, 1);
+    assert.equal(store.diary.a[0].note, "I met Agent b, they're into tech, you two would get along.");
+    assert.equal(store.diary.b[0].note, "I met Agent a, they're into tech, you two would get along.");
+    assert.equal(r.calls, 4);
+  });
+  test('bad or failing note output omits the field, meet still saved', async () => {
+    const store = fakeStore([agent('a', ['tech']), agent('b', ['tech'])]);
+    let n = 0;
+    const llm = async () => { n++; if (n === 1) return '{"action":"meet"}'; if (n === 2) return CONVO; if (n === 3) return 'Amazing match!!'; throw new Error('gemini 500'); };
+    const r = await runTick({ store, llm, now: NOW, salt: SALT });
+    assert.equal(r.meets, 1);
+    assert.ok(!('note' in store.diary.a[0]) && !('note' in store.diary.b[0]));
+  });
+  test('town meets never get a note and spend no note call', async () => {
+    const store = fakeStore([agent('a', ['tech', 'ai'])]);
+    const prompts = [];
+    const llm = async (p) => { prompts.push(p); return prompts.length === 1 ? '{"action":"meet"}' : CONVO; };
+    const r = await runTick({ store, llm, now: NOW, salt: SALT });
+    assert.equal(r.townMeets, 1);
+    assert.equal(prompts.length, 2);
+    assert.ok(!('note' in store.diary.a[0]));
+  });
+  test('GET /feed returns note on meets but never on town meets', async () => {
+    const { feedEntry } = await import('../proxy/server.js');
+    assert.equal(feedEntry({ id: 'd', kind: 'meet', note: 'I met X, into tech.', shared: ['tech'] }).note, 'I met X, into tech.');
+    assert.ok(!('note' in feedEntry({ id: 'd', kind: 'meet', town: true, note: 'x' })));
+    assert.ok(!('note' in feedEntry({ id: 'd', kind: 'meet' })));
   });
 });
