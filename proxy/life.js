@@ -280,7 +280,7 @@ export function notePrompt(me, them, shared) {
 ${UNTRUSTED_NOTE}
 Write ONE sentence in first person telling your owner about ${them.name}, naming ${them.name} and one or two of: ${topics}. Warm, not salesy. Max ${NOTE_MAX} characters. No emoji, no exclamation marks, no quotes. Example: "I met Priya, she's into space and building things, you two would get along." Output only the sentence.`;
 }
-const EMOJI_RE = /\p{Extended_Pictographic}|\u200D|\uFE0F/u;
+export const EMOJI_RE = /\p{Extended_Pictographic}|\u200D|\uFE0F/u;
 // Returns a clean note or '' (caller omits the field).
 export function parseNote(text, themName, shared) {
   let t = String(text || '').trim();
@@ -508,6 +508,30 @@ export function lifeStore(admin) {
     },
     async listPublicMeets(n = 30) {
       return recent(base, 'publicMeets', n);
+    },
+    // ---- connect requests: connects/{id}, server-only (firestore.rules denies clients) ----
+    async getDiary(uid, id) {
+      if (!UID_RE.test(uid) || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) return null;
+      const r = await fetchImpl(`${base}/agents/${uid}/diary/${id}`, { headers: { Authorization: `Bearer ${await accessToken()}` }, signal: AbortSignal.timeout(8000) });
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error(`firestore ${r.status}`);
+      const d = await r.json();
+      return { id, ...Object.fromEntries(Object.entries(d.fields || {}).map(([k, v]) => [k, fromValue(v)])) };
+    },
+    // Equality filter only (no composite index); callers sort by createdAt.
+    async listConnects(field, value, n = 100) {
+      if (!['fromUid', 'toUid'].includes(field)) return [];
+      const rows = await call(`${base}:runQuery`, { method: 'POST', body: JSON.stringify({ structuredQuery: {
+        from: [{ collectionId: 'connects' }], where: { fieldFilter: { field: { fieldPath: field }, op: 'EQUAL', value: { stringValue: String(value) } } }, limit: n } }) });
+      return (Array.isArray(rows) ? rows : []).filter((r) => r.document).map((r) => ({ id: r.document.name.split('/').pop(),
+        ...Object.fromEntries(Object.entries(r.document.fields || {}).map(([k, v]) => [k, fromValue(v)])) }));
+    },
+    async addConnect(c) {
+      const { createdAt, ...rest } = c;
+      const fields = Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, toValue(v)]));
+      fields.createdAt = { timestampValue: new Date(createdAt).toISOString() };
+      const d = await call(`${base}/connects`, { method: 'POST', body: JSON.stringify({ fields }) });
+      return d.name.split('/').pop();
     },
     async addFriend(uid, friendId, fact) {
       if (!UID_RE.test(uid) || !/^h_[0-9a-f]{20}$/.test(friendId)) return;
