@@ -108,26 +108,49 @@ test('feed: skeleton, sections, expandable meets', async ({ page }) => {
   await expect(page.locator('.fdSk').first()).toBeVisible();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/feed-skeleton.png` });
   await expect(page.locator('#feedList')).toContainText('Around town', { timeout: 10_000 });
-  await expect(page.locator('#feedList')).toContainText('Your agent');
-  const meet = page.locator('.fd.meet').first();
+  await expect(page.locator('#feedList')).not.toContainText('Met Mira');
+  await expect(page.locator('#feedList')).not.toContainText('Walked to the park');
+  const meet = page.locator('#feedList .fd.meet').first();
   await meet.locator('.fdHead').click();
   await expect(meet).toHaveClass(/open/);
+  await expect(meet.locator('.fdChips span')).toHaveText(['cricket']);
+  await page.waitForTimeout(300);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/feed-data-v2.png` });
+});
+
+test('chat activity: my agent\'s meets with chips and what was said, not duplicated in Feed', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => { globalThis.__vw.tabs.set('chat'); globalThis.document.getElementById('chatView').hidden = false; globalThis.__vw.showAct(true); globalThis.__vw.town.loadActivity(globalThis.__fakeUser); });
+  const act = page.locator('#chatAct');
+  await expect(act).toContainText('What your agent did');
+  await expect(act).toContainText('Met Mira');
+  await expect(act).toContainText('Walked to the park');
+  await expect(act).not.toContainText('Ravi and Tara met');
+  await expect(page.locator('#chatLog')).toBeHidden();
+  const meet = act.locator('.fd.meet').first();
+  await meet.locator('.fdHead').click();
   await expect(meet.locator('.fdHead')).toHaveAttribute('aria-expanded', 'true');
   await expect(meet).toContainText('Every evening.');
   await expect(meet.locator('.fdChips span')).toHaveText(['music', 'chess']);
   await expect(meet).not.toContainText('Both like');
+  await expect(page.locator('#chatActBtn')).toHaveAttribute('aria-pressed', 'true');
   await page.waitForTimeout(300);
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/feed-data-v2.png` });
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/chat-activity-v2.png` });
+  await page.evaluate(() => globalThis.document.getElementById('chatActBtn').click());
+  await expect(page.locator('#chatLog')).toBeVisible();
+  await expect(act).toBeHidden();
 });
 
 test('feed: empty state and error', async ({ page }) => {
   await boot(page, { feed: { myId: 'h_me', mine: [], town: [] } });
   await page.evaluate(() => globalThis.document.querySelector('#rail [data-open="feed"]').dispatchEvent(new globalThis.MouseEvent('click')));
   await page.evaluate(() => globalThis.__vw.town.loadFeed(globalThis.__fakeUser));
-  await expect(page.locator('#feedList')).toContainText('Nothing yet. Bs is out exploring.');
+  await expect(page.locator('#feedList')).toContainText('No meets around town yet.');
+  await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser));
+  await expect(page.locator('#chatAct')).toContainText('Nothing yet. Bs is out exploring.');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/feed-empty.png` });
   await page.unroute('https://virtual-world-ai.onrender.com/feed**');
   await page.route('https://virtual-world-ai.onrender.com/feed**', (r) => r.fulfill({ status: 500, json: {} }));
-  await page.evaluate(() => globalThis.__vw.town.loadFeed(globalThis.__fakeUser));
+  await page.evaluate(() => { globalThis.__vw.town.fresh(); return globalThis.__vw.town.loadFeed(globalThis.__fakeUser); });
   await expect(page.locator('#feedList')).toContainText('Feed is resting');
 });

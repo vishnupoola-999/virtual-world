@@ -1,4 +1,4 @@
-// Living map + Feed (design/living-map-feed). Signed-in (non-anonymous) users see other people's public agent cards
+// Living map + Feed + Chat activity (design/living-map-feed). Signed-in (non-anonymous) users see other people's public agent cards
 // (publicAgents, written by the life loop at ~1 km precision) and a Feed sheet from the proxy's GET /feed.
 // The caller's own card (doc id === /feed myId) is skipped: their agent is already drawn as 'me'.
 // Anonymous users, network errors and missing config all fail quietly: no others on the map, a calm Feed message.
@@ -40,13 +40,20 @@ function meetRow(e,mine){const who=mine?esc(e.withName||'another agent'):`${esc(
   return `<li class="fd meet"><button type="button" class="fdHead" aria-expanded="false"><span class="fdDot"></span><span class="fdT">${mine?'Met '+who:who+' met'}</span><small>${ago(e.at)}</small></button>${body?`<div class="fdBody">${body}</div>`:''}</li>`;}
 const diaryRow=e=>`<li class="fd"><div class="fdHead"><span class="fdDot dim"></span><span class="fdT">${esc(clip(e.text,120))}</span><small>${ago(e.at)}</small></div></li>`;
 export const EMPTY='Nothing yet. Bs is out exploring.';
-export function feedHtml(f){const mine=(f.mine||[]),town=(f.town||[]);if(!mine.length&&!town.length)return `<p class="fdEmpty">${EMPTY}</p>`;
-  return `<div class="fdSec">Your agent</div>`+(mine.length?`<ul>${mine.map(e=>e.kind==='meet'?meetRow(e,true):diaryRow(e)).join('')}</ul>`:`<p class="fdNone">${EMPTY}</p>`)+
-    `<div class="fdSec">Around town</div>`+(town.length?`<ul>${town.map(e=>meetRow(e,false)).join('')}</ul>`:`<p class="fdNone">No meets around town yet.</p>`);}
-export const SKELETON=`<div class="fdSec">Your agent</div><ul class="fdSk" aria-hidden="true"><li></li><li></li><li></li></ul><div class="fdSec">Around town</div><ul class="fdSk" aria-hidden="true"><li></li><li></li></ul>`;
+// Feed sheet: public "Around town" meets only. Your own agent's history lives in Chat > Activity, so nothing shows twice.
+export function feedHtml(f){const town=(f.town||[]);
+  return `<div class="fdSec">Around town</div>`+(town.length?`<ul>${town.map(e=>meetRow(e,false)).join('')}</ul>`:`<p class="fdEmpty">No meets around town yet.</p>`);}
+// Chat > Activity: who your agent met and what they said (same /feed data, `mine` list), plus diary notes.
+export function activityHtml(f){const mine=(f.mine||[]);if(!mine.length)return `<p class="fdEmpty">${EMPTY}</p>`;
+  return `<div class="fdSec">What your agent did</div><ul>${mine.map(e=>e.kind==='meet'?meetRow(e,true):diaryRow(e)).join('')}</ul>`;}
+export const SKELETON=`<div class="fdSec">Around town</div><ul class="fdSk" aria-hidden="true"><li></li><li></li><li></li></ul>`;
+export const ACT_SKELETON=`<div class="fdSec">What your agent did</div><ul class="fdSk" aria-hidden="true"><li></li><li></li><li></li></ul>`;
+const toggleMeet=e=>{const h=e.target.closest('.meet>.fdHead');if(!h)return;const li=h.parentElement,on=!li.classList.contains('open');li.classList.toggle('open',on);h.setAttribute('aria-expanded',String(on));};
 
-export function setupTown({agents,living,getUser,el,map,deps={}}){const F={fetchPublicAgents,fetchFeed,...deps};let myId=null,drawn=new Set(),seq=0,last=[];const spread=new Set();
-  async function ensureMyId(u){if(myId)return myId;try{myId=(await F.fetchFeed(u)).myId;}catch{/* feed down: still draw others */}return myId;}
+export function setupTown({agents,living,getUser,el,actEl,map,deps={}}){const F={fetchPublicAgents,fetchFeed,...deps};let myId=null,drawn=new Set(),seq=0,aseq=0,last=[];const spread=new Set();
+  // One /feed request serves the map (myId), the Feed sheet and Chat > Activity; reused for 30 s.
+  let fc=null;const feed=u=>{if(fc&&fc.u===u&&Date.now()-fc.t<30000)return fc.p;const p=F.fetchFeed(u);fc={u,t:Date.now(),p};p.catch(()=>{if(fc?.p===p)fc=null;});return p;};
+  async function ensureMyId(u){if(myId)return myId;try{myId=(await feed(u)).myId;}catch{/* feed down: still draw others */}return myId;}
   function draw(list){last=list;const keep=list.filter(d=>d&&d.id&&d.id!==myId&&Number.isFinite(d.lat)&&Number.isFinite(d.lon));const now=new Set();
     const off=new Map(),group=new Map();
     for(const [k,g] of groupsOf(keep)){const o=fanOut(g,spread.has(k)?SPREAD_PX:FAN_PX);for(const a of g){off.set(a.id,o.get(a.id));group.set(a.id,g.length>1&&!spread.has(k)?k:null);}}
@@ -72,8 +79,14 @@ export function setupTown({agents,living,getUser,el,map,deps={}}){const F={fetch
   function clearMap(){for(const id of drawn)agents.remove(id);drawn=new Set();myId=null;}
   async function loadFeed(user=getUser()){if(!el)return;const n=++seq;el.innerHTML=SKELETON;el.setAttribute('aria-busy','true');
     if(!isReal(user)){el.innerHTML='<p class="fdEmpty">Sign in to see what your agent and others have been up to.</p>';el.removeAttribute('aria-busy');return;}
-    try{const f=await F.fetchFeed(user);if(n!==seq)return;if(f.myId)myId=f.myId;el.innerHTML=feedHtml(f);}
+    try{const f=await feed(user);if(n!==seq)return;if(f.myId)myId=f.myId;el.innerHTML=feedHtml(f);}
     catch(e){if(n!==seq)return;console.warn('feed',e?.message);el.innerHTML='<p class="fdEmpty">Feed is resting. Try again in a minute.</p>';}
     el.removeAttribute('aria-busy');}
-  el?.addEventListener('click',e=>{const h=e.target.closest('.meet>.fdHead');if(!h)return;const li=h.parentElement,on=!li.classList.contains('open');li.classList.toggle('open',on);h.setAttribute('aria-expanded',String(on));});
-  return {refreshMap,clearMap,loadFeed,draw,keepClear,expand,get myId(){return myId;},set myId(v){myId=v;}};}
+  async function loadActivity(user=getUser()){if(!actEl)return;const n=++aseq;actEl.innerHTML=ACT_SKELETON;actEl.setAttribute('aria-busy','true');
+    if(!isReal(user)){actEl.innerHTML='<p class="fdEmpty">Sign in to see what your agent has been up to.</p>';actEl.removeAttribute('aria-busy');return;}
+    try{const f=await feed(user);if(n!==aseq)return;if(f.myId)myId=f.myId;actEl.innerHTML=activityHtml(f);}
+    catch(e){if(n!==aseq)return;console.warn('activity',e?.message);actEl.innerHTML='<p class="fdEmpty">Activity is resting. Try again in a minute.</p>';}
+    actEl.removeAttribute('aria-busy');}
+  el?.addEventListener('click',toggleMeet);actEl?.addEventListener('click',toggleMeet);
+  const fresh=()=>{fc=null;};
+  return {refreshMap,clearMap,loadFeed,loadActivity,fresh,draw,keepClear,expand,get myId(){return myId;},set myId(v){myId=v;}};}

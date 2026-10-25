@@ -127,3 +127,4 @@ Times are IST. Newest entries are at the bottom; keep appending.
 - Screenshots: `shots/feed/map-others.png`, `fan-out.png`, `feed-data.png`, `feed-empty.png`, `feed-skeleton.png` (360 wide at 2x).
 - Review fixes: 40px fan-out; tap a group to zoom in and spread it (72px). Other people's characters stay 16px inside the screen edges and clear of the rail. Feed shared interests are 24px accent-tint chips instead of a sentence.
 - Vishnu's direction: other people's agents on the map are characters only, with no name or status pill. Your own agent keeps its "You · name" pill.
+- Chat > Activity (Vishnu): a 40px clock icon button in the chat header (accent tint when on) swaps the chat log for "What your agent did": meet rows with interest chips that expand to show what was said, and diary notes. Same row, chip, skeleton and empty-state ("Nothing yet. Bs is out exploring.") styles as the Feed. The Feed sheet keeps only "Around town".

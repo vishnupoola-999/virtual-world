@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fanOut, cardStatus, clip, feedHtml, setupTown, EMPTY, clearShift, FAN_PX } from '../src/town.js';
+import { fanOut, cardStatus, clip, feedHtml, activityHtml, setupTown, EMPTY, clearShift, FAN_PX } from '../src/town.js';
 
 test('clip caps at 40 chars with ellipsis', () => { assert.equal(clip('a'.repeat(50)).length, 40); assert.equal(clip('short'), 'short'); });
 test('cardStatus handles string, object and junk', () => {
@@ -14,10 +14,13 @@ test('fanOut spreads agents in the same spot by 40px', () => {
   const [ax] = o.get('a'), [bx] = o.get('b');
   assert.equal(FAN_PX, 40); assert.ok(Math.abs(ax - bx) <= 80 && (ax !== 0 || bx !== 0 || o.get('a')[1] !== o.get('b')[1]));
 });
-test('feedHtml: sections, empty state, escaping', () => {
-  assert.match(feedHtml({ mine: [], town: [] }), new RegExp(EMPTY.replace('.', '\\.')));
-  const h = feedHtml({ mine: [{ kind: 'meet', withName: '<b>Zed', shared: ['chess'], lines: [{ speaker: 'Bs', text: 'hi' }], at: Date.now() }], town: [{ aName: 'A', bName: 'B', shared: [], at: Date.now() }] });
-  assert.match(h, /Your agent/); assert.match(h, /Around town/); assert.match(h, /&lt;b&gt;Zed/); assert.match(h, /aria-expanded="false"/);
+test('Feed shows only Around town; Activity shows only my agent (no duplicates), chips, escaping', () => {
+  const f = { mine: [{ kind: 'meet', withName: '<b>Zed', shared: ['chess'], lines: [{ speaker: 'Bs', text: 'hi' }], at: Date.now() }], town: [{ aName: 'A', bName: 'B', shared: [], at: Date.now() }] };
+  const h = feedHtml(f), a = activityHtml(f);
+  assert.match(h, /Around town/); assert.doesNotMatch(h, /Zed|Your agent/);
+  assert.match(a, /&lt;b&gt;Zed/); assert.match(a, /<span>chess<\/span>/); assert.doesNotMatch(a, /A and B met|Around town/); assert.match(a, /aria-expanded="false"/);
+  assert.match(activityHtml({ mine: [] }), new RegExp(EMPTY.replace('.', '\\.')));
+  assert.match(feedHtml({ town: [] }), /No meets around town yet/);
 });
 test('refreshMap skips myId, ignores anonymous users, survives errors', async () => {
   const put = []; const removed = [];
