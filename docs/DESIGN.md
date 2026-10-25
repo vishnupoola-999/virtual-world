@@ -111,3 +111,11 @@ Times are IST. Newest entries are at the bottom; keep appending.
 - Motion 120–240ms, transform and opacity only, reduced-motion fallback. No blur or backdrop-filter. 3D characters are untouched.
 - The chat input bar and tab bar from #37 are kept exactly as shipped.
 - Screenshots: `shots/v3/*-before.png`, `*-after.png`, plus `contact-sheet-before.png` and `contact-sheet-after.png` (360x740).
+
+## 2026-10-25: Crisp characters and rail polish
+- Characters (map markers and the chat header) render at device pixels, capped at 2x, with antialias on, so they're never upscaled. A soft second rim light separates them from the dark map. Idle motion is a gentle breathing bob and occasional blinks, transform only, off under reduced motion. Cute and neutral, no blush.
+- If frames average over ~20 ms, the pixel ratio drops to 1.5 to hold the frame rate on cheap phones.
+- Map rail: the Friends' agents icon is never covered and stays 95% white. Its on state is a 6px accent dot centred below it.
+- Right-hand column (account button, rail, zoom controls, recenter) shares one centre axis. Floating sheets on tablets are rounded on all corners.
+- Screenshots: `shots/crisp/*-before.png` and `*-after.png` (deviceScaleFactor 2).
+- Chat header avatar framing: head and shoulders sit inside the 44px circle with a margin above the hair, with the face centred.

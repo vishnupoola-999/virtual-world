@@ -105,3 +105,10 @@ button.danger,#liveBtn.on{background:rgba(255,90,106,.12);border:1px solid rgba(
 #chatF .send{border:0}#tabs .tab{border:0;background:none;font-size:13px;font-weight:600}
 
 @media (prefers-reduced-motion:reduce){#sheet,#away .card,.vsheet,.cs-sheet{animation:none;transition:none}button,button:active{transition:none}}
+/* rail: the Friends' agents icon is never covered; it stays 95% white and its on state is a 6px accent dot below it */
+.rb[data-open=family]{color:var(--tx)}
+/* alignment sweep: everything in the right-hand column is centred on the rail's axis (37px from the right edge) */
+#acctBtn{margin-right:3px}
+.maplibregl-ctrl-top-right .maplibregl-ctrl{margin-right:21.5px}
+.recenter{right:17px}
+@media (min-width:768px){#sheet{border-radius:20px}}
