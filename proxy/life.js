@@ -14,6 +14,8 @@ export const LIFE = {
   maxConversationLines: 6,
 };
 
+export const DEFAULT_INTERESTS = ['exploring', 'meeting people'];
+
 export const INTEREST_RE = /^[a-z0-9][a-z0-9 &+-]{0,23}$/;
 
 export function cleanInterests(list) {
@@ -104,7 +106,18 @@ export function pickMatch(me, others, now, salt = '') {
     const s = similarity(me.interests, o.interests);
     if (s > bestScore || (s === bestScore && best && s > 0 && o.uid < best.uid)) { best = o; bestScore = s; }
   }
-  return best && bestScore > 0 ? { agent: best, score: bestScore } : null;
+  if (best && bestScore > 0) return { agent: best, score: bestScore };
+  // Small worlds (a family, a class of 50): if nobody shares an interest, still meet the nearest active agent not met recently.
+  const d2 = (o) => { const a = me.approx || { lat: me.lat, lon: me.lon }, b = o.approx || { lat: o.lat, lon: o.lon };
+    const v = (a.lat - b.lat) ** 2 + (a.lon - b.lon) ** 2; return Number.isFinite(v) ? v : Infinity; };
+  let near = null;
+  for (const o of others) {
+    if (o.uid === me.uid || !isActive(o, now)) continue;
+    const last = met[hashId(o.uid, salt)];
+    if (last && now - last < LIFE.meetCooldownMs) continue;
+    if (!near || d2(o) < d2(near)) near = o;
+  }
+  return near ? { agent: near, score: 0 } : null;
 }
 
 const round2 = (x) => Math.round(x * 100) / 100; // 0.01° ≈ 1 km
@@ -211,7 +224,8 @@ export function parseConversation(text, a, b) {
 export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(), maxCalls = LIFE.maxCallsPerTick, deadlineMs = LIFE.tickDeadlineMs, clock = Date.now }) {
   if (!salt) throw new Error('LIFE_SALT missing');
   const started = clock();
-  const agents = (await store.listAgents()).map((a) => ({ ...a, interests: cleanInterests(a.interests) }));
+  // Agents born before the interests step (#26) have none; give them a neutral default so they still live instead of being skipped forever.
+  const agents = (await store.listAgents()).map((a) => ({ ...a, interests: cleanInterests(a.interests).length ? cleanInterests(a.interests) : [...DEFAULT_INTERESTS] }));
   const summary = { agents: agents.length, acted: 0, skipped: 0, moves: 0, meets: 0, diary: 0, rests: 0, errors: 0, calls: 0, stopped: null };
   const touched = new Set();
   const budget = (n) => {

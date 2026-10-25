@@ -581,3 +581,11 @@ describe('GET /flights auth', () => {
     });
   });
 });
+
+test('chat prompt carries the agent life summary (#31)', async () => {
+  const { lifeSummary, buildSystemPrompt: b } = await import('../proxy/server.js');
+  const s = lifeSummary({ status: { mapValue: { fields: { label: { stringValue: 'With Dad' } } } },
+    friends: { mapValue: { fields: { h_x: { mapValue: { fields: { note: { stringValue: 'Met Dad; we both like tech.' }, at: { integerValue: '5' } } } } } } } });
+  assert.match(s, /With Dad/); assert.match(s, /Met Dad/);
+  assert.match(b({ name: 'A' }, '', s), /lately.*Met Dad/);
+});

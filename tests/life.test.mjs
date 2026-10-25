@@ -39,7 +39,9 @@ describe('matching', () => {
     assert.equal(pickMatch(me, others, NOW).agent.uid, 'mid');
     me.life.met[hashId('best', '')] = NOW - LIFE.meetCooldownMs - 1;
     assert.equal(pickMatch(me, others, NOW).agent.uid, 'best');
-    assert.equal(pickMatch(me, [agent('none', ['cricket', 'food', 'art'])], NOW), null);
+    // No shared interest: fall back to the nearest active agent (score 0) so small worlds still meet.
+    assert.equal(pickMatch(me, [agent('none', ['cricket', 'food', 'art'])], NOW).score, 0);
+    assert.equal(pickMatch(me, [me], NOW), null);
   });
   test('places stay within ~2 km of the approximate home', () => {
     const p = placeNear(agent('me', ['tech']), 'tech', NOW);
@@ -328,4 +330,9 @@ describe('agent.status (living-spec)', () => {
 
 test('bio is capped at 80 chars', () => {
   assert.equal(publicProfile({ bio: 'x'.repeat(200) }).bio.length, 80);
+});
+
+test('agents without interests get defaults and still act (#31)', async () => {
+  const { DEFAULT_INTERESTS } = await import('../proxy/life.js');
+  assert.ok(DEFAULT_INTERESTS.length >= 1);
 });

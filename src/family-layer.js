@@ -9,7 +9,11 @@ export function familyLayer(map,{onChange=()=>{}}={}){
     if(d.stop){if(f){agents.remove('f-'+d.id);fam.delete(d.id);onChange(fam);}return;}
     if(!(isFinite(d.lat)&&isFinite(d.lon)))return;if(Date.now()-(d.ts||0)>STALE_MS)return;
     const name=String(d.name||'Family').slice(0,24);
-    fam.set(d.id,{data:d});
+    // Dedupe by person: same uid (or, for anon senders, same name) under another key means an older device/session; keep the newest.
+    const who=d.uid?'u:'+d.uid:'n:'+name.trim().toLowerCase();
+    for(const [id,f] of fam)if(id!==d.id&&f.who===who&&(f.data.ts||0)<=(d.ts||0)){agents.remove('f-'+id);fam.delete(id);}
+    for(const [id,f] of fam)if(id!==d.id&&f.who===who)return;
+    fam.set(d.id,{data:d,who});
     agents.put({id:'f-'+d.id,name,lat:d.lat,lon:d.lon,look:d.look||null,ownerName:name,meta:'Family · sharing live location',status:'Online · sharing live location'});
     onChange(fam);}
   setInterval(()=>{for(const [id,f] of fam)if(Date.now()-(f.data.ts||0)>STALE_MS)update({id,stop:true});},10000);
