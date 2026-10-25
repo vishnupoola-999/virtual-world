@@ -8,7 +8,9 @@ const W=112,H=128;
 export function sharedRenderer(){
   const r=new THREE.WebGLRenderer({antialias:!LOW_END,alpha:true,powerPreference:'low-power'});
   r.setPixelRatio(1);r.setSize(W,H,false);r.setClearColor(0x000000,0);
-  const cam=new THREE.PerspectiveCamera(24,W/H,.1,10);cam.position.set(0,.6,2.4);cam.lookAt(0,.52,0);
+  // Map camera: the frustum used to stop at y≈1.03 m while the hair top is at ≈1.29 m, so the top of every head was cut off.
+  // Now frames -0.05…1.42 m (feet, hair, wave arm and the walk hop) with headroom.
+  const cam=new THREE.PerspectiveCamera(24,W/H,.1,10);cam.position.set(0,.70,3.45);cam.lookAt(0,.68,0);
   // Portrait camera for the profile sheet: head and shoulders with headroom.
   const portrait=new THREE.PerspectiveCamera(24,W/H,.1,10);portrait.position.set(0,1.12,2.2);portrait.lookAt(0,1.08,0);
   const scenes=new Map();
