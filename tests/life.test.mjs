@@ -434,6 +434,7 @@ describe('life v2: reliable world (#39)', () => {
       const r = await fetch(url, { headers: { Authorization: 'Bearer aaa.bbb.ccc' } });
       assert.equal(r.status, 200);
       const j = await r.json();
+      assert.equal(j.myId, hashId('alice', SALT));
       assert.equal(j.mine.length, 2);
       assert.equal(j.mine[0].lines[0].text, 'hi');
       assert.equal(j.mine[1].text, 'Nice day');

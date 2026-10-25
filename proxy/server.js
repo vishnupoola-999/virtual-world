@@ -24,7 +24,7 @@ import { createPublicKey, createSign, createVerify, X509Certificate } from 'node
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
-import { checkTickSecret, geminiLlm, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
+import { checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
 import { calendarToolContext, reviewCalendarTurn, sanitizeZone } from '../src/calendarWhen.js';
 
@@ -597,6 +597,8 @@ async function handleFeed(req, res, ctx, url) {
     ctx.lifeStore.listPublicMeets ? ctx.lifeStore.listPublicMeets(n).catch(() => []) : [],
   ]);
   sendJson(res, 200, {
+    // The caller's own publicAgents doc id, so the app can skip drawing its own card twice.
+    myId: ctx.lifeSalt ? hashId(uid, ctx.lifeSalt) : null,
     mine: diary.map(feedEntry),
     town: meets.map((m) => ({ id: m.id, aId: m.aId, aName: m.aName, bId: m.bId, bName: m.bName, shared: Array.isArray(m.shared) ? m.shared : [], at: Number(m.at) || 0 })),
   });
