@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fanOut, cardStatus, clip, feedHtml, activityHtml, noteText, worthMeeting, byNewest, setupTown, EMPTY, clearShift, FAN_PX } from '../src/town.js';
+import { fanOut, cardStatus, clip, feedHtml, activityHtml, noteText, worthMeeting, byNewest, setupTown, connectError, hiDraft, sendConnect, CONNECT_URL, HI_MAX, EMPTY, clearShift, FAN_PX } from '../src/town.js';
 
 test('clip caps at 40 chars with ellipsis', () => { assert.equal(clip('a'.repeat(50)).length, 40); assert.equal(clip('short'), 'short'); });
 test('cardStatus handles string, object and junk', () => {
@@ -69,4 +69,38 @@ test('Agent chats log is newest first by timestamp', () => {
   assert.deepEqual(byNewest(list).map((e) => e.id), ['e', 'a', 'c', 'd', 'b']);
   const h = activityHtml({ mine: [{ kind: 'meet', id: '1', withName: 'Old', at: m(90) }, { kind: 'meet', id: '2', withName: 'New', at: m(5) }] });
   assert.ok(h.indexOf('Met New') < h.indexOf('Met Old'));
+});
+
+test('connect: error codes map to short friendly copy', () => {
+  assert.equal(connectError(409), 'You already said hi');
+  assert.equal(connectError(429), 'Try again later');
+  for (const c of [0, 400, 401, 403, 404, 503, 500, 418]) { const m = connectError(c); assert.ok(m.length > 5 && m.length < 80); assert.doesNotMatch(m, /\d{3}|error|undefined/i); }
+  assert.notEqual(connectError(400), connectError(404));
+});
+test('connect: prefill is warm, short and safe', () => {
+  const h = hiDraft('Mira'); assert.match(h, /^Hi Mira, /); assert.ok(h.length <= HI_MAX); assert.doesNotMatch(h, /https?:|@|[\u{1F300}-\u{1FAFF}]/u);
+  assert.match(hiDraft(''), /^Hi there, /); assert.ok(hiDraft('x'.repeat(300)).length <= HI_MAX);
+});
+test('connect: POST body, bearer, trimmed text, status on failure', async () => {
+  const calls = []; const old = globalThis.fetch;
+  globalThis.fetch = async (u, o) => { calls.push([u, o]); return calls.length === 1 ? { status: 201, json: async () => ({ id: 'c1', createdAt: 5 }) } : { status: 409, json: async () => ({ error: 'dup' }) }; };
+  try {
+    const user = { getIdToken: async () => 'tok' };
+    assert.deepEqual(await sendConnect(user, { toAgentId: 'h_a', meetId: 'm1', text: '  hi  ' }), { id: 'c1', createdAt: 5 });
+    assert.equal(calls[0][0], CONNECT_URL); assert.equal(calls[0][1].method, 'POST'); assert.equal(calls[0][1].headers.Authorization, 'Bearer tok');
+    assert.deepEqual(JSON.parse(calls[0][1].body), { toAgentId: 'h_a', meetId: 'm1', text: 'hi' });
+    await assert.rejects(sendConnect(user, { toAgentId: 'h_a', meetId: 'm1', text: 'hi' }), (e) => e.status === 409);
+    globalThis.fetch = async () => { throw new Error('net'); };
+    await assert.rejects(sendConnect(user, { toAgentId: 'h_a', meetId: 'm1', text: 'hi' }), (e) => e.status === 0);
+  } finally { globalThis.fetch = old; }
+});
+test('activity: incoming cards escaped on top; pending outgoing marks card and log row', () => {
+  const f = { mine: [{ kind: 'meet', id: 'm', withId: 'h_a', withName: 'Mira', shared: ['art'], at: Date.now() }],
+    incoming: [{ id: 'i1', fromName: '<Priya>', text: '<script>x</script>', createdAt: Date.now() }], outgoing: [{ id: 'o', toAgentId: 'h_a', status: 'pending' }] };
+  const h = activityHtml(f);
+  assert.ok(h.indexOf('wants to connect') < h.indexOf('Worth meeting'));
+  assert.match(h, /&lt;Priya&gt;<\/b> wants to connect/); assert.doesNotMatch(h, /<script>/);
+  assert.match(h, /Request sent/); assert.doesNotMatch(h, /class="hi"/); assert.match(h, /Hi sent · pending/);
+  assert.doesNotMatch(activityHtml(f, { inDismissed: new Set(['i1']) }), /wants to connect/);
+  assert.match(activityHtml({ mine: [], incoming: f.incoming }), /wants to connect/);
 });

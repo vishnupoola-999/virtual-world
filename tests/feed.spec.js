@@ -13,7 +13,7 @@ const AGENTS = { documents: [
   doc('h_d', { name: 'Kiran', lat: 17.45035, lon: 78.38035, status: 'Reading', updatedAt: '2026-10-25T10:40:00Z' }),
 ] };
 const FEED = { myId: 'h_me', mine: [
-  { id: '1', kind: 'meet', withName: 'Mira', shared: ['music', 'chess'], lines: [{ speaker: 'Bs', text: 'You like chess too?' }, { speaker: 'Mira', text: 'Every evening.' }], at: ago(12) },
+  { id: '1', kind: 'meet', withId: 'h_a', withName: 'Mira', shared: ['music', 'chess'], lines: [{ speaker: 'Bs', text: 'You like chess too?' }, { speaker: 'Mira', text: 'Every evening.' }], at: ago(12) },
   { id: '2', kind: 'diary', text: 'Walked to the park and watched the sunset.', at: ago(90) },
 ], town: [{ id: 't1', aName: 'Ravi', bName: 'Tara', shared: ['cricket'], at: ago(30) }, { id: 't2', aName: 'Kiran', bName: 'Mira', shared: [], at: ago(200) }] };
 
@@ -157,16 +157,14 @@ test('Agent chats: one-line log with gist, worth-meeting only for interest match
   const meet = ac.locator('.fd.meet').first();
   await meet.locator('.fdHead').click();
   await expect(meet.locator('.fdBody')).toContainText('Talked about music and chess.');
-  // Say hi is a ghost button that only opens a local draft; nothing is sent.
+  // Say hi is a ghost button; tapping it only opens the composer. Nothing is sent until Send.
   expect(await ac.locator('.wm .hi').evaluate((b) => globalThis.getComputedStyle(b).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
   const n0 = sent.length;
   await ac.locator('.wm .hi').click();
   await expect(ac.locator('.wm .draft')).toHaveValue(/Hi Mira/);
-  await expect(ac.locator('.wm')).toContainText('Nothing is sent.');
   await ac.locator('.wm .draft').fill('Hey Mira!');
   await page.waitForTimeout(300);
   expect(sent.slice(n0).filter((u) => !u.includes('google') && !u.includes('gstatic'))).toEqual([]);
-  expect(await page.evaluate(() => globalThis.localStorage.getItem('vw-wm-draft:1'))).toBe('Hey Mira!');
   await ac.locator('.wm button[aria-label="Dismiss"]').click();
   await expect(ac.locator('.wm')).toHaveCount(0);
   await page.waitForTimeout(300);
@@ -185,4 +183,76 @@ test('feed: empty state and error', async ({ page }) => {
   await page.route('https://virtual-world-ai.onrender.com/feed**', (r) => r.fulfill({ status: 500, json: {} }));
   await page.evaluate(() => { globalThis.__vw.town.fresh(); return globalThis.__vw.town.loadFeed(globalThis.__fakeUser); });
   await expect(page.locator('#feedList')).toContainText('Feed is resting');
+});
+
+async function openChats(page, feed, connect) {
+  const posts = [];
+  await page.route('https://virtual-world-ai.onrender.com/connect', async (r) => { posts.push({ auth: r.request().headers().authorization, body: r.request().postDataJSON() });
+    const c = typeof connect === 'function' ? await connect(posts.length) : connect; return r.fulfill(c); });
+  await boot(page, { feed });
+  await page.evaluate(() => globalThis.document.querySelector('#rail [data-open="agentchats"]').dispatchEvent(new globalThis.MouseEvent('click')));
+  await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser));
+  return posts;
+}
+
+test('Say hi composer: prefill, counter, cancel, send, disabled while sending, Request sent', async ({ page }) => {
+  let release; const gate = new Promise((r) => { release = r; });
+  const posts = await openChats(page, FEED, async () => { await gate; return { status: 201, json: { id: 'c1', createdAt: Date.now() } }; });
+  const ac = page.locator('#agentChats'), card = ac.locator('.wm');
+  await card.locator('.hi').click();
+  const t = card.locator('textarea');
+  await expect(t).toHaveValue(/^Hi Mira, .*connect\.$/);
+  await expect(t).toHaveAttribute('maxlength', '200');
+  const v = await t.inputValue(); await expect(card.locator('.cnt')).toHaveText(`${v.length}/200`);
+  await expect(card.locator('.acts button')).toHaveText(['Cancel', 'Send']);
+  expect(await card.locator('.send').evaluate((b) => globalThis.getComputedStyle(b).backgroundImage)).toContain('gradient');
+  await t.fill('   '); await expect(card.locator('.send')).toBeDisabled();
+  await card.locator('.cancel').click(); await expect(card.locator('textarea')).toHaveCount(0); await expect(card.locator('.hi')).toHaveText('Say hi');
+  await card.locator('.hi').click(); await card.locator('textarea').fill('Hi Mira, our agents got on well. Would love to connect.');
+  await expect(card.locator('.cnt')).toHaveText('55/200');
+  if (SHOTS) { await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}/composer.png` }); }
+  await card.locator('.send').click();
+  await expect(card.locator('.send')).toBeDisabled(); await expect(card.locator('.send')).toHaveText('Sending…');
+  await expect(card.locator('textarea')).toBeDisabled(); await expect(card.locator('.cancel')).toBeDisabled();
+  release();
+  await expect(card.locator('.sentRow')).toHaveText('Request sent');
+  await expect(card.locator('.hi')).toHaveCount(0);
+  await expect(ac.locator('.fd.meet .sentTag')).toHaveText('Hi sent · pending');
+  expect(posts).toEqual([{ auth: 'Bearer test-token', body: { toAgentId: 'h_a', meetId: '1', text: 'Hi Mira, our agents got on well. Would love to connect.' } }]);
+  if (SHOTS) { await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}/sent.png` }); }
+});
+
+test('Say hi errors: friendly message, composer stays editable', async ({ page }) => {
+  const codes = [409, 429, 400, 503];
+  await openChats(page, FEED, (n) => ({ status: codes[n - 1], json: { error: 'x' } }));
+  const card = page.locator('#agentChats .wm');
+  await card.locator('.hi').click();
+  await card.locator('.send').click();
+  await expect(card.locator('.err')).toHaveText('You already said hi');
+  await expect(card.locator('.send')).toBeEnabled(); await expect(card.locator('textarea')).toBeEnabled();
+  if (SHOTS) { await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}/error.png` }); }
+  await card.locator('.send').click(); await expect(card.locator('.err')).toHaveText('Try again later');
+  await card.locator('.send').click(); await expect(card.locator('.err')).toContainText('no links');
+  await card.locator('.send').click(); await expect(card.locator('.err')).toContainText('resting');
+});
+
+test('incoming hi: warm card on top, escaped, dismiss only, counts toward unread', async ({ page }) => {
+  const feed = { ...FEED, incoming: [{ id: 'in1', fromAgentId: 'h_b', fromName: 'Priya<b>', text: 'Hi! Our agents talked about space <img src=x onerror=alert(1)>', meetId: 'x', createdAt: ago(3) }],
+    outgoing: [{ id: 'o1', toAgentId: 'h_zz', createdAt: ago(5), status: 'pending' }] };
+  await boot(page, { feed });
+  expect(await page.evaluate(() => globalThis.__vw.town.checkUnread(globalThis.__fakeUser))).toBe(2);
+  await page.evaluate(() => globalThis.document.querySelector('#rail [data-open="agentchats"]').dispatchEvent(new globalThis.MouseEvent('click')));
+  await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser));
+  const ac = page.locator('#agentChats'), inc = ac.locator('.inc');
+  await expect(inc).toHaveCount(1);
+  await expect(inc.locator('.incT')).toHaveText('Priya<b> wants to connect');
+  await expect(inc.locator('.incQ')).toContainText('<img src=x');
+  await expect(inc.locator('img')).toHaveCount(0);
+  await expect(inc.locator('button')).toHaveCount(1); await expect(inc.locator('button')).toHaveAttribute('aria-label', 'Dismiss');
+  const order = await ac.locator('.fdSec').allTextContents(); expect(order[0]).toBe('Wants to connect');
+  await expect(ac.locator('.wm:not(.inc) .hi')).toHaveText('Say hi');
+  if (SHOTS) { await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}/incoming.png` }); }
+  expect(await page.evaluate(() => globalThis.__vw.town.checkUnread(globalThis.__fakeUser))).toBe(0);
+  await inc.locator('button').click(); await expect(ac.locator('.inc')).toHaveCount(0);
+  await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser)); await expect(ac.locator('.inc')).toHaveCount(0);
 });

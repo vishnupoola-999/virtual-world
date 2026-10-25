@@ -40,6 +40,22 @@ button.fdHead{cursor:pointer}button.fdHead:active{transform:scale(.98);transitio
 .wm .acts button{flex:1;height:40px;min-height:0;padding:0 var(--sp-16);border-radius:var(--pill);font:600 14px/1 Inter,system-ui,sans-serif}
 .wm .hi{background:none;color:var(--tx);border:1px solid var(--border)}
 .wm .draft{width:100%;box-sizing:border-box;background:var(--raised);color:var(--tx);border:1px solid var(--border);border-radius:var(--r-sm);padding:var(--sp-12);font:400 14px/1.5 Inter,system-ui,sans-serif;resize:none}
-.wm .draftNote{color:var(--tx-3);font:400 12px/1.4 Inter,system-ui,sans-serif;margin-top:calc(-1 * var(--sp-8))}
 .wm .x{position:absolute;top:var(--sp-8);right:var(--sp-8);width:32px;height:32px;min-height:0;padding:0;border:0;border-radius:50%;background:none;color:var(--tx-2);display:grid;place-items:center}
 .wm .x:active{transform:scale(.94)}
+.wm .draft:focus-visible{outline:2px solid var(--acc-line);outline-offset:0}
+.wm .draft:disabled{opacity:.6}
+/* Say hi composer (POST /connect). Send is the only filled button; Cancel is a ghost. */
+.cmp{display:flex;flex-direction:column;gap:var(--sp-8);animation:fdIn var(--t-med) var(--ease-out) both}
+.cmpMeta{display:flex;justify-content:space-between;gap:var(--sp-8);font:400 12px/1.4 Inter,system-ui,sans-serif}
+.cmpMeta .cnt{color:var(--tx-3);flex:none;font-variant-numeric:tabular-nums}.cmpMeta .err{color:#ff8a8a;min-height:17px}
+.wm .cancel{background:none;color:var(--tx);border:1px solid var(--border)}
+.wm .send{background:var(--acc);color:#0b0d12;border:0}
+.wm .send:disabled,.wm .cancel:disabled{opacity:.5}
+.wm .acts button:not(:disabled):active{transform:scale(.97)}
+.cmp.busy .send{opacity:.7}
+.sentRow{display:flex;align-items:center;gap:var(--sp-8);height:40px;color:var(--acc-line);font:600 14px/1 Inter,system-ui,sans-serif;animation:fdIn var(--t-med) var(--ease-out) both}
+.sentTag{flex:none;height:20px;padding:0 8px;border-radius:var(--pill);border:1px solid var(--acc-line);color:var(--tx-2);font:500 11px/18px Inter,system-ui,sans-serif;box-sizing:border-box}
+.inc{border-color:var(--acc-a)}.inc .incT b{font-weight:600}
+.inc .incQ{color:var(--tx-2);font-size:14px}
+.inc .incAgo{color:var(--tx-3);font:400 12px/1 Inter,system-ui,sans-serif}
+@media (prefers-reduced-motion:reduce){.cmp,.sentRow{animation:none}}
