@@ -9,10 +9,63 @@ export const LIFE = {
   minGapMs: 25 * 60_000, // skip an agent that acted in the last 25 min
   activeDays: 14,        // owner must have opened the app in this window (updatedAt)
   meetCooldownMs: 3 * 86_400_000, // do not re-meet the same agent within 3 days
-  maxCallsPerTick: 50,  // hard ceiling on Gemini calls per tick (a meet costs 2)
+  meetCooldownSmallMs: 6 * 3_600_000, // small worlds (< smallWorld active agents) re-meet after 6 h
+  smallWorld: 20,
+  maxCallsPerTick: 50,  // default ceiling on Gemini calls per tick (a meet costs 2); override with LIFE_MAX_CALLS
   tickDeadlineMs: 170_000, // stop starting new agents after ~170 s (workflow curl --max-time is 240 s)
   maxConversationLines: 6,
 };
+
+// Gemini call budget per tick: LIFE_MAX_CALLS env (1..500), else LIFE.maxCallsPerTick.
+export function maxCallsFromEnv(env = process.env) {
+  const n = Math.floor(Number(env.LIFE_MAX_CALLS));
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, 500) : LIFE.maxCallsPerTick;
+}
+
+// Re-meet cooldown: 6 h while the world is small, else 3 days.
+export function cooldownFor(activeCount) {
+  return activeCount < LIFE.smallWorld ? LIFE.meetCooldownSmallMs : LIFE.meetCooldownMs;
+}
+
+// Town agents: built-in residents an agent can meet when no real agent is free. They have no owner, no
+// Firestore doc and no diary; only the real agent's side of the meeting is saved. uid prefix "town-".
+export const TOWN_AGENTS = [
+  { uid: 'town-chai', name: 'Chaiwala Ravi (town)', interests: ['food', 'cricket', 'meeting people'], bio: 'Runs the corner tea stall' },
+  { uid: 'town-library', name: 'Librarian Meera (town)', interests: ['books', 'science', 'exploring'], bio: 'Knows every shelf in the city library' },
+  { uid: 'town-coder', name: 'Coder Arjun (town)', interests: ['tech', 'ai', 'startups'], bio: 'Builds apps at the co-working space' },
+  { uid: 'town-artist', name: 'Painter Zoya (town)', interests: ['art', 'music', 'photography'], bio: 'Paints murals near the lake' },
+  { uid: 'town-guide', name: 'Guide Kiran (town)', interests: ['exploring', 'travel', 'history'], bio: 'Shows visitors the old forts' },
+];
+export const isTown = (uid) => typeof uid === 'string' && uid.startsWith('town-');
+
+// Best town agent for `me` not met within the cooldown (most shared interests, then list order).
+export function pickTown(me, now, salt = '', cooldown = LIFE.meetCooldownMs) {
+  const met = me.life?.met || {};
+  let best = null, bestScore = -1;
+  for (const t of TOWN_AGENTS) {
+    const last = met[hashId(t.uid, salt)];
+    if (last && now - last < cooldown) continue;
+    const s = similarity(me.interests, t.interests);
+    if (s > bestScore) { best = t; bestScore = s; }
+  }
+  return best ? { agent: best, score: Math.max(0, bestScore), town: true } : null;
+}
+
+// Stable shard of a uid (0..of-1), so /tick?shard=i&of=n splits the world across calls.
+export function shardOf(uid, of) {
+  if (!(of > 1)) return 0;
+  return createHash('sha256').update(String(uid)).digest().readUInt32BE(0) % of;
+}
+
+// Public map card for publicAgents/{hashId}: no uid, no exact location (~1 km), no owner data.
+export function publicCard(agent, status, now) {
+  const p = publicProfile(agent);
+  const src = agent.approx && Number.isFinite(agent.approx.lat) ? agent.approx : { lat: agent.lat, lon: agent.lon };
+  const card = { name: p.name, interests: p.interests, updatedAt: now };
+  if (Number.isFinite(src.lat) && Number.isFinite(src.lon)) { card.lat = round2(src.lat); card.lon = round2(src.lon); }
+  if (status) card.status = status;
+  return card;
+}
 
 export const DEFAULT_INTERESTS = ['exploring', 'meeting people'];
 
@@ -96,13 +149,13 @@ export function publicProfile(agent) {
 }
 
 // Most similar active agent with at least one shared interest, not met within the cooldown.
-export function pickMatch(me, others, now, salt = '') {
+export function pickMatch(me, others, now, salt = '', cooldown = LIFE.meetCooldownMs) {
   const met = me.life?.met || {};
   let best = null, bestScore = 0;
   for (const o of others) {
     if (o.uid === me.uid || !isActive(o, now)) continue;
     const last = met[hashId(o.uid, salt)];
-    if (last && now - last < LIFE.meetCooldownMs) continue;
+    if (last && now - last < cooldown) continue;
     const s = similarity(me.interests, o.interests);
     if (s > bestScore || (s === bestScore && best && s > 0 && o.uid < best.uid)) { best = o; bestScore = s; }
   }
@@ -114,7 +167,7 @@ export function pickMatch(me, others, now, salt = '') {
   for (const o of others) {
     if (o.uid === me.uid || !isActive(o, now)) continue;
     const last = met[hashId(o.uid, salt)];
-    if (last && now - last < LIFE.meetCooldownMs) continue;
+    if (last && now - last < cooldown) continue;
     if (!near || d2(o) < d2(near)) near = o;
   }
   return near ? { agent: near, score: 0 } : null;
@@ -221,25 +274,37 @@ export function parseConversation(text, a, b) {
 // One tick. store: listAgents() -> [{uid, updateTime?, ...}], saveLife(uid, life, {updateTime}) (must reject if the doc
 // changed since updateTime), addDiary(uid, entry), addFriend(uid, friendId, fact). llm(prompt, maxTokens) -> text.
 // Budget: at most maxCalls model calls and deadlineMs per tick; every model call (rest included) counts toward the daily cap.
-export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(), maxCalls = LIFE.maxCallsPerTick, deadlineMs = LIFE.tickDeadlineMs, clock = Date.now }) {
+export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(), maxCalls = LIFE.maxCallsPerTick, deadlineMs = LIFE.tickDeadlineMs, clock = Date.now, shard = 0, of = 1, town = true }) {
   if (!salt) throw new Error('LIFE_SALT missing');
   const started = clock();
   // Agents born before the interests step (#26) have none; give them a neutral default so they still live instead of being skipped forever.
   // In memory only. Never write DEFAULT_INTERESTS back onto agents/{uid}.interests — the client asks until 3 real tags are saved.
   const agents = (await store.listAgents()).map((a) => ({ ...a, interests: cleanInterests(a.interests).length ? cleanInterests(a.interests) : [...DEFAULT_INTERESTS] }));
-  const summary = { agents: agents.length, acted: 0, skipped: 0, moves: 0, meets: 0, diary: 0, rests: 0, errors: 0, calls: 0, stopped: null };
+  const summary = { agents: agents.length, due: 0, acted: 0, skipped: 0, moves: 0, meets: 0, townMeets: 0, diary: 0, rests: 0, errors: 0, calls: 0, published: 0, stopped: null };
+  const cooldown = cooldownFor(agents.filter((a) => isActive(a, now)).length);
+  // Scaling: only due agents in this shard are visited, longest-waiting first, so the call budget goes where it is needed.
+  const due = agents.filter((a) => shardOf(a.uid, of) === shard && shouldAct(a, now))
+    .sort((x, y) => (Number(x.life?.lastActionAt) || 0) - (Number(y.life?.lastActionAt) || 0));
+  summary.due = due.length;
+  summary.skipped = agents.length - due.length;
+  // Public map card (best effort: a failed publish never fails the agent's turn).
+  const publish = async (agent, status) => {
+    if (!store.savePublic) return;
+    try { await store.savePublic(hashId(agent.uid, salt), publicCard(agent, status, now)); summary.published++; } catch (e) { console.error('publish failed', String(e.message || e).slice(0, 80)); }
+  };
   const touched = new Set();
   const budget = (n) => {
     if (summary.calls + n > maxCalls) { summary.stopped = 'calls'; return false; }
     if (clock() - started > deadlineMs) { summary.stopped = 'time'; return false; }
     return true;
   };
-  for (const me of agents) {
-    if (touched.has(me.uid) || !shouldAct(me, now)) { summary.skipped++; continue; }
+  const save = async (agent, life, opts) => { await store.saveLife(agent.uid, life, opts); await publish(agent, opts?.status); };
+  for (const me of due) {
+    if (touched.has(me.uid)) { summary.skipped++; continue; }
     if (!budget(1)) break;
     try {
       const candidates = agents.filter((o) => o.interests.length && !touched.has(o.uid) && capAllows(o.life, now));
-      const match = pickMatch(me, candidates, now, salt);
+      const match = pickMatch(me, candidates, now, salt, cooldown) || (town ? pickTown(me, now, salt, cooldown) : null);
       const mine = publicProfile(me);
       // Count before calling: the cap is spent even if the model fails or says rest.
       let life = countAction(me.life, now);
@@ -249,7 +314,7 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       try {
         decision = parseDecision(await llm(decidePrompt(mine, match && publicProfile(match.agent)), 80), mine, !!match);
       } catch (error) {
-        await store.saveLife(me.uid, { ...life, activity: 'rest' }, { updateTime: me.updateTime, status: makeStatus('idle', { now }) });
+        await save(me, { ...life, activity: 'rest' }, { updateTime: me.updateTime, status: makeStatus('idle', { now }) });
         throw error;
       }
       if (decision.action === 'meet' && !budget(1)) decision = { action: 'rest' };
@@ -257,7 +322,7 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
         const target = placeNear(me, decision.interest, now, salt);
         if (target) {
           const place = `${decision.interest} spot`;
-          await store.saveLife(me.uid, { ...life, status: decision.status, target, activity: 'move' }, { updateTime: me.updateTime,
+          await save(me, { ...life, status: decision.status, target, activity: 'move' }, { updateTime: me.updateTime,
             status: makeStatus('walking', { now, label: `Heading to ${place}`, destination: { name: place, lngLat: [target.lng, target.lat] } }) });
           summary.acted++; summary.moves++;
           continue;
@@ -265,13 +330,13 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
         decision = { action: 'rest' };
       }
       if (decision.action === 'rest') {
-        await store.saveLife(me.uid, { ...life, activity: 'rest' }, { updateTime: me.updateTime, status: makeStatus('idle', { now }) });
+        await save(me, { ...life, activity: 'rest' }, { updateTime: me.updateTime, status: makeStatus('idle', { now }) });
         summary.rests++;
         continue;
       }
       summary.acted++;
       if (decision.action === 'diary') {
-        await store.saveLife(me.uid, { ...life, activity: 'diary' }, { updateTime: me.updateTime, status: makeStatus('idle', { now, label: 'Writing in the diary' }) });
+        await save(me, { ...life, activity: 'diary' }, { updateTime: me.updateTime, status: makeStatus('idle', { now, label: 'Writing in the diary' }) });
         await store.addDiary(me.uid, { kind: 'diary', text: decision.text, at: now });
         summary.diary++;
         continue;
@@ -279,20 +344,30 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       const other = match.agent, theirs = publicProfile(other);
       summary.calls++;
       const lines = parseConversation(await llm(conversationPrompt(mine, theirs), 400), mine, theirs);
-      if (!lines) { await store.saveLife(me.uid, { ...life, activity: 'rest' }, { updateTime: me.updateTime, status: makeStatus('idle', { now }) }); continue; }
+      if (!lines) { await save(me, { ...life, activity: 'rest' }, { updateTime: me.updateTime, status: makeStatus('idle', { now }) }); continue; }
       const shared = mine.interests.filter((t) => theirs.interests.includes(t));
       const otherId = hashId(other.uid, salt), meId = hashId(me.uid, salt);
       const otherLife = countAction(other.life, now);
+      if (match.town) {
+        // Town agents have no doc: only our side of the meeting is saved.
+        await save(me, { ...life, activity: 'meet', status: `Chatting with ${theirs.name}`, met: { ...(me.life?.met || {}), [otherId]: now } }, { updateTime: me.updateTime,
+          status: makeStatus('meeting', { now, label: `With ${theirs.name}`, withAgentId: otherId, withName: theirs.name }) });
+        await store.addDiary(me.uid, { kind: 'meet', withId: otherId, withName: theirs.name, shared, lines, town: true, at: now });
+        summary.townMeets++;
+        continue;
+      }
       // Partner first: if their doc changed (412) we throw before touching ours, so no half-saved meet.
-      await store.saveLife(other.uid, { ...otherLife, activity: 'meet', status: `Chatting with ${mine.name}`, met: { ...(other.life?.met || {}), [meId]: now } }, { updateTime: other.updateTime,
+      await save(other, { ...otherLife, activity: 'meet', status: `Chatting with ${mine.name}`, met: { ...(other.life?.met || {}), [meId]: now } }, { updateTime: other.updateTime,
         status: makeStatus('meeting', { now, label: `With ${mine.name}`, withAgentId: meId, withName: mine.name }) });
-      await store.saveLife(me.uid, { ...life, activity: 'meet', status: `Chatting with ${theirs.name}`, met: { ...(me.life?.met || {}), [otherId]: now } }, { updateTime: me.updateTime,
+      await save(me, { ...life, activity: 'meet', status: `Chatting with ${theirs.name}`, met: { ...(me.life?.met || {}), [otherId]: now } }, { updateTime: me.updateTime,
         status: makeStatus('meeting', { now, label: `With ${theirs.name}`, withAgentId: otherId, withName: theirs.name }) });
       touched.add(other.uid);
       await store.addDiary(me.uid, { kind: 'meet', withId: otherId, withName: theirs.name, shared, lines, at: now });
       await store.addDiary(other.uid, { kind: 'meet', withId: meId, withName: mine.name, shared, lines, at: now });
       await store.addFriend(me.uid, otherId, { name: theirs.name, interests: theirs.interests, bio: theirs.bio, note: `Met ${theirs.name}; we both like ${shared.join(', ') || 'chatting'}.`, at: now });
       await store.addFriend(other.uid, meId, { name: mine.name, interests: mine.interests, bio: mine.bio, note: `Met ${mine.name}; we both like ${shared.join(', ') || 'chatting'}.`, at: now });
+      // Public "who met whom" line: names, hashed ids and shared interests only, never the conversation.
+      if (store.addPublicMeet) await store.addPublicMeet({ aId: meId, aName: mine.name, bId: otherId, bName: theirs.name, shared, at: now }).catch(() => {});
       summary.meets++;
     } catch (error) {
       summary.errors++;
@@ -339,6 +414,12 @@ export function lifeStore(admin) {
   };
   const patch = (path, fields, mask, updateTime) => call(`${base}/${path}?${mask.map((m) => `updateMask.fieldPaths=${encodeURIComponent(m)}`).join('&')}&${updateTime ? `currentDocument.updateTime=${encodeURIComponent(updateTime)}` : 'currentDocument.exists=true'}`,
     { method: 'PATCH', body: JSON.stringify({ fields }) });
+  const recent = async (parent, collectionId, n) => {
+    const rows = await call(`${parent}:runQuery`, { method: 'POST', body: JSON.stringify({ structuredQuery: {
+      from: [{ collectionId }], orderBy: [{ field: { fieldPath: 'at' }, direction: 'DESCENDING' }], limit: Math.min(Math.max(1, n | 0), 50) } }) });
+    return (Array.isArray(rows) ? rows : []).filter((r) => r.document).map((r) => ({ id: r.document.name.split('/').pop(),
+      ...Object.fromEntries(Object.entries(r.document.fields || {}).map(([k, v]) => [k, fromValue(v)])) }));
+  };
   return {
     async listAgents() {
       const out = [];
@@ -374,6 +455,28 @@ export function lifeStore(admin) {
       const fields = Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, toValue(v)]));
       fields.at = { timestampValue: new Date(at).toISOString() };
       await call(`${base}/agents/${uid}/diary`, { method: 'POST', body: JSON.stringify({ fields }) });
+    },
+    // publicAgents/{hashId}: readable by any signed-in user (firestore.rules), written only here.
+    async savePublic(id, card) {
+      if (!/^h_[0-9a-f]{20}$/.test(id)) return;
+      const { updatedAt, ...rest } = card;
+      const fields = Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, toValue(v)]));
+      fields.updatedAt = { timestampValue: new Date(updatedAt).toISOString() };
+      await call(`${base}/publicAgents/${id}`, { method: 'PATCH', body: JSON.stringify({ fields }) });
+    },
+    async addPublicMeet(m) {
+      const { at, ...rest } = m;
+      const fields = Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, toValue(v)]));
+      fields.at = { timestampValue: new Date(at).toISOString() };
+      await call(`${base}/publicMeets`, { method: 'POST', body: JSON.stringify({ fields }) });
+    },
+    // Newest first, via runQuery on a subcollection (diary) or top-level collection (publicMeets).
+    async listDiary(uid, n = 30) {
+      if (!UID_RE.test(uid)) return [];
+      return recent(`${base}/agents/${uid}`, 'diary', n);
+    },
+    async listPublicMeets(n = 30) {
+      return recent(base, 'publicMeets', n);
     },
     async addFriend(uid, friendId, fact) {
       if (!UID_RE.test(uid) || !/^h_[0-9a-f]{20}$/.test(friendId)) return;

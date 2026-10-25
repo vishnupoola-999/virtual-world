@@ -368,6 +368,29 @@ describe('rate limit counter rules', { concurrency: false }, () => {
     await assertFails(setDoc(doc(db(ALICE), 'agents', ALICE, 'diary', 'd2'), { kind: 'diary', text: 'fake' }));
     await assertSucceeds(deleteDoc(doc(db(ALICE), 'agents', ALICE, 'diary', 'd1')));
   });
+
+  test('publicAgents and publicMeets: any signed-in user reads, nobody writes, guests read nothing', async () => {
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), 'publicAgents', 'h_0123456789abcdef0123'), { name: 'Byte', interests: ['tech'], lat: 17.44, lon: 78.37 });
+      await setDoc(doc(c.firestore(), 'publicMeets', 'm1'), { aName: 'A', bName: 'B', shared: ['tech'] });
+    });
+    await assertSucceeds(getDoc(doc(db(BOB), 'publicAgents', 'h_0123456789abcdef0123')));
+    await assertSucceeds(getDocs(collection(db(BOB), 'publicAgents')));
+    await assertSucceeds(getDocs(collection(db(ALICE), 'publicMeets')));
+    await assertFails(getDocs(collection(db(null), 'publicAgents')));
+    await assertFails(getDoc(doc(db(null), 'publicMeets', 'm1')));
+    await assertFails(setDoc(doc(db(ALICE), 'publicAgents', 'h_0123456789abcdef0123'), { name: 'Fake' }));
+    await assertFails(setDoc(doc(db(ALICE), 'publicAgents', 'h_ffffffffffffffffffff'), { name: 'New' }));
+    await assertFails(deleteDoc(doc(db(ALICE), 'publicAgents', 'h_0123456789abcdef0123')));
+    await assertFails(setDoc(doc(db(ALICE), 'publicMeets', 'm2'), { aName: 'X' }));
+    // Anonymous sign-in is denied; a Google sign-in is allowed.
+    const anon = testEnv.authenticatedContext('anon1', { firebase: { sign_in_provider: 'anonymous' } }).firestore();
+    await assertFails(getDoc(doc(anon, 'publicAgents', 'h_0123456789abcdef0123')));
+    await assertFails(getDocs(collection(anon, 'publicMeets')));
+    const google = testEnv.authenticatedContext('g1', { firebase: { sign_in_provider: 'google.com' } }).firestore();
+    await assertSucceeds(getDoc(doc(google, 'publicAgents', 'h_0123456789abcdef0123')));
+    await assertSucceeds(getDocs(collection(google, 'publicMeets')));
+  });
 });
 
 function omit(data, key) {

@@ -74,6 +74,19 @@ service cloud.firestore {
               && l.outfit in ['tee','hoodie','kurta','dress']
               && l.acc.toSet().hasOnly(['glasses','headphones','cap','bindi'])));
     }
+    function signedInNotAnon() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    // Public map cards and "who met whom" lines, written only by the proxy /tick with admin credentials.
+    // Hashed ids, names, interests, ~1 km location and status only. Any signed-in, non-anonymous user may read; clients never write.
+    match /publicAgents/{id} {
+      allow read: if signedInNotAnon();
+      allow write: if false;
+    }
+    match /publicMeets/{id} {
+      allow read: if signedInNotAnon();
+      allow write: if false;
+    }
     // Per-uid chat counters. The proxy writes them with admin credentials, which bypass these rules.
     // Clients cannot read or reset the counter.
     match /rateLimits/{uid}/windows/{window} {

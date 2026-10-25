@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import { describe, test } from 'node:test';
 import { createServer } from '../proxy/server.js';
 import {
+  cooldownFor, pickTown, shardOf, publicCard, maxCallsFromEnv, TOWN_AGENTS,
   SAFETY_SETTINGS, geminiLlm, makeStatus, lifeStore, lifeSalt, LIFE, capAllows, checkTickSecret, cleanInterests, countAction, dayKey, parseConversation, parseDecision,
   pickMatch, placeNear, runTick, shouldAct, similarity, hashId, scrub, safeLine, decidePrompt, conversationPrompt, publicProfile,
 } from '../proxy/life.js';
@@ -23,6 +24,11 @@ function fakeStore(agents) {
   s.saveLife = async (uid, life, pre = {}) => { if (s.conflict?.has(uid)) throw new Error('firestore 412'); s.lives[uid] = life; (s.pre ||= {})[uid] = pre.updateTime; if (pre.status) (s.status ||= {})[uid] = pre.status; };
   s.addDiary = async (uid, e) => { (s.diary[uid] ||= []).push(e); };
   s.addFriend = async (uid, other, fact) => { (s.friends[uid] ||= {})[other] = fact; };
+  s.pub = {}; s.meets = [];
+  s.savePublic = async (id, card) => { s.pub[id] = card; };
+  s.addPublicMeet = async (m) => { s.meets.push(m); };
+  s.listDiary = async (uid) => (s.diary[uid] || []).map((e, i) => ({ id: `d${i}`, ...e }));
+  s.listPublicMeets = async () => s.meets.map((m, i) => ({ id: `m${i}`, ...m }));
   return s;
 }
 
@@ -335,4 +341,104 @@ test('bio is capped at 80 chars', () => {
 test('agents without interests get defaults and still act (#31)', async () => {
   const { DEFAULT_INTERESTS } = await import('../proxy/life.js');
   assert.ok(DEFAULT_INTERESTS.length >= 1);
+});
+
+describe('life v2: reliable world (#39)', () => {
+  test('cooldown is 6 h in small worlds, 3 days from 20 active agents', () => {
+    assert.equal(cooldownFor(5), 6 * 3_600_000);
+    assert.equal(cooldownFor(19), 6 * 3_600_000);
+    assert.equal(cooldownFor(20), LIFE.meetCooldownMs);
+  });
+  test('small world: the same pair can meet again after 6 h, not before', () => {
+    const me = agent('me', ['tech', 'ai', 'x'], { life: { met: {} } });
+    const o = agent('o', ['tech', 'ai', 'y']);
+    me.life.met[hashId('o', SALT)] = NOW - 7 * 3_600_000;
+    assert.equal(pickMatch(me, [o], NOW, SALT, cooldownFor(2)).agent.uid, 'o');
+    me.life.met[hashId('o', SALT)] = NOW - 3_600_000;
+    assert.equal(pickMatch(me, [o], NOW, SALT, cooldownFor(2)), null);
+  });
+  test('distance never blocks a meet (Warangal and Hyderabad)', () => {
+    const w = agent('w', ['food', 'music', 'art'], { approx: { lat: 17.97, lon: 79.59 } });
+    const h = agent('h', ['books', 'science', 'tech'], { approx: { lat: 17.39, lon: 78.49 } });
+    assert.equal(pickMatch(w, [h], NOW, SALT).agent.uid, 'h');
+  });
+  test('town agent fallback when nobody is free; only our side is saved', async () => {
+    const t = pickTown(agent('a', ['tech', 'ai', 'x']), NOW, SALT);
+    assert.equal(t.agent.uid, 'town-coder');
+    assert.ok(t.town);
+    const store = fakeStore([agent('a', ['tech', 'ai', 'x'])]);
+    let n = 0;
+    const r = await runTick({ store, llm: async () => (++n === 1 ? '{"action":"meet"}' : 'A: Hi!\nB: Hello!\nA: Tech?\nB: Always.'), now: NOW, salt: SALT });
+    assert.equal(r.townMeets, 1);
+    assert.equal(store.diary.a[0].withName, 'Coder Arjun (town)');
+    assert.ok(store.diary.a[0].town);
+    assert.ok(store.lives.a.met[hashId('town-coder', SALT)] === NOW);
+    assert.equal(Object.keys(store.lives).length, 1);
+    assert.equal(store.meets.length, 0);
+    // All town agents met recently: no fallback.
+    const met = Object.fromEntries(TOWN_AGENTS.map((x) => [hashId(x.uid, SALT), NOW]));
+    assert.equal(pickTown(agent('a', ['tech'], { life: { met } }), NOW, SALT), null);
+  });
+  test('real meet publishes both cards and a public meet line without the conversation', async () => {
+    const store = fakeStore([agent('a', ['tech', 'science', 'ai']), agent('b', ['tech', 'science', 'music'])]);
+    let n = 0;
+    await runTick({ store, llm: async () => (++n === 1 ? '{"action":"meet"}' : 'A: Hi!\nB: Hello!\nA: SECRETLINE\nB: Yes.'), now: NOW, salt: SALT });
+    const ha = hashId('a', SALT), hb = hashId('b', SALT);
+    assert.equal(store.pub[ha].status.kind, 'meeting');
+    assert.equal(store.pub[hb].name, 'Agent b');
+    assert.equal(store.meets.length, 1);
+    assert.deepEqual(store.meets[0].shared, ['tech', 'science']);
+    const all = JSON.stringify([store.pub, store.meets]);
+    for (const leak of ['SECRETLINE', 'REAL_NAME', 'SECRET_MEMORY', '17.123456', '"a"', 'uid']) assert.ok(!all.includes(leak), leak);
+  });
+  test('publicCard rounds location to ~1 km', () => {
+    const c = publicCard({ uid: 'x', name: 'X', interests: ['tech'], lat: 17.123456, lon: 78.654321 }, null, NOW);
+    assert.deepEqual([c.lat, c.lon], [17.12, 78.65]);
+    assert.equal(c.uid, undefined);
+  });
+  test('only due agents are visited, longest-waiting first; shards split the world', async () => {
+    const order = [];
+    const agents = [agent('new', ['tech', 'ai', 'x'], { life: { lastActionAt: NOW - 3_600_000 } }), agent('old', ['tech', 'ai', 'y'], { life: { lastActionAt: NOW - 86_400_000 } }),
+      agent('busy', ['tech', 'ai', 'z'], { life: { lastActionAt: NOW - 60_000 } })];
+    const store = fakeStore(agents);
+    const origSave = store.saveLife;
+    store.saveLife = async (uid, ...rest) => { order.push(uid); return origSave(uid, ...rest); };
+    const r = await runTick({ store, llm: async () => '{"action":"rest"}', now: NOW, salt: SALT, town: false });
+    assert.equal(r.due, 2);
+    assert.deepEqual(order, ['old', 'new']);
+    const ids = Array.from({ length: 40 }, (_, i) => `u${i}`);
+    const counts = [0, 0, 0];
+    for (const id of ids) counts[shardOf(id, 3)]++;
+    assert.ok(counts.every((c) => c > 0));
+    assert.equal(shardOf('anything', 1), 0);
+  });
+  test('LIFE_MAX_CALLS sets the per-tick call budget', () => {
+    assert.equal(maxCallsFromEnv({}), LIFE.maxCallsPerTick);
+    assert.equal(maxCallsFromEnv({ LIFE_MAX_CALLS: '120' }), 120);
+    assert.equal(maxCallsFromEnv({ LIFE_MAX_CALLS: '9999' }), 500);
+    assert.equal(maxCallsFromEnv({ LIFE_MAX_CALLS: 'x' }), LIFE.maxCallsPerTick);
+  });
+  test('GET /feed needs a Firebase user and returns only that owner\'s diary plus public meets', async () => {
+    const store = fakeStore([]);
+    store.diary.alice = [{ kind: 'meet', withId: 'h_x', withName: 'Bob', shared: ['tech'], lines: [{ speaker: 'A', text: 'hi' }], at: NOW }, { kind: 'diary', text: 'Nice day', at: NOW - 1 }];
+    store.diary.bob = [{ kind: 'diary', text: 'BOB_PRIVATE', at: NOW }];
+    store.meets.push({ aId: 'h_a', aName: 'A', bId: 'h_b', bName: 'B', shared: ['tech'], at: NOW });
+    const server = createServer({ admin: null, memory: null, rateLimiter: { allow: async () => true }, lifeSalt: SALT, lifeStore: store,
+      verifyIdToken: async (t) => { if (t !== 'aaa.bbb.ccc') throw new Error('bad'); return { uid: 'alice' }; } });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const url = `http://127.0.0.1:${server.address().port}/feed`;
+    try {
+      assert.equal((await fetch(url)).status, 401);
+      assert.equal((await fetch(url, { headers: { Authorization: 'Bearer xxx.yyy.zzz' } })).status, 401);
+      const r = await fetch(url, { headers: { Authorization: 'Bearer aaa.bbb.ccc' } });
+      assert.equal(r.status, 200);
+      const j = await r.json();
+      assert.equal(j.mine.length, 2);
+      assert.equal(j.mine[0].lines[0].text, 'hi');
+      assert.equal(j.mine[1].text, 'Nice day');
+      assert.equal(j.town[0].bName, 'B');
+      assert.ok(!JSON.stringify(j).includes('BOB_PRIVATE'));
+    } finally { server.close(); }
+  });
 });

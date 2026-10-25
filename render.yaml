@@ -1,0 +1,17 @@
+# OPTIONAL Render Blueprint: a cron job that calls POST /tick on the proxy every 15 minutes.
+# Render cron jobs are paid (Starter plan, billed per minute of run time; each run is ~1 min).
+# Free alternative: an external cron (cron-job.org) — see docs/TICK_CRON.md. GitHub Actions life-tick.yml stays as a backup.
+# Applying this Blueprint only creates this cron job; it does not touch the existing web service virtual-world-ai.
+services:
+  - type: cron
+    name: virtual-world-tick
+    runtime: node
+    plan: starter
+    schedule: "*/15 * * * *"
+    buildCommand: echo no build
+    startCommand: node scripts/tick.mjs
+    envVars:
+      - key: TICK_SECRET
+        sync: false # set in the Render dashboard; same value as the web service's TICK_SECRET
+      - key: PROXY_URL
+        value: https://virtual-world-ai.onrender.com

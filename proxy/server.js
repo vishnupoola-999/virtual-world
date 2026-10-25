@@ -24,7 +24,7 @@ import { createPublicKey, createSign, createVerify, X509Certificate } from 'node
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
-import { checkTickSecret, geminiLlm, lifeSalt, lifeStore, runTick } from './life.js';
+import { checkTickSecret, geminiLlm, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
 import { calendarToolContext, reviewCalendarTurn, sanitizeZone } from '../src/calendarWhen.js';
 
@@ -576,6 +576,32 @@ export async function updateMemory(ctx, model, uid, memory, contents, reply) {
 
 // POST /tick (life loop). Called by .github/workflows/life-tick.yml every 30 min with x-tick-secret.
 // No browser origin is involved; the shared secret is the only auth. 401 without it, 503 if the server is not configured.
+// GET /feed: the signed-in owner's recent diary (meetings with conversation lines, diary notes) plus the public
+// "who met whom" list (names and shared interests only). ?n= caps each list (1..50, default 20).
+export function feedEntry(e) {
+  const out = { id: e.id, kind: e.kind === 'meet' ? 'meet' : 'diary', at: Number(e.at) || 0 };
+  if (out.kind === 'meet') {
+    out.withId = e.withId; out.withName = e.withName; out.shared = Array.isArray(e.shared) ? e.shared : [];
+    out.lines = Array.isArray(e.lines) ? e.lines.map((l) => ({ speaker: String(l?.speaker || ''), text: String(l?.text || '') })) : [];
+    if (e.town) out.town = true;
+  } else out.text = String(e.text || '');
+  return out;
+}
+
+async function handleFeed(req, res, ctx, url) {
+  const { uid } = await requireUser(req, ctx.verifyIdToken);
+  if (!ctx.lifeStore?.listDiary) throw new HttpError(503, 'feed not configured');
+  const n = Math.min(50, Math.max(1, Math.floor(Number(url.searchParams.get('n'))) || 20));
+  const [diary, meets] = await Promise.all([
+    ctx.lifeStore.listDiary(uid, n),
+    ctx.lifeStore.listPublicMeets ? ctx.lifeStore.listPublicMeets(n).catch(() => []) : [],
+  ]);
+  sendJson(res, 200, {
+    mine: diary.map(feedEntry),
+    town: meets.map((m) => ({ id: m.id, aId: m.aId, aName: m.aName, bId: m.bId, bName: m.bName, shared: Array.isArray(m.shared) ? m.shared : [], at: Number(m.at) || 0 })),
+  });
+}
+
 async function handleTick(req, res, ctx) {
   req.resume();
   if (!checkTickSecret(req.headers['x-tick-secret'], ctx.tickSecret)) throw new HttpError(401, 'unauthorized');
@@ -586,7 +612,10 @@ async function handleTick(req, res, ctx) {
   try {
     const model = MODEL_RE.test(ctx.model) ? ctx.model : DEFAULT_MODEL;
     const llm = ctx.llm || geminiLlm({ fetchImpl: ctx.fetchImpl, apiKey: ctx.apiKey, model });
-    const summary = await runTick({ store: ctx.lifeStore, llm, now: Date.now(), salt: ctx.lifeSalt });
+    const url = new URL(req.url || '/', 'http://127.0.0.1');
+    const of = Math.min(16, Math.max(1, Math.floor(Number(url.searchParams.get('of'))) || 1));
+    const shard = Math.min(of - 1, Math.max(0, Math.floor(Number(url.searchParams.get('shard'))) || 0));
+    const summary = await runTick({ store: ctx.lifeStore, llm, now: Date.now(), salt: ctx.lifeSalt, maxCalls: ctx.maxCalls, shard, of });
     sendJson(res, 200, summary);
   } finally {
     ctx.ticking = false;
@@ -620,6 +649,7 @@ export function createServer(options = {}) {
     lifeSalt: options.lifeSalt !== undefined ? options.lifeSalt : lifeSalt(),
     lifeStore: options.lifeStore !== undefined ? options.lifeStore : lifeStore(admin),
     llm: options.llm,
+    maxCalls: options.maxCalls || maxCallsFromEnv(),
     ticking: false,
   };
   return http.createServer(async (req, res) => {
@@ -640,6 +670,10 @@ export function createServer(options = {}) {
           if (res.headersSent || res.writableEnded) return;
           sendJson(res, 502, { error: 'flights unavailable', detail: String(error.message || error).slice(0, 300) });
         }
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/feed') {
+        await handleFeed(req, res, ctx, url);
         return;
       }
       if (req.method === 'GET') {
