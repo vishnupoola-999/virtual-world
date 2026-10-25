@@ -31,13 +31,13 @@
   ]
  },
  "light": {
-  "anchor": "map",
-  "color": "#c9d6ff",
-  "intensity": 0.18,
+  "anchor": "viewport",
+  "color": "#c9d4ff",
+  "intensity": 0.4,
   "position": [
-   1.5,
+   1.2,
    200,
-   40
+   35
   ]
  },
  "sources": {

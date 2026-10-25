@@ -2,6 +2,7 @@
 // last visit and the diary has 1+ new entries. The diary is owner-only; meeting partners appear only by the name stored on
 // the entry (withName) and a hashed id (withId). Partner profiles are never looked up.
 import {ICONS,LABEL,icon} from './interests.js';
+import {displayName as dn} from './names.js';
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const AWAY_MS=30*60e3,LAST='vw-last-visit';
@@ -23,14 +24,14 @@ export function setupAway({track=()=>{}}={}){let open=false;
     const met=[];for(const e of list)if(e.kind==='meet'&&e.withId&&!met.some(m=>m.withId===e.withId))met.push(e);
     // V1: a plain list. Diary lines, then who the agent met (gradient initial + stored name). No stats, no intro (post-V1).
     const shown=list.slice(-8);
-    const line=e=>e.kind==='meet'?`Met <b>${esc(String(e.withName||'an agent').slice(0,40))}'s agent</b>.${Array.isArray(e.shared)&&e.shared.length?` You both like ${esc(likes(e.shared.slice(0,2)))}.`:''}`:esc(String(e.text||'').slice(0,140));
+    const line=e=>e.kind==='meet'?`Met <b>${esc(String(dn(e.withName)||'an agent').slice(0,40))}'s agent</b>.${Array.isArray(e.shared)&&e.shared.length?` You both like ${esc(likes(e.shared.slice(0,2)))}.`:''}`:esc(String(e.text||'').slice(0,140));
     const mono=n=>`<div class="aav mono" aria-hidden="true">${esc(String(n||'?').trim()[0]||'?').toUpperCase()}</div>`;
     const sinceTxt=since?` · since ${ampm(toDate(since))}`:'';
     root.innerHTML=`<div class="scrim"></div><section class="card glass v1" role="dialog" aria-modal="true" aria-labelledby="awayT">
       <div class="ahd"><div><h2 id="awayT">While you were away</h2><p>${esc(name)}${sinceTxt}</p></div>
         <button class="x" id="awayX" type="button" aria-label="Close"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
       <div class="sec">Diary</div><ul class="diary">${shown.map(e=>`<li${e.kind==='meet'?' class="met"':''}><time>${hhmm(e.at)}</time><span class="d"></span><span>${line(e)}</span></li>`).join('')}</ul>
-      ${met.length?`<div class="sec">Who ${esc(name)} met</div><ul class="met-list">${met.slice(0,6).map(m=>`<li>${mono(m.withName)}<b>${esc(String(m.withName||'Agent').slice(0,24))}</b>${tag(Array.isArray(m.shared)?m.shared[0]:'')}</li>`).join('')}</ul>`:''}
+      ${met.length?`<div class="sec">Who ${esc(name)} met</div><ul class="met-list">${met.slice(0,6).map(m=>`<li>${mono(dn(m.withName))}<b>${esc(String(dn(m.withName)||'Agent').slice(0,24))}</b>${tag(Array.isArray(m.shared)?m.shared[0]:'')}</li>`).join('')}</ul>`:''}
     </section>`;
     $('awayX').onclick=()=>close();root.querySelector('.scrim').onclick=()=>close();
     track('away_card_view',{entries:list.length,met:met.length});

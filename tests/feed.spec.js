@@ -107,13 +107,14 @@ test('feed: skeleton, sections, expandable meets', async ({ page }) => {
   await page.evaluate(() => { globalThis.__vw.town.loadFeed(globalThis.__fakeUser); });
   await expect(page.locator('.fdSk').first()).toBeVisible();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/feed-skeleton.png` });
-  await expect(page.locator('#feedList')).toContainText('Around town', { timeout: 10_000 });
-  await expect(page.locator('#feedList')).not.toContainText('Met Mira');
+  await expect(page.locator('#feedList')).toContainText('Met Mira', { timeout: 10_000 });
+  await expect(page.locator('#feedList')).not.toContainText('Around town');
+  await expect(page.locator('#feedList')).not.toContainText('Ravi and Tara');
   await expect(page.locator('#feedList')).not.toContainText('Walked to the park');
   const meet = page.locator('#feedList .fd.meet').first();
+  await expect(meet.locator('.fdChips span')).toHaveText(['music', 'chess']);
   await meet.locator('.fdHead').click();
   await expect(meet).toHaveClass(/open/);
-  await expect(meet.locator('.fdChips span')).toHaveText(['cricket']);
   await page.waitForTimeout(300);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/feed-data-v2.png` });
 });
@@ -147,7 +148,10 @@ test('Agent chats: one-line log with gist, worth-meeting only for interest match
   await expect(ac.locator('.fd .fdT')).toHaveText(['Met Mira', 'Met Dev', 'Met Sam', /Walked to the park/]);
   await expect(ac.locator('.wm button')).toHaveCount(2);
   await expect(ac.locator('.wm .acts button')).toHaveText(['Say hi']);
-  const x = await ac.locator('.wm button[aria-label="Dismiss"]').boundingBox(), card = await ac.locator('.wm').boundingBox(), hi = await ac.locator('.wm .hi').boundingBox();
+  // Flake fix: the sheet slides up and the card fades/slides in (transform), so three separate boundingBox() calls could catch
+  // different animation frames. Wait for every running animation/transition to finish, then measure all three in one frame.
+  await page.evaluate(() => Promise.all(globalThis.document.getAnimations().filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished.catch(() => {}))));
+  const [x, card, hi] = await ac.evaluate((root) => ['.wm button[aria-label="Dismiss"]', '.wm', '.wm .hi'].map((q) => { const r = root.querySelector(q).getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }));
   expect([Math.round(x.width), Math.round(x.height)]).toEqual([32, 32]);
   expect(x.x + x.width).toBeGreaterThan(card.x + card.width - 20); expect(x.y).toBeLessThan(card.y + 20);
   expect(hi.width).toBeGreaterThan(card.width - 40);
@@ -175,7 +179,7 @@ test('feed: empty state and error', async ({ page }) => {
   await boot(page, { feed: { myId: 'h_me', mine: [], town: [] } });
   await page.evaluate(() => globalThis.document.querySelector('#rail [data-open="feed"]').dispatchEvent(new globalThis.MouseEvent('click')));
   await page.evaluate(() => globalThis.__vw.town.loadFeed(globalThis.__fakeUser));
-  await expect(page.locator('#feedList')).toContainText('No meets around town yet.');
+  await expect(page.locator('#feedList')).toContainText('No meets yet.');
   await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser));
   await expect(page.locator('#agentChats')).toContainText('Nothing yet. Bs is out exploring.');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/feed-empty.png` });

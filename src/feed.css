@@ -59,3 +59,31 @@ button.fdHead{cursor:pointer}button.fdHead:active{transform:scale(.98);transitio
 .inc .incQ{color:var(--tx-2);font-size:14px}
 .inc .incAgo{color:var(--tx-3);font:400 12px/1 Inter,system-ui,sans-serif}
 @media (prefers-reduced-motion:reduce){.cmp,.sentRow{animation:none}}
+/* Polish (design/town-chars-polish): transform + opacity only, no blur, reduced motion respected. */
+:root{--ease-sheet:cubic-bezier(.2,.8,.2,1)}
+#sheet{animation:pSheetIn 220ms var(--ease-sheet) both}
+.vsheet,.cs-sheet{transition:transform 220ms var(--ease-sheet),opacity 220ms var(--ease-sheet)}
+.vsheet:not(.on){opacity:0}
+@keyframes pSheetIn{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+.stag>li,.wmSec .wm{animation:pRowIn 260ms var(--ease-sheet) both}
+.stag>li:nth-child(2){animation-delay:30ms}.stag>li:nth-child(3){animation-delay:60ms}.stag>li:nth-child(4){animation-delay:90ms}
+.stag>li:nth-child(5){animation-delay:120ms}.stag>li:nth-child(n+6){animation-delay:150ms}
+@keyframes pRowIn{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+button:not(:disabled):active,.chip:active{transform:scale(.97);transition:transform 90ms var(--ease-sheet)}
+/* Feed rows: one fixed-height line; chips sit inline before the time, so rows with and without chips align. */
+.fdHead{height:52px;min-height:52px}
+.fdChips.in{display:inline-flex;flex-wrap:nowrap;gap:6px;margin:0;flex:none;max-width:45%;overflow:hidden}
+.fdChips.in span{height:22px;padding:0 8px;font:500 11.5px/20px Inter,system-ui,sans-serif;white-space:nowrap}
+/* Status card cross-fade when its text changes. */
+#liveHint.swap>*{animation:pSwap 220ms var(--ease-sheet) both}
+@keyframes pSwap{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+/* Speech bubbles and pills: consistent padding, capped width with ellipsis. Dots sit inside the bubble, never over text. */
+.ag .stat{max-width:220px;padding:0 12px 0 8px;overflow:hidden;text-overflow:ellipsis}
+.ag .bubble{padding:0 8px;max-width:180px;overflow:hidden}
+.ag .bubble.big{top:6px;right:-18px;height:22px;padding:0 8px}
+/* Town neighbours: fade/scale in, fade out when the meet ends. */
+/* MapLibre owns the marker's transform, so these use the separate translate property. */
+.ag.town{animation:pTownIn 320ms var(--ease-sheet) both}
+@keyframes pTownIn{from{translate:0 8px;opacity:0}to{translate:0 0;opacity:1}}
+.ag.town.leave{opacity:0;translate:0 6px;transition:opacity 300ms var(--ease-sheet),translate 300ms var(--ease-sheet)}
+@media (prefers-reduced-motion:reduce){#sheet,.stag>li,.wmSec .wm,#liveHint.swap>*,.ag.town{animation:none}.vsheet,.cs-sheet,.ag.town.leave,button:active{transition:none}}
