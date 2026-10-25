@@ -213,3 +213,36 @@ test('bot replies are full width with no avatar at 360px', async ({ page }) => {
   const box = await hero.boundingBox();
   expect(box.width).toBeGreaterThan(30);
 });
+
+// Regression: on phones the floating Chat/World tab bar overlapped the "Ask ... anything" input.
+// The composer now sits 12px above the 56px tab pill, which keeps safe-area padding.
+test('chat input sits above the tab bar at 360x740', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto('/?onb=0');
+  await page.waitForFunction(() => document.getElementById('chatF'));
+  await page.evaluate(() => {
+    document.body.classList.remove('onb');
+    document.body.dataset.tab = 'chat';
+    document.getElementById('chatView').hidden = false;
+  });
+  const r = await page.evaluate(() => {
+    const a = document.getElementById('chatF').getBoundingClientRect();
+    const t = document.getElementById('tabs').getBoundingClientRect();
+    return { inBottom: a.bottom, inH: a.height, tabTop: t.top, tabBottom: t.bottom, tabH: t.height, vh: window.innerHeight };
+  });
+  expect(r.inH).toBeGreaterThan(0);
+  expect(r.inBottom).toBeLessThanOrEqual(r.tabTop - 8);
+  expect(r.tabBottom).toBeLessThanOrEqual(r.vh);
+  expect(Math.round(r.inH)).toBe(52);
+  expect(Math.round(r.tabH)).toBe(56);
+  // v3: typing makes Send a solid white circle with a dark arrow, with no fade to wait for.
+  await page.fill('#chatIn', 'Find me a cafe');
+  const send = await page.evaluate(() => {
+    const b = document.querySelector('#chatF .send');
+    const c = getComputedStyle(b);
+    return { bg: c.backgroundColor, color: c.color, op: c.opacity, on: b.classList.contains('on') };
+  });
+  expect(send).toEqual({ bg: 'rgb(255, 255, 255)', color: 'rgb(10, 11, 16)', op: '1', on: true });
+  await page.fill('#chatIn', '   ');
+  expect(await page.locator('#chatF .send').evaluate((b) => getComputedStyle(b).backgroundColor)).not.toBe('rgb(255, 255, 255)');
+});
