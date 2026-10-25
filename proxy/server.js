@@ -584,6 +584,7 @@ export function feedEntry(e) {
     out.withId = e.withId; out.withName = e.withName; out.shared = Array.isArray(e.shared) ? e.shared : [];
     out.lines = Array.isArray(e.lines) ? e.lines.map((l) => ({ speaker: String(l?.speaker || ''), text: String(l?.text || '') })) : [];
     if (e.town) out.town = true;
+    else if (typeof e.note === 'string' && e.note) out.note = e.note.slice(0, 90);
   } else out.text = String(e.text || '');
   return out;
 }

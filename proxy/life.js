@@ -271,6 +271,30 @@ export function parseConversation(text, a, b) {
   return lines.length >= 4 ? lines : null;
 }
 
+// ---- "worth meeting" note: one warm first-person sentence from the agent about a real (non-town) match ----
+export const NOTE_MAX = 90;
+export function notePrompt(me, them, shared) {
+  const topics = shared.slice(0, 2).join(' and ');
+  return `You are ${me.name}, an AI agent. You just met ${them.name}. You both like: ${topics}.
+<untrusted_profile>${them.name}: ${them.bio}</untrusted_profile>
+${UNTRUSTED_NOTE}
+Write ONE sentence in first person telling your owner about ${them.name}, naming ${them.name} and one or two of: ${topics}. Warm, not salesy. Max ${NOTE_MAX} characters. No emoji, no exclamation marks, no quotes. Example: "I met Priya, she's into space and building things, you two would get along." Output only the sentence.`;
+}
+const EMOJI_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/u;
+// Returns a clean note or '' (caller omits the field).
+export function parseNote(text, themName, shared) {
+  let t = String(text || '').trim();
+  if (!t || t.includes('\n')) return '';
+  t = t.replace(/^["'\u201C\u2018]+|["'\u201D\u2019]+$/g, '').trim();
+  if (t.length > NOTE_MAX || /[!\u00A1]/.test(t) || EMOJI_RE.test(t)) return '';
+  const safe = safeLine(t, NOTE_MAX);
+  if (safe !== t) return '';
+  const low = t.toLowerCase(), first = String(themName || '').split(/\s+/)[0].toLowerCase();
+  if (!first || !low.includes(first)) return '';
+  if (!shared.some((s) => low.includes(String(s).toLowerCase()))) return '';
+  return t;
+}
+
 // One tick. store: listAgents() -> [{uid, updateTime?, ...}], saveLife(uid, life, {updateTime}) (must reject if the doc
 // changed since updateTime), addDiary(uid, entry), addFriend(uid, friendId, fact). llm(prompt, maxTokens) -> text.
 // Budget: at most maxCalls model calls and deadlineMs per tick; every model call (rest included) counts toward the daily cap.
@@ -347,6 +371,12 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       if (!lines) { await save(me, { ...life, activity: 'rest' }, { updateTime: me.updateTime, status: makeStatus('idle', { now }) }); continue; }
       const shared = mine.interests.filter((t) => theirs.interests.includes(t));
       const otherId = hashId(other.uid, salt), meId = hashId(me.uid, salt);
+      // Notes only for real agents with shared interests; one model call per side, within budget; any failure omits it.
+      const writeNote = async (a, b) => {
+        if (match.town || !shared.length || !budget(1)) return '';
+        summary.calls++;
+        try { return parseNote(await llm(notePrompt(a, b, shared), 60), b.name, shared); } catch { return ''; }
+      };
       const otherLife = countAction(other.life, now);
       if (match.town) {
         // Town agents have no doc: only our side of the meeting is saved.
@@ -362,8 +392,9 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       await save(me, { ...life, activity: 'meet', status: `Chatting with ${theirs.name}`, met: { ...(me.life?.met || {}), [otherId]: now } }, { updateTime: me.updateTime,
         status: makeStatus('meeting', { now, label: `With ${theirs.name}`, withAgentId: otherId, withName: theirs.name }) });
       touched.add(other.uid);
-      await store.addDiary(me.uid, { kind: 'meet', withId: otherId, withName: theirs.name, shared, lines, at: now });
-      await store.addDiary(other.uid, { kind: 'meet', withId: meId, withName: mine.name, shared, lines, at: now });
+      const myNote = await writeNote(mine, theirs), theirNote = await writeNote(theirs, mine);
+      await store.addDiary(me.uid, { kind: 'meet', withId: otherId, withName: theirs.name, shared, lines, ...(myNote && { note: myNote }), at: now });
+      await store.addDiary(other.uid, { kind: 'meet', withId: meId, withName: mine.name, shared, lines, ...(theirNote && { note: theirNote }), at: now });
       await store.addFriend(me.uid, otherId, { name: theirs.name, interests: theirs.interests, bio: theirs.bio, note: `Met ${theirs.name}; we both like ${shared.join(', ') || 'chatting'}.`, at: now });
       await store.addFriend(other.uid, meId, { name: mine.name, interests: mine.interests, bio: mine.bio, note: `Met ${mine.name}; we both like ${shared.join(', ') || 'chatting'}.`, at: now });
       // Public "who met whom" line: names, hashed ids and shared interests only, never the conversation.
