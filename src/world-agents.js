@@ -6,7 +6,7 @@
 import {dragToClose} from './ui.js';
 import {toLook} from './character-data.js';
 const basePR=()=>Math.min(Math.max(1,globalThis.devicePixelRatio||1),2); // same cap as agent-renderer.js (kept here so three.js stays lazy)
-const NEAR_Z=14,MAX_LIVE=8,FRAME_MS=33;
+const NEAR_Z=14,MAX_LIVE=8,FRAME_MS=15; // ~60 fps; the frame monitor still drops pixel ratio on slow phones
 const REDUCED=matchMedia('(prefers-reduced-motion: reduce)');
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const STATUS_COL={online:'#3ddc97',walking:'#3ddc97',talking:'#4fd1ff',busy:'#ffc861'};

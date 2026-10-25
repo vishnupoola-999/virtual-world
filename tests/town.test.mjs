@@ -14,13 +14,26 @@ test('fanOut spreads agents in the same spot by 40px', () => {
   const [ax] = o.get('a'), [bx] = o.get('b');
   assert.equal(FAN_PX, 40); assert.ok(Math.abs(ax - bx) <= 80 && (ax !== 0 || bx !== 0 || o.get('a')[1] !== o.get('b')[1]));
 });
-test('Feed shows only Around town; Activity shows only my agent (no duplicates), chips, escaping', () => {
+test('Feed shows only meets with my agent, in its voice; others\' meets and "(town)" never appear', () => {
+  const f = { myId: 'h_me', mine: [{ id: '1', kind: 'meet', withId: 'h_d', withName: 'Dad', shared: ['chess'], at: Date.now() }, { id: '2', kind: 'diary', text: 'walked', at: Date.now() }],
+    town: [{ id: 't1', aId: 'h_x', aName: 'Dad', bId: 'h_y', bName: 'Boss', shared: [], at: 1 }, { id: 't2', aId: 'h_y', aName: 'Boss', bId: 'h_z', bName: 'Buddy', shared: [], at: 2 },
+      { id: 't3', aId: 'h_me', aName: 'Bs', bId: 'town-c', bName: 'Coder Arjun (town)', shared: ['ai'], at: 3 }] };
+  const h = feedHtml(f);
+  assert.match(h, /Met Dad/); assert.match(h, /Met Arjun/); assert.match(h, /<span>chess<\/span>/);
+  assert.doesNotMatch(h, /Boss|Buddy|Around town|\(town\)| met</); assert.doesNotMatch(h, /walked/);
+  assert.match(feedHtml({ myId: 'h_me', mine: [], town: f.town.slice(0, 2) }), /No meets yet/);
+});
+test('names: town tag dropped, role word dropped, labels warm', async () => {
+  const { displayName, displayLabel } = await import('../src/names.js');
+  assert.equal(displayName('Coder Arjun (town)'), 'Arjun'); assert.equal(displayName('Mira'), 'Mira');
+  assert.equal(displayLabel('With Coder Arjun (town)'), 'Chatting with Arjun'); assert.equal(displayLabel('Heading to the lake'), 'Heading to the lake');
+});
+test('Activity shows only my agent (no duplicates), chips, escaping', () => {
   const f = { mine: [{ kind: 'meet', withName: '<b>Zed', shared: ['chess'], lines: [{ speaker: 'Bs', text: 'hi' }], at: Date.now() }], town: [{ aName: 'A', bName: 'B', shared: [], at: Date.now() }] };
   const h = feedHtml(f), a = activityHtml(f);
-  assert.match(h, /Around town/); assert.doesNotMatch(h, /Zed|Your agent/);
+  assert.doesNotMatch(h, /Around town|A and B met/);
   assert.match(a, /&lt;b&gt;Zed/); assert.match(a, /Worth meeting/); assert.match(a, /Say hi/); assert.doesNotMatch(a, /A and B met|Around town/); assert.match(a, /aria-expanded="false"/);
   assert.match(activityHtml({ mine: [] }), new RegExp(EMPTY.replace('.', '\\.')));
-  assert.match(feedHtml({ town: [] }), /No meets around town yet/);
 });
 test('refreshMap skips myId, ignores anonymous users, survives errors', async () => {
   const put = []; const removed = [];
