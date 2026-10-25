@@ -1,0 +1,102 @@
+/* UI v3 (Diggy's MUSE/Dots/Grok-inspired spec). Loaded last; re-points the v2 tokens and restyles components.
+   Rules for ₹10k phones: no blur or backdrop-filter, animate only transform and opacity (120–240ms), reduced-motion fallback.
+   The chat input bar and tab bar from #37 are intentionally untouched (their colours are pinned below). */
+:root{
+ /* colour */
+ --bg:#07080C;--raised:#111318;--sheet:#16181F;--hover:#1E2129;
+ --hair:rgba(255,255,255,.06);--border:rgba(255,255,255,.10);
+ --tx:rgba(255,255,255,.95);--tx-2:rgba(255,255,255,.60);--tx-3:rgba(255,255,255,.40);
+ --acc-a:#5B8CFF;--acc-b:#9B6BFF;--acc:linear-gradient(135deg,#5B8CFF,#9B6BFF);--acc-tint:rgba(123,124,255,.14);--acc-line:#7B7CFF;
+ --online:#3DDC84;--error:#FF5A6A;
+ /* v2 names mapped onto v3 so every older rule picks up the new palette */
+ --s1:var(--raised);--s2:var(--sheet);--s3:var(--sheet);--s4:var(--hover);
+ --line:var(--hair);--line-2:var(--border);
+ --text:var(--tx);--text-2:var(--tx-2);--muted:var(--tx-3);--faint:rgba(255,255,255,.25);
+ --brand-a:var(--acc-a);--brand-b:var(--acc-b);--grad:var(--acc);--ok:var(--online);--err:var(--error);
+ --surface:var(--raised);--surface-2:var(--sheet);--accent:var(--acc-a);--accent-2:var(--acc-b);--glass-fill:var(--raised);
+ --edge:linear-gradient(var(--border),var(--border));
+ --chip-on-bg:var(--acc-tint);--chip-on-border:var(--acc-line);--chip-on-text:var(--tx);--chip-on-icon:var(--tx);
+ /* radii, spacing, motion */
+ --r-xs:8px;--r-sm:8px;--r-md:14px;--r-lg:20px;--r-xl:20px;--pill:999px;--pad:16px;
+ --ease-out:cubic-bezier(.2,.8,.2,1);--spring:cubic-bezier(.2,.8,.2,1);--t-fast:120ms;--t-med:180ms;--t-slow:240ms;
+ --tick:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
+html,body{font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--tx);font-size:15px;line-height:1.5;font-weight:400}
+
+/* type scale: titles 24/600, headings 17/600, body 15/400, labels 13/500, captions 12/400 */
+.t-title,#sheetTitle,.onbBottom h1,.onbInt .hd h2,#away .ahd h2{font-size:24px;line-height:1.2;font-weight:600;letter-spacing:-.02em}
+.onbBottom h2,.onbPanel h2,.cs-title,.head .who b,.shHead b{font-size:17px;line-height:1.3;font-weight:600;letter-spacing:-.01em}
+.onbBottom p,.onbPanel p,.onbInt .hd p,.srow b,.bub,.cs-card .row{font-size:15px;line-height:1.5;font-weight:400}
+.srow b{font-weight:500}
+.t-small,.tab,.chip,.cs-card .k,.onbInt .about label,.onbInt .count b,.nm{font-size:13px;font-weight:500}
+.t-cap,.onbBottom .cap,.msg.sys,#away .sec,.srow small,.head .who small,.cs-sub,.cs-note,.cs-hint,.onbInt .about small,.onbInt .hint,#away .ahd p,.diary time{font-size:12px;font-weight:400;letter-spacing:0;text-transform:none}
+.onbBottom h1 em{background:var(--acc);-webkit-background-clip:text;background-clip:text;color:transparent}
+.onbBottom .cap{color:var(--tx-2)}
+
+/* buttons: 48px. primary white pill, secondary #16181F + 10% border, ghost 60% text, icon 40px circle */
+button{min-height:48px;padding:0 20px;border-radius:var(--pill);border:1px solid var(--border);background:var(--sheet);color:var(--tx);box-shadow:none;font-size:15px;font-weight:500;
+ transition:transform 120ms var(--ease-out),opacity 120ms var(--ease-out)}
+button:active{transform:scale(.97);transition-duration:120ms}
+button:disabled{opacity:.4}
+button.primary,button.big,.cs-primary{min-height:48px;height:48px;border-radius:var(--pill);background:#fff;color:#000;border:0;box-shadow:none;font-size:15px;font-weight:600}
+button.brand{background:#fff;color:#000;border:0;box-shadow:none;font-weight:600}
+button.ghost,button.link,.cs-cancel,.cs-sheet .more{background:none;border:0;box-shadow:none;color:var(--tx-2)}
+button.danger,#liveBtn.on{background:rgba(255,90,106,.12);border:1px solid rgba(255,90,106,.35);color:var(--error);box-shadow:none}
+.iconbtn,#sheetClose,#away .x,.fab,.recenter{width:40px;height:40px;min-height:40px;padding:0;border-radius:50%;background:var(--raised);border:1px solid var(--border);box-shadow:none;color:var(--tx);display:grid;place-items:center}
+.iconbtn svg,#sheetClose svg,#away .x svg,.fab svg,.recenter svg,.rb svg{width:20px;height:20px;stroke-width:1.75}
+.rb{width:40px;height:40px;min-height:40px;border:0;background:none;color:var(--tx-2)}.rb[aria-pressed=true]{background:var(--hover);color:var(--tx)}
+#rail,#topbar .search,.brand{background:var(--raised);border:1px solid var(--border);box-shadow:none}
+#topbar .search{height:48px;min-height:48px;padding:0 var(--pad);color:var(--tx-3);font-size:15px}
+.onbTop button,.actions button,.tab,.srow,.chip,.switch,#chatF button,.pick button,.cards button,.cs-card button,.maplibregl-ctrl-group button,.maplibregl-ctrl-attrib-button,#tabs button{min-height:0}
+.actions button,.tab,.srow,.switch,.onbTop button,.maplibregl-ctrl-group button,.maplibregl-ctrl-attrib-button,.sw button{border:0}
+.onbTop button{min-height:44px;border:0;background:none;color:var(--tx)}
+.onbTop .link{color:var(--tx-2);font-size:13px;font-weight:500;text-decoration:none}
+
+/* chips: 36px pill; selected = 14% accent tint, accent border, tick */
+.chip{height:36px;min-height:36px;padding:0 14px;border-radius:var(--pill);background:var(--sheet);border:1px solid var(--border);color:var(--tx);box-shadow:none;display:inline-flex;align-items:center;gap:6px}
+.chip.on,.chip.solid,.chip[aria-pressed=true]{background:var(--acc-tint);border-color:var(--acc-line);color:var(--tx)}
+.chip.on::before,.chip.solid::before{content:'';width:14px;height:14px;background:var(--tx);-webkit-mask:var(--tick) center/contain no-repeat;mask:var(--tick) center/contain no-repeat}
+.chip .ck svg{stroke:var(--tx)}
+.chips{gap:8px;padding-left:0}
+
+/* selected cards (character / look pickers): accent border + tick, no glow */
+.cards button,.pick button{border:1px solid var(--border);background:var(--sheet);border-radius:var(--r-md);box-shadow:none}
+.cards button.on,.pick button.on{border-color:var(--acc-line);box-shadow:0 0 0 1px var(--acc-line)}
+.cards button.on::after,.pick button.on::after{background:#fff;-webkit-mask:none;content:'';background-image:var(--tick);background-size:14px;background-repeat:no-repeat;background-position:center}
+
+/* sheets: #111318, 20px top radius, 36x4 grab, translateY 240ms, 50% scrim */
+#sheet,.vsheet,.cs-sheet,#away .card{background:var(--raised);border:1px solid var(--hair);border-radius:20px 20px 0 0;box-shadow:none}
+#sheet{left:0;right:0;animation:v3SheetIn 240ms var(--ease-out) both}
+.vsheet,.cs-sheet{left:0;right:0;bottom:0;padding-bottom:calc(20px + var(--safe-b));transition:transform 240ms var(--ease-out)}
+.vsheet:not(.on){transition:transform 240ms var(--ease-out),visibility 0s 240ms}
+#away .card{left:0;right:0;bottom:0;border-radius:20px 20px 0 0;animation:v3SheetIn 240ms var(--ease-out) both}
+@keyframes v3SheetIn{from{transform:translateY(100%)}}
+.grab,#sheetHead .grab,.cs-sheet .grab{width:36px;height:4px;border-radius:2px;background:rgba(255,255,255,.18)}
+#scrim,.scrim.on,.cs-scrim[data-open=true]{opacity:.5}.cs-scrim{background:#000}
+#away .scrim{position:absolute;z-index:0;background:#000;opacity:.5;animation:none;pointer-events:auto}
+#away .card{z-index:1;top:auto;max-height:calc(100% - 48px - var(--safe-t,0px))}
+.cs-card,#away .sum div,.famItem,.srow .ic,.cs-sheet .tile{background:var(--sheet);border-color:var(--hair)}
+.cs-card,#away .sum div{border-radius:var(--r-md)}
+.srow .ic,.cs-sheet .tile{border-radius:var(--r-sm)}
+.srow{border-bottom-color:var(--hair)}
+.switch{background:var(--hover);border:0}.switch[aria-checked=true]{background:var(--acc)}
+
+/* surfaces */
+.glass,.offPill,.onbCap,.onbChip,#toast,.cs-toast,#moveBar .bar,.maplibregl-ctrl.maplibregl-ctrl-attrib,.maplibregl-ctrl-attrib.maplibregl-compact{background:var(--raised)!important;border:1px solid var(--border);box-shadow:none}
+#toast::before{content:'';background:var(--online);-webkit-mask:var(--tick) center/12px no-repeat;mask:var(--tick) center/12px no-repeat}
+.maplibregl-ctrl-group{background:var(--raised);border:1px solid var(--border)}
+#q,#agForm select,#agForm input,#agForm textarea,.nm input,.onbInt .about textarea{background:var(--raised);border:1px solid var(--border);border-radius:var(--r-md);color:var(--tx);min-height:48px}
+#q:focus,#agForm input:focus,.nm input:focus,.onbInt .about textarea:focus{outline:1px solid var(--acc-line);outline-offset:-1px}
+
+/* progress and live dot use the accent; online/error states */
+#onbPills i{background:var(--hover)}#onbPills i.done{background:var(--tx-2)}#onbPills i.on{background:var(--acc)}
+.head .dot{background:var(--online);box-shadow:none}.head .dot.bad{background:var(--error)}
+.diary .d{background:var(--hover)}.diary li.met .d{background:var(--acc)}
+.onbBottom,.onbInt .bottom,.onbPanel{padding-left:var(--pad);padding-right:var(--pad)}
+.head{padding-left:var(--pad);padding-right:var(--pad)}
+#chatLog{padding-left:var(--pad);padding-right:var(--pad)}
+
+/* #37 input bar and tab bar: keep exactly as shipped */
+#chatIn{color:#f3f5fa}#chatF .plus{color:#7d8497;border:0;background:none}
+#chatF .send{border:0}#tabs .tab{border:0;background:none;font-size:13px;font-weight:600}
+
+@media (prefers-reduced-motion:reduce){#sheet,#away .card,.vsheet,.cs-sheet{animation:none;transition:none}button,button:active{transition:none}}

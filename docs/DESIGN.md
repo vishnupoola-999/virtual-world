@@ -98,3 +98,14 @@ Times are IST. Newest entries are at the bottom; keep appending.
 - Chat input: 52px, fully rounded, #111318, border rgba(255,255,255,.10), placeholder 40% white. Send is a 36px circle: solid white with a black arrow as soon as there is text (class `on`, no fade); #2a2d36 with a 40% white arrow when empty; #1E2129 while a reply is running. It sits 12px above the tab bar.
 - The chat list pads its bottom by input + tabs + safe area, so the last message is never hidden.
 - Screenshot: `polish-nav.png` (360x740).
+
+## 2026-10-25: UI v3 (MUSE/Dots/Grok-inspired)
+- Type: Inter 400/500/600 (one self-hosted Latin variable woff2, 400–600). Titles 24/600 at -0.02em, headings 17/600, body 15/400 at 1.5, labels 13/500, captions 12/400.
+- Colour: bg #07080C, raised #111318, sheet/chip #16181F, hover/active #1E2129. Hairline 6% white, border 10% white. Text 95% / 60% / 40% white. The accent gradient #5B8CFF to #9B6BFF is only for selected states, progress and the live dot. Online #3DDC84, error #FF5A6A.
+- Radii 8, 14, 20 and pill. 4px grid with 16px side padding.
+- Buttons are 48px: primary solid white pill with black 15/600 text, secondary #16181F with a 10% border, ghost 60% text, icon 40px circle with 20px icons at a 1.75 stroke. Pressed scale(.97) over 120ms; disabled 40%.
+- Chips are 36px pills. Selected chips get a 14% accent tint, an accent border and a tick.
+- Sheets: #111318, 20px top radius, 36x4 grab, translateY 240ms cubic-bezier(.2,.8,.2,1), 50% scrim. The away card and confirm sheet follow the same pattern.
+- Motion 120–240ms, transform and opacity only, reduced-motion fallback. No blur or backdrop-filter. 3D characters are untouched.
+- The chat input bar and tab bar from #37 are kept exactly as shipped.
+- Screenshots: `shots/v3/*-before.png`, `*-after.png`, plus `contact-sheet-before.png` and `contact-sheet-after.png` (360x740).

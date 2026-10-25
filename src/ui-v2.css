@@ -1,6 +1,6 @@
 /* UI v2, the "agent era" visual language (design/ui-v2-spec.md). Loaded after style.css and overrides it.
    Perf rules for ₹10k phones: no backdrop-filter, animate only transform and opacity (plus colour on small elements). */
-@font-face{font-family:'Inter';src:url(../fonts/inter-latin-wght-normal.woff2) format('woff2');font-weight:100 900;font-display:swap}
+@font-face{font-family:'Inter';src:url(../fonts/inter-latin-wght-400-600.woff2) format('woff2');font-weight:400 600;font-display:swap}
 :root{
  --bg:#07080d;--s1:#0d0f16;--s2:#141722;--s3:#1b1f2d;--s4:#252a3b;
  --line:rgba(255,255,255,.07);--line-2:rgba(255,255,255,.12);
