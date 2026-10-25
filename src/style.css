@@ -42,7 +42,7 @@ button.primary{background:#1e88e5;color:#fff;border-color:#1e88e5;width:100%;pad
 .tab{flex:1;border:none;border-radius:0;background:none;color:var(--muted);font-size:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0}
 .tab svg{width:24px;height:24px;display:block}.tab .pill{padding:2px 18px;border-radius:14px}
 .tab[aria-selected=true]{color:var(--accent-2)}.tab[aria-selected=true] .pill{background:#1e88e533}
-body[data-tab=chat] #topbar,body[data-tab=chat] #rail,body[data-tab=chat] .recenter,body[data-tab=chat] .ag,body[data-tab=chat] #sheet,body[data-tab=chat] .maplibregl-control-container{display:none}
+body[data-tab=chat] #topbar,body[data-tab=chat] #rail,body[data-tab=chat] .recenter,body[data-tab=chat] .ag:not(.msg),body[data-tab=chat] #sheet,body[data-tab=chat] .maplibregl-control-container{display:none}
 #chatView{position:absolute;left:0;right:0;top:0;bottom:var(--tabs);z-index:5;background:var(--bg);color:var(--text);display:flex;flex-direction:column;padding-top:var(--safe-t)}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:5px;vertical-align:1px}.dot.warn{background:var(--glow)}.dot.bad{background:var(--err)}
 .banner{margin:8px 12px 0;padding:10px 12px;border-radius:10px;font-size:14px;display:flex;align-items:center;gap:10px;background:#2a2410;color:#ffe2a3;border:1px solid #5a4a1a}
