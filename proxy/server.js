@@ -24,7 +24,7 @@ import { createPublicKey, createSign, createVerify, X509Certificate } from 'node
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
-import { EMOJI_RE, isTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
+import { EMOJI_RE, isTown, stripTown, townByPublicId, townCharacter, offsetFor, nearbyTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
 import { calendarToolContext, reviewCalendarTurn, sanitizeZone } from '../src/calendarWhen.js';
 
@@ -578,12 +578,17 @@ export async function updateMemory(ctx, model, uid, memory, contents, reply) {
 // No browser origin is involved; the shared secret is the only auth. 401 without it, 503 if the server is not configured.
 // GET /feed: the signed-in owner's recent diary (meetings with conversation lines, diary notes) plus the public
 // "who met whom" list (names and shared interests only). ?n= caps each list (1..50, default 20).
-export function feedEntry(e) {
+export function feedEntry(e, ctx = {}) {
   const out = { id: e.id, kind: e.kind === 'meet' ? 'meet' : 'diary', at: Number(e.at) || 0 };
   if (out.kind === 'meet') {
-    out.withId = e.withId; out.withName = e.withName; out.shared = Array.isArray(e.shared) ? e.shared : [];
+    out.withId = e.withId; out.withName = e.town ? stripTown(e.withName) : e.withName; out.shared = Array.isArray(e.shared) ? e.shared : [];
     out.lines = Array.isArray(e.lines) ? e.lines.map((l) => ({ speaker: String(l?.speaker || ''), text: String(l?.text || '') })) : [];
-    if (e.town) out.town = true;
+    if (e.town) {
+      out.town = true;
+      // Town partner as a renderable character, 15–40 m from the caller's agent (stable per meet).
+      const t = ctx.salt && townByPublicId(e.withId, ctx.salt);
+      if (t) out.partner = townCharacter(t, ctx.salt, ctx.pos, offsetFor(`${ctx.salt}|meet|${e.id}`, 15, 40), `Chatting with ${ctx.myName || 'you'}`);
+    }
     else if (typeof e.note === 'string' && e.note) out.note = e.note.slice(0, 90);
   } else out.text = String(e.text || '');
   return out;
@@ -661,6 +666,8 @@ async function handleFeed(req, res, ctx, url) {
     ctx.lifeStore.listDiary(uid, n),
     ctx.lifeStore.listPublicMeets ? ctx.lifeStore.listPublicMeets(n).catch(() => []) : [],
   ]);
+  const pos = ctx.lifeStore.getAgentPos ? await ctx.lifeStore.getAgentPos(uid).catch(() => null) : null;
+  const fctx = { salt: ctx.lifeSalt, pos };
   const [inc, out] = ctx.lifeStore.listConnects ? await Promise.all([
     ctx.lifeStore.listConnects('toUid', uid).catch(() => []),
     ctx.lifeStore.listConnects('fromUid', uid).catch(() => []),
@@ -668,12 +675,14 @@ async function handleFeed(req, res, ctx, url) {
   sendJson(res, 200, {
     // The caller's own publicAgents doc id, so the app can skip drawing its own card twice.
     myId: ctx.lifeSalt ? hashId(uid, ctx.lifeSalt) : null,
-    mine: diary.map(feedEntry),
+    mine: diary.map((e) => feedEntry(e, fctx)),
+    // Town characters standing around the caller's agent today (deterministic per user and day).
+    nearby: ctx.lifeSalt ? nearbyTown(uid, ctx.lifeSalt, pos, Date.now()) : [],
     // Uids never leave the server: only public agent ids and names.
     incoming: inc.filter((c) => c.status === 'pending').sort(byNewest).slice(0, CONNECT.feedMax)
       .map((c) => ({ id: c.id, fromAgentId: c.fromAgentId, fromName: c.fromName, text: c.text, meetId: c.meetId, createdAt: Number(c.createdAt) || 0 })),
     outgoing: out.sort(byNewest).slice(0, CONNECT.feedMax).map((c) => ({ id: c.id, toAgentId: c.toAgentId, createdAt: Number(c.createdAt) || 0, status: c.status })),
-    town: meets.map((m) => ({ id: m.id, aId: m.aId, aName: m.aName, bId: m.bId, bName: m.bName, shared: Array.isArray(m.shared) ? m.shared : [], at: Number(m.at) || 0 })),
+    town: meets.map((m) => ({ id: m.id, aId: m.aId, aName: stripTown(m.aName), bId: m.bId, bName: stripTown(m.bName), shared: Array.isArray(m.shared) ? m.shared : [], at: Number(m.at) || 0 })),
   });
 }
 
