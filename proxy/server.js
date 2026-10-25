@@ -44,7 +44,7 @@ export const LIMITS = {
   perIpPerMin: 6,
   globalPerHour: 60,
   globalPerDay: 600,
-  maxOutputTokens: 200,
+  maxOutputTokens: 1024, // thinking models (gemini-*-latest) spend output tokens on reasoning; 200 left no text
 };
 
 const keyCache = { current: null };
@@ -483,8 +483,15 @@ async function handleChat(req, res, ctx) {
   } catch {
     throw new HttpError(502, 'upstream unavailable');
   }
-  if (!upstream.ok) throw new HttpError(502, 'upstream unavailable');
-  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || '';
+  if (!upstream.ok) {
+    console.error('gemini error', upstream.status, model, String(payload?.error?.message || '').slice(0, 200));
+    throw new HttpError(502, 'upstream unavailable');
+  }
+  const text = (payload.candidates?.[0]?.content?.parts?.map((part) => (part.thought ? '' : part.text || '')).join('') || '').trim();
+  if (!text) {
+    console.error('gemini empty reply', model, payload.candidates?.[0]?.finishReason || payload.promptFeedback?.blockReason || 'none');
+    throw new HttpError(502, 'empty reply');
+  }
   sendJson(res, 200, { choices: [{ message: { role: 'assistant', content: text } }] });
   if (ctx.memory && text) {
     const turn = (ctx.turns.get(uid) || 0) + 1;
@@ -578,12 +585,15 @@ export function createServer(options = {}) {
         return;
       }
       if (!originOk) throw new HttpError(403, 'origin not allowed');
+      const started = Date.now();
       await handleChat(req, res, ctx);
+      console.log('chat ok', res.statusCode, Date.now() - started, 'ms');
     } catch (error) {
       if (res.headersSent || res.writableEnded) return;
       req.resume();
       const status = error instanceof HttpError ? error.statusCode : 500;
       if (!(error instanceof HttpError)) console.error('proxy', error);
+      else console.warn('chat rejected', req.method, req.url, status, error.message);
       const message = error instanceof HttpError ? error.message : 'bad request';
       sendJson(res, status, { error: message });
     }
