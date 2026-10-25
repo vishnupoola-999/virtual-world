@@ -5,6 +5,7 @@
 // drawn at an approximate area; no route, destination or exact spot is used for them.
 import {agentsOnMap} from './world-agents.js';
 import {displayName,displayLabel,isTownName} from './names.js';
+export const MEET_YAW=Math.PI/6; // ~30 degrees
 const KINDS=new Set(['walking','meeting','working','idle']);
 const FROM_ACTIVITY={move:'walking',meet:'meeting',work:'working'};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -36,11 +37,9 @@ export function setupLiving(map,{hintEl}={}){const agents=agentsOnMap(map);let d
   const line=c=>({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:c}});
   const grad=['interpolate',['linear'],['line-progress'],0,'#8b7bff',1,'#4fd1ff'];
   function layers(){if(!map.getStyle?.()||map.getSource('lv-route'))return;
-    map.addSource('lv-route',{type:'geojson',lineMetrics:true,data:empty});map.addSource('lv-link',{type:'geojson',lineMetrics:true,data:empty});
+    map.addSource('lv-route',{type:'geojson',lineMetrics:true,data:empty});
     map.addLayer({id:'lv-route-glow',type:'line',source:'lv-route',paint:{'line-color':'#8b7bff','line-width':14,'line-blur':8,'line-opacity':.45}});
     map.addLayer({id:'lv-route',type:'line',source:'lv-route',layout:{'line-cap':'round','line-join':'round'},paint:{'line-width':5,'line-gradient':grad}});
-    map.addLayer({id:'lv-link-glow',type:'line',source:'lv-link',paint:{'line-color':'#4fd1ff','line-width':14,'line-blur':10,'line-opacity':.3}});
-    map.addLayer({id:'lv-link',type:'line',source:'lv-link',layout:{'line-cap':'round'},paint:{'line-width':2,'line-opacity':.8,'line-gradient':grad}});
     if(own)showOwn(own.agent,own.opts);}
   if(map.isStyleLoaded())layers();map.on('style.load',layers);map.on('load',layers);
   const set=(id,d)=>map.getSource(id)?.setData(d);
@@ -78,7 +77,7 @@ export function setupLiving(map,{hintEl}={}){const agents=agentsOnMap(map);let d
     const dx=r.left<16?16-r.left:r.right>W-16?W-16-r.right:0;if(dx)e.style.translate=Math.round(dx)+'px 0';}}
   map.on('move',clampSoon);addEventListener('resize',clampSoon);
   function showOwn(agent,opts={}){const prev=own?.partners||[];own={agent,opts,partners:[]};const st=readStatus(agent),me=agents.get('me');
-    dest?.remove();dest=null;set('lv-route',empty);set('lv-link',empty);
+    dest?.remove();dest=null;set('lv-route',empty);
     for(const id of prev)if(id!==guest)agents.setLiving(id,null);
     if(!(st.kind==='meeting'&&me&&st.withAgentId&&!agents.get('f-'+st.withAgentId)&&(st.withTown||(!agents.get(st.withAgentId)||agents.get(st.withAgentId).el.classList.contains('town')))))dropGuest();
     else spawnGuest(st,me);
@@ -90,8 +89,9 @@ export function setupLiving(map,{hintEl}={}){const agents=agentsOnMap(map);let d
         dest=new maplibregl.Marker({element:d,anchor:'bottom'}).setLngLat(to).addTo(map);}
       yaw=-1.0;}
     if(st.kind==='meeting'&&st.withAgentId){const p=agents.get(st.withAgentId)||agents.get('f-'+st.withAgentId);
-      if(p){set('lv-link',line([[me.lon,me.lat],[p.lon,p.lat]]));const left=map.project([me.lon,me.lat]).x<=map.project([p.lon,p.lat]).x;
-        yaw=left?1.15:-1.15;agents.setLiving(p.id,{kind:'idle'},left?-1.15:1.15);own.partners=[p.id];}}
+      // Diggy: no connecting line; both characters turn ~30 degrees toward each other (eased in world-agents.js) and turn back after.
+      if(p){const left=map.project([me.lon,me.lat]).x<=map.project([p.lon,p.lat]).x;
+        yaw=left?MEET_YAW:-MEET_YAW;agents.setLiving(p.id,{kind:'idle'},left?-MEET_YAW:MEET_YAW);own.partners=[p.id];}}
     // The bottom card already says it, so the pill above your head does not repeat it (the meet bubble shows dots only).
     agents.setLiving('me',{kind:st.kind,html:hintEl?'':pillHtml(st)},yaw);hint(st,agent?.name,opts);clampSoon();return st;}
   // Someone else's agent: kind + label only, at an approximate area. Destination, route and progress are ignored.

@@ -35,12 +35,17 @@ test('town agent meet: a character appears beside yours, no "(town)" text, leave
   await expect(page.locator('#liveHint')).toContainText('Chatting with Arjun');
   expect(await page.evaluate(() => globalThis.document.body.innerText)).not.toContain('(town)');
   // the two characters face each other
-  const yaw = await page.evaluate(() => [globalThis.__vw.agents?.get?.('me')?.yaw, globalThis.__vw.agents?.get?.('town-coder')?.yaw]);
-  if (yaw[0] !== undefined) expect(Math.sign(yaw[0])).toBe(-Math.sign(yaw[1]));
+  // ~30 degrees toward each other, eased (yawNow follows the target), and no connecting line on the map
+  const yaw = await page.evaluate(() => ['me', 'town-coder'].map((i) => { const a = globalThis.__vw.agents.get(i); return [a.yaw, a.yawNow]; }));
+  expect(Math.abs(yaw[0][0])).toBeCloseTo(Math.PI / 6, 3); expect(yaw[1][0]).toBeCloseTo(-yaw[0][0], 5);
+  for (const [t, now] of yaw) if (typeof now === 'number') expect(now).toBeCloseTo(t, 1);
+  expect(await page.evaluate(() => !!globalThis.__map.getLayer('lv-link') || !!globalThis.__map.getSource('lv-link'))).toBe(false);
   // card says it, so the pill above your head does not repeat it; dots only, no text in the bubble
   await expect(page.locator('.ag.mine .stat')).toBeHidden();
   await page.evaluate(() => globalThis.__vw.living.showOwn({ name: 'Bs', lat: 17.4505, lon: 78.3805, status: { kind: 'idle', label: 'Resting' } }));
   await expect(page.locator('.ag.town')).toHaveCount(0, { timeout: 3000 });
+  // yours turns back to its default pose
+  expect(await page.evaluate(() => globalThis.__vw.agents.get('me').yaw)).toBeUndefined();
 });
 
 test('status card cross-fades and pills stay 16px inside the edges', async ({ page }) => {

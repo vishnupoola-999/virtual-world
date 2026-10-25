@@ -71,7 +71,10 @@ function create(map){
       if(prof)drawProfile(dt);}
     raf=requestAnimationFrame(frame);}
   const animFor=a=>a.mine&&a.waveUntil>performance.now()?'wave':a.state==='walking'||a.living?.kind==='walking'?'walk':a.state==='talking'||(a.living?.kind==='meeting'&&a.mine)?'talk':'idle';
-  function blit(a,anim,dt){const src=R.draw(a.id,a.look,anim,dt,undefined,a.yaw),cv=a.g.canvas;
+  // Eased turn: a.yaw is the target (undefined = the renderer's default -0.3); a.yawNow follows it (~250 ms), snapping when static or reduced motion.
+  function easeYaw(a,dt){const t=typeof a.yaw==='number'?a.yaw:-.3;if(typeof a.yawNow!=='number'||!dt||REDUCED.matches)a.yawNow=t;else a.yawNow+=(t-a.yawNow)*Math.min(1,dt*10);
+    if(Math.abs(t-a.yawNow)<.002)a.yawNow=t;return a.yawNow;}
+  function blit(a,anim,dt){const src=R.draw(a.id,a.look,anim,dt,undefined,easeYaw(a,dt)),cv=a.g.canvas;
     if(cv.width!==src.width||cv.height!==src.height){cv.width=src.width;cv.height=src.height;}
     a.g.clearRect(0,0,cv.width,cv.height);a.g.drawImage(src,0,0);
     if(!a.born){a.born=true;a.el.classList.add('born');}} // birth pulse fades out, character scales and fades in (CSS)
