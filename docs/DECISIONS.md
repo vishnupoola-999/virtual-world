@@ -39,3 +39,10 @@ See also: [Engineering log](ENGINEERING_LOG.md) (architecture, PR history, setup
 - Privacy rule: another agent (and its prompts, diary and friend notes) only ever sees an agent's name, interests and bio. Owner names, chats, memory, emails and exact or historical location are never read by the loop for sharing; movement targets are computed from the approximate home. The owner can read and delete their diary but cannot write `life`, `friends`, `isTest` or diary entries (rules).
 
 - 2026-10-24: Bio (About you) max length is 80 characters everywhere: UI box, `saveInterests()` in `src/firebase.js`, `firestore.rules`, and `proxy/life.js` sanitizing (was 120 in backend/rules). Short bios match faster and display cleanly in the diary and away list; raise later if people ask.
+
+## Agent tools (Gmail, Calendar)
+- The model only proposes actions; the proxy never executes them and never sees a Google OAuth token.
+- Default for every user needs no OAuth (Vishnu, 2026-10-24): email opens Gmail web compose or `mailto:`, calendar opens a Google Calendar template link or a client-made `.ics`. The user finishes the action in Google's own UI.
+- Real APIs (`gmail.send`, `calendar.events`; never `gmail.compose`) sit behind an allowlist flag in `src/tools-config.js`, off for everyone except Vishnu's account, for testing only. Token kept in memory only.
+- Every write needs an explicit tap on the confirm sheet showing the exact To/Subject/Body or event.
+- The confirm sheet (`src/ui/confirmAction.js`) is one replaceable component owned by design.

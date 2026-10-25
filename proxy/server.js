@@ -24,6 +24,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
 import { checkTickSecret, geminiLlm, lifeSalt, lifeStore, runTick } from './life.js';
+import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
 
 const DEFAULT_PROJECT_ID = 'virtual-world-8ac82';
 const PROJECT_ID_RE = /^[a-z0-9-]{6,40}$/;
@@ -193,8 +194,10 @@ export function prepareChat(body, memory = '') {
   }
   while (contents.length && contents[0].role === 'model') contents.shift();
   if (!contents.length || contents.at(-1).role !== 'user') throw new HttpError(400, 'bad request');
+  const tools = body.tools === true;
   return {
-    system,
+    system: tools ? system + TOOLS_PROMPT : system,
+    tools,
     contents,
     generationConfig: { maxOutputTokens: LIMITS.maxOutputTokens, temperature: 0.9 },
   };
@@ -470,6 +473,7 @@ async function handleChat(req, res, ctx) {
           systemInstruction: { parts: [{ text: prepared.system }] },
           contents: prepared.contents,
           generationConfig: prepared.generationConfig,
+          ...(prepared.tools ? { tools: TOOL_DECLARATIONS } : {}),
         }),
         signal: AbortSignal.timeout(50_000),
       },
@@ -488,12 +492,13 @@ async function handleChat(req, res, ctx) {
     console.error('gemini error', upstream.status, model, String(payload?.error?.message || '').slice(0, 200));
     throw new HttpError(502, 'upstream unavailable');
   }
-  const text = (payload.candidates?.[0]?.content?.parts?.map((part) => (part.thought ? '' : part.text || '')).join('') || '').trim();
-  if (!text) {
+  // Proposed tool calls are returned as pending actions only; nothing is executed here.
+  const { text, actions } = parseModelReply(payload);
+  if (!text && !(actions && actions.length)) {
     console.error('gemini empty reply', model, payload.candidates?.[0]?.finishReason || payload.promptFeedback?.blockReason || 'none');
     throw new HttpError(502, 'empty reply');
   }
-  sendJson(res, 200, { choices: [{ message: { role: 'assistant', content: text } }] });
+  sendJson(res, 200, { choices: [{ message: { role: 'assistant', content: text } }], ...(prepared.tools ? { actions } : {}) });
   if (ctx.memory && text) {
     const turn = (ctx.turns.get(uid) || 0) + 1;
     ctx.turns.set(uid, turn);

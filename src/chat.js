@@ -1,7 +1,13 @@
 // Chat with the user's agent through the Gemini proxy. History stays on this device for now.
 // The proxy builds the system prompt. This client sends only the agent name, personality, and transcript.
 import {toast} from './ui.js';
-import {loadMessages, addMessage, trimMessages, MAX_MESSAGES} from './firebase.js';
+import {loadMessages, addMessage, trimMessages, MAX_MESSAGES, requestGoogleAccess, currentUser} from './firebase.js';
+import {createGoogleTools, composeReply, TOOL_MESSAGES} from './google-tools.js';
+import {confirmAction} from './ui/confirmAction.js';
+
+import {toolsApiEnabled} from './tools-config.js';
+
+const googleTools = createGoogleTools({ requestAccess: requestGoogleAccess, confirm: confirmAction, apiEnabled: () => toolsApiEnabled(currentUser()) });
 
 const API = 'https://virtual-world-ai.onrender.com/chat';
 const REPLY_TIMEOUT_MS = 60_000;
@@ -13,6 +19,7 @@ const $ = (id) => document.getElementById(id);
 function friendlyError(status) {
   if (status === 401) return 'Sign in again.';
   if (status === 429) return 'Slow down.';
+  if (status === 502 || status === 503) return 'The server is busy. Try again in a minute.';
   return 'Check your internet and try again.';
 }
 
@@ -378,6 +385,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
             personality: String(agent.personality || '').slice(0, 300),
           },
           messages,
+          tools: true,
         }),
       });
       const type = response.headers.get('content-type') || '';
@@ -386,14 +394,30 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
         return;
       }
       const payload = await response.json();
-      const reply = payload.choices?.[0]?.message?.content?.trim();
-      if (!reply) { fail(0); return; }
+      const actions = Array.isArray(payload.actions) ? payload.actions : [];
+      let reply = payload.choices?.[0]?.message?.content?.trim() || '';
+      let ephemeral = '';
+      if (actions.length) {
+        // Agent tools: each action goes through google-tools.js, which asks confirmAction() before any write.
+        pending.remove();
+        const results = [];
+        for (const action of actions) {
+          try { results.push({ name: action?.name, text: await googleTools.run(action) }); }
+          catch (err) { results.push({ name: 'error', text: err?.message || TOOL_MESSAGES.failed }); }
+        }
+        ({ persist: reply, ephemeral } = composeReply(reply, results));
+      }
+      if (!reply && !ephemeral) { fail(0); return; }
       pending.remove();
       for (const old of log.querySelectorAll('.msg.retry')) old.remove();
       status('ok');
-      remember('assistant', reply.slice(0, 2000));
       hero.state('talking');
-      await stream(reply);
+      if (reply) {
+        remember('assistant', reply.slice(0, 2000));
+        await stream(reply);
+      }
+      // Calendar listings: on screen only, never in hist, localStorage, Firestore or later prompts.
+      if (ephemeral) add('assistant', ephemeral, 'ephemeral');
       showMe();
       save();
     } catch (err) {
