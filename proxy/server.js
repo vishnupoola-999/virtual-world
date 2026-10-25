@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
 import { checkTickSecret, geminiLlm, lifeSalt, lifeStore, runTick } from './life.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
+import { calendarToolContext, reviewCalendarTurn, sanitizeZone } from '../src/calendarWhen.js';
 
 const DEFAULT_PROJECT_ID = 'virtual-world-8ac82';
 const PROJECT_ID_RE = /^[a-z0-9-]{6,40}$/;
@@ -221,9 +222,11 @@ export function prepareChat(body, memory = '', life = '') {
   while (contents.length && contents[0].role === 'model') contents.shift();
   if (!contents.length || contents.at(-1).role !== 'user') throw new HttpError(400, 'bad request');
   const tools = body.tools === true;
+  const timeZone = tools ? sanitizeZone(body.timeZone) : '';
   return {
-    system: tools ? system + TOOLS_PROMPT : system,
+    system: tools ? system + TOOLS_PROMPT + calendarToolContext(timeZone) : system,
     tools,
+    timeZone,
     contents,
     generationConfig: { maxOutputTokens: LIMITS.maxOutputTokens, temperature: 0.9 },
   };
@@ -519,7 +522,15 @@ async function handleChat(req, res, ctx) {
     throw new HttpError(502, 'upstream unavailable');
   }
   // Proposed tool calls are returned as pending actions only; nothing is executed here.
-  const { text, actions } = parseModelReply(payload);
+  // Past-tense messages never become an add, and a missing day or time is a question.
+  // The client's zone (body.timeZone) is the clock; the model does not get to invent one.
+  let { text, actions } = parseModelReply(payload);
+  if (prepared.tools) {
+    const userText = [...prepared.contents].reverse().find((c) => c.role === 'user')?.parts?.map((p) => p.text).join(' ') || '';
+    const reviewed = reviewCalendarTurn({ userText, actions, reply: text, now: Date.now(), timeZone: prepared.timeZone || 'UTC' });
+    text = reviewed.reply;
+    actions = reviewed.actions;
+  }
   if (!text && !(actions && actions.length)) {
     console.error('gemini empty reply', model, payload.candidates?.[0]?.finishReason || payload.promptFeedback?.blockReason || 'none');
     throw new HttpError(502, 'empty reply');

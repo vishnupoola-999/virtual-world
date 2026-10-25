@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { cleanAction, parseModelReply, TOOL_DECLARATIONS } from '../proxy/tools.js';
 import { prepareChat } from '../proxy/server.js';
-import { createGoogleTools, composeReply, hdr, forgetToken, rawEmail, _tokenState, SCOPES } from '../src/google-tools.js';
+import { createGoogleTools, composeReply, hdr, forgetToken, rawEmail, _tokenState, SCOPES, calendarInsertBody } from '../src/google-tools.js';
 import { buildMailtoUrl as mailtoUrl, buildGmailComposeUrl as gmailComposeUrl, buildCalendarUrl, buildIcs, MAILTO_MAX } from '../src/agentTools.js';
 import { toolsApiEnabled } from '../src/tools-config.js';
 
@@ -32,7 +32,7 @@ test('prepareChat only adds tools when asked', () => {
   assert.equal(prepareChat({ ...base, tools: 'yes' }).tools, false);
 });
 
-function harness({ confirm = async () => ({ confirmed: true }), responses = [], api = true } = {}) {
+function harness({ confirm = async () => ({ confirmed: true }), responses = [], api = true, log = () => {}, timeZone = () => 'UTC' } = {}) {
   forgetToken();
   const calls = [], asked = [];
   const tools = createGoogleTools({
@@ -40,6 +40,8 @@ function harness({ confirm = async () => ({ confirmed: true }), responses = [], 
     confirm,
     apiEnabled: () => api,
     fetchImpl: async (url, init) => { calls.push({ url, init }); return responses.shift() || okRes({ items: [] }); },
+    log,
+    timeZone,
   });
   return { tools, calls, asked };
 }
@@ -210,6 +212,69 @@ test('hdr strips all control characters', () => {
   const raw = Buffer.from(rawEmail({ to: 'a@b.com\x0bBcc: x', subject: 's\x00', body: 'b' }), 'base64url').toString();
   // eslint-disable-next-line no-control-regex
   assert.doesNotMatch(raw.split('\r\n\r\n')[0], /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/);
+});
+
+test('calendar insert sends an RFC3339 offset and the owner time zone', async () => {
+  const bare = calendarInsertBody(
+    { title: 'Meet Rajesh', description: '', location: 'Cafe', start: '2026-10-27T21:30:00', end: '2026-10-27T22:30:00' },
+    'Asia/Kolkata',
+  );
+  assert.equal(bare.start.dateTime, '2026-10-27T21:30:00+05:30');
+  assert.equal(bare.end.dateTime, '2026-10-27T22:30:00+05:30');
+  assert.equal(bare.start.timeZone, 'Asia/Kolkata');
+  assert.equal(bare.end.timeZone, 'Asia/Kolkata');
+  assert.equal(bare.location, 'Cafe');
+  const compact = calendarInsertBody({ title: 't', start: '2026-10-27T21:30:00+0530', end: '2026-10-27T22:30:00+0530' }, 'Asia/Kolkata');
+  assert.equal(compact.start.dateTime, '2026-10-27T21:30:00+05:30');
+  const zulu = calendarInsertBody({ title: 't', start: '2026-10-25T10:00:00Z', end: '2026-10-25T11:00:00Z' }, 'Asia/Kolkata');
+  assert.equal(zulu.start.dateTime, '2026-10-25T10:00:00Z');
+  assert.equal(zulu.start.timeZone, 'Asia/Kolkata');
+
+  const h = harness({ timeZone: () => 'Asia/Kolkata' });
+  await h.tools.run({ name: 'add_event', args: { title: 'Meet Rajesh', start: '2026-10-27T21:30:00', end: '2026-10-27T22:30:00', location: 'Cafe' } });
+  const sent = JSON.parse(h.calls[0].init.body);
+  assert.equal(sent.start.dateTime, '2026-10-27T21:30:00+05:30');
+  assert.equal(sent.start.timeZone, 'Asia/Kolkata');
+  assert.equal(sent.location, 'Cafe');
+  assert.doesNotMatch(h.calls[0].init.headers.Authorization, /2026-10-27T21:30:00"/);
+});
+
+test('calendar insert failure is logged without the token and offers the link fallback', async () => {
+  const logs = [];
+  const seen = [];
+  const body = { error: { message: 'Missing time zone definition for start time.', errors: [{ reason: 'required' }] } };
+  const h = harness({
+    log: (...parts) => logs.push(parts.join(' ')),
+    confirm: async (sheet) => { seen.push(sheet); sheet.onResult = (r) => seen.push(r); return { confirmed: true }; },
+    responses: [{ ok: false, status: 400, json: async () => body }],
+    timeZone: () => 'Asia/Kolkata',
+  });
+  await assert.rejects(
+    h.tools.run({ name: 'add_event', args: { title: 'Meet Rajesh', start: '2025-05-13T21:30:00', end: '2025-05-13T22:30:00' } }),
+    (e) => e.code === 'failed',
+  );
+  assert.match(logs.join('\n'), /google api failed 400 required Missing time zone definition/);
+  assert.doesNotMatch(logs.join('\n'), /Bearer|tok1/);
+  assert.equal(seen[1].ok, false);
+  assert.equal(seen[1].fallback, true);
+  const sent = JSON.parse(h.calls[0].init.body);
+  assert.equal(sent.start.dateTime, '2025-05-13T21:30:00+05:30');
+  assert.equal(sent.start.timeZone, 'Asia/Kolkata');
+});
+
+test('a disabled Calendar API is logged with Google\'s message, not treated as a consent miss', async () => {
+  const logs = [];
+  const message = 'Google Calendar API has not been used in project 38479190061 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=38479190061';
+  const h = harness({
+    log: (...parts) => logs.push(parts.join(' ')),
+    responses: [{ ok: false, status: 403, json: async () => ({ error: { message, errors: [{ reason: 'forbidden' }], status: 'PERMISSION_DENIED' } }) }],
+  });
+  await assert.rejects(
+    h.tools.run({ name: 'add_event', args: { title: 't', start: '2026-10-27T21:30:00+05:30', end: '2026-10-27T22:30:00+05:30' } }),
+    (e) => e.code === 'disabled' && /not enabled/.test(e.message),
+  );
+  assert.match(logs.join('\n'), /calendar-json\.googleapis\.com/);
+  assert.doesNotMatch(logs.join('\n'), /Bearer|tok1/);
 });
 
 test('api-mode onResult reports success/failure and ignores callback throws', async () => {

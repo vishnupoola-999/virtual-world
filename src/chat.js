@@ -3,6 +3,7 @@
 import {toast} from './ui.js';
 import {loadMessages, addMessage, trimMessages, MAX_MESSAGES, requestGoogleAccess, currentUser} from './firebase.js';
 import {createGoogleTools, composeReply, TOOL_MESSAGES} from './google-tools.js';
+import {reviewCalendarTurn} from './calendarWhen.js';
 import {confirmAction} from './ui/confirmAction.js';
 
 import {toolsApiEnabled} from './tools-config.js';
@@ -372,6 +373,8 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
       const messages = hist.slice(-SEND_LAST)
         .filter((message) => message && (message.role === 'user' || message.role === 'assistant'))
         .map((message) => ({ role: message.role, content: String(message.content || '').slice(0, 1000) }));
+      let timeZone = 'UTC';
+      try { timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { /* UTC */ }
       const response = await fetch(API, {
         method: 'POST',
         signal: ctrl.signal,
@@ -386,6 +389,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
           },
           messages,
           tools: true,
+          timeZone,
         }),
       });
       const type = response.headers.get('content-type') || '';
@@ -394,8 +398,12 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
         return;
       }
       const payload = await response.json();
-      const actions = Array.isArray(payload.actions) ? payload.actions : [];
+      let actions = Array.isArray(payload.actions) ? payload.actions : [];
       let reply = payload.choices?.[0]?.message?.content?.trim() || '';
+      // Past tense never opens the sheet. Relative dates use this device's zone, not a guessed past day.
+      const reviewed = reviewCalendarTurn({ userText: lastUser || '', actions, reply, now: Date.now(), timeZone });
+      actions = reviewed.actions;
+      reply = reviewed.reply;
       let ephemeral = '';
       if (actions.length) {
         // Agent tools: each action goes through google-tools.js, which asks confirmAction() before any write.

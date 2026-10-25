@@ -66,3 +66,30 @@ test('api mode: onResult swaps Sending for Sent, or shows the error', async ({ p
   await expect(page.locator('.cs-sheet[data-open=true] .cs-primary')).toHaveText('Close');
   await expect(page.locator('.cs-sheet[data-open=true] .cs-cancel')).toBeHidden();
 });
+
+test('calendar api failure offers a Google Calendar link and an .ics download', async ({ page }) => {
+  await load(page);
+  const event = { title: 'Meet Rajesh', start: '2026-10-27T21:30:00+05:30', end: '2026-10-27T22:30:00+05:30' };
+  await page.evaluate((ev) => {
+    window.__c = { kind: 'calendar', mode: 'api', event: ev };
+    window.__ca.confirmAction(window.__c).then((r) => { window.__res = r; });
+  }, event);
+  await page.locator('.cs-primary').click();
+  expect(await result(page)).toEqual({ confirmed: true });
+  await page.evaluate(() => window.__c.onResult({ ok: false, error: 'nope', fallback: true }));
+  const sheet = page.locator('.cs-sheet[data-open=true]');
+  await expect(sheet.locator('.cs-error')).toContainText('Nothing was added');
+  await expect(sheet.locator('.cs-primary')).toHaveText('Open in Google Calendar');
+  await expect(sheet.locator('.cs-ics')).toHaveText('Download .ics');
+  await sheet.locator('.cs-ics').click();
+  expect(await page.evaluate(() => window.__opened.some((u) => u.startsWith('blob:')))).toBe(true);
+  await page.evaluate((ev) => {
+    window.__opened = [];
+    window.__d = { kind: 'calendar', mode: 'api', event: ev };
+    window.__ca.confirmAction(window.__d);
+  }, event);
+  await page.locator('.cs-sheet[data-open=true] .cs-primary').click();
+  await page.evaluate(() => window.__d.onResult({ ok: false, fallback: true }));
+  await page.locator('.cs-sheet[data-open=true] .cs-primary').click();
+  expect(await page.evaluate(() => window.__opened.some((u) => u.startsWith('https://calendar.google.com/calendar/render?')))).toBe(true);
+});
