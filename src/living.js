@@ -5,6 +5,7 @@
 // drawn at an approximate area; no route, destination or exact spot is used for them.
 import {agentsOnMap} from './world-agents.js';
 import {displayName,displayLabel,isTownName} from './names.js';
+import {townLook,toLook} from './character-data.js';
 export const MEET_YAW=Math.PI/6; // ~30 degrees
 const KINDS=new Set(['walking','meeting','working','idle']);
 const FROM_ACTIVITY={move:'walking',meet:'meeting',work:'working'};
@@ -56,16 +57,16 @@ export function setupLiving(map,{hintEl}={}){const agents=agentsOnMap(map);let d
   // Your own agent. opts.partnerName: the name stored with the meeting (never looked up from the partner's profile).
   // Town agents (built-in neighbours) have no map card: while yours meets one, a visible character walks in beside yours
   // (or stands at the position /feed gives, when present), faces it, and fades out after. No pill, like everyone else's.
-  let guest=null;const GUEST_COL=['#4fd1ff','#8b7bff','#3ddc97','#ffc861','#ff7a9c','#7aa2ff','#c38bff','#5be0c4'];
+  let guest=null;
   // /feed (PR #45, optional): mine[].partner for town meets {id,name,look:{colorIndex},offsetM:{east,north}}. Feature-detected.
   let partners=new Map();function setPartners(list){partners=new Map();for(const p of list||[])if(p&&typeof p==='object'){if(p.id)partners.set(String(p.id),p);if(p.name)partners.set('n:'+displayName(p.name),p);}}
   function spawnGuest(st,me){const id=st.withAgentId||'town-guest',name=displayName(st.withName)||'Neighbour';
     const pi=partners.get(id)||partners.get('n:'+name),o=pi?.offsetM;
-    if(pi?.look&&Number.isInteger(pi.look.colorIndex)&&!st.withLook)st={...st,withLook:{color:GUEST_COL[((pi.look.colorIndex%8)+8)%8]}};
+    if(pi?.look&&Number.isInteger(pi.look.colorIndex)&&!st.withLook)st={...st,withLook:townLook(pi.look)}; // creature + accessory from seed and colorIndex
     const off=o&&num(o.east)&&num(o.north)?[me.lon+o.east/(111320*Math.cos(me.lat*Math.PI/180)),me.lat+o.north/110540]:null;
     const to=st.withLngLat||off||[me.lon-0.00016,me.lat],from=[to[0]-0.00025,to[1]];
-    // Deterministic outfit colour from the name; the art itself is untouched.
-    const look=st.withLook||{color:GUEST_COL[[...name].reduce((h,c)=>(h*31+c.charCodeAt(0))>>>0,7)%GUEST_COL.length]};
+    // No look from /feed: a deterministic creature from the name (toLook hashes it).
+    const look=st.withLook||toLook(null,name);
     if(guest&&guest!==id)dropGuest();
     if(!agents.get(id)){agents.put({id,name,lat:from[1],lon:from[0],look,ownerName:name,other:true,meta:'Neighbour'});agents.get(id)?.el.classList.add('town');}
     agents.put({id,name,lat:to[1],lon:to[0],look,ownerName:name,other:true,meta:'Neighbour'});guest=id;return agents.get(id);}
@@ -98,4 +99,4 @@ export function setupLiving(map,{hintEl}={}){const agents=agentsOnMap(map);let d
   function putOther(d){const st=readStatus(d),p=d.approx&&num(d.approx.lat)&&num(d.approx.lon)?d.approx:approx(d.lat,d.lon);
     agents.put({id:d.id,name:d.name,lat:p.lat,lon:p.lon,look:d.look,ownerName:d.ownerName,meta:d.meta||'Friend · approximate area',status:st.label||undefined,other:!!d.other});
     const safe={...st,destination:null,progress:null};agents.setLiving(d.id,{kind:st.kind,html:pillHtml(safe)});return safe;}
-  return {showOwn,putOther,readStatus,setPartners,townColour:i=>GUEST_COL[((i%8)+8)%8]};}
+  return {showOwn,putOther,readStatus,setPartners,townLook};}

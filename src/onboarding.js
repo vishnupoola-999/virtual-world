@@ -6,7 +6,7 @@
 // Never blocks on location: city fallback, then Warangal centre.
 import {signIn,saveAgent,saveInterests,currentUser,realSavedInterests} from './firebase.js';
 import {ICONS,LABEL,icon} from './interests.js';
-import {defaultLook,sanitize} from './character-data.js';
+import {sanitize,CREATURES,ACCESSORIES,ACC_LABEL} from './character-data.js';
 import {toast} from './ui.js';
 const $=id=>document.getElementById(id);
 const DEFAULT_SPOT={lat:17.9689,lon:79.5941,name:'Warangal'};
@@ -20,7 +20,7 @@ const el=(tag,cls,html)=>{const e=document.createElement(tag);if(cls)e.className
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriends=()=>{},onInterests=()=>{}}={}){
-  const root=$('onb');let step=0,stepT=0,spot=null,locP=null,base=null,cards=null,globeRaf=0,active=false,timers=[];
+  const root=$('onb');let step=0,stepT=0,spot=null,locP=null,base=null,acc='none',cards=null,globeRaf=0,active=false,timers=[];
   const later=(fn,ms)=>{const t=setTimeout(fn,ms);timers.push(t);return t;};
   const clearTimers=()=>{for(const t of timers)clearTimeout(t);timers=[];};
   const body=$('onbBody');
@@ -94,22 +94,26 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
   function landNow(){if(step!==3||landed)return;landed=true;if(spot)map.jumpTo({center:[spot.lon,spot.lat],zoom:17,pitch:60,bearing:-20});
     const o=body.querySelector('.orb');o.classList.add('landed');track('agent_landed');later(()=>body.querySelector('.onbBottom').classList.add('in'),RM()?0:1700);$('onbSkip').hidden=true;}
 
-  // ---- 4. pick + name: ONE renderer draws both cards via scissor/viewport, ~30 fps, paused when hidden
-  function s4(){chrome(4,{back:true});base=null;
+  // ---- 4. pick + name: six creatures side by side (no labels, nothing preselected), then an optional accessory row.
+  // ONE renderer draws all six cards via scissor/viewport, ~30 fps while something moves, paused when hidden.
+  function s4(){chrome(4,{back:true});base=null;acc='none';
     body.append(el('div','onbPanel',`<h2>Pick your agent</h2><p>Tap one. You can change everything later.</p>
-      <div class="cards" id="onbCards" role="radiogroup" aria-label="Choose a character"><canvas id="onbCv" aria-hidden="true"></canvas>
-      <button type="button" role="radio" aria-checked="false" aria-label="Character 1" data-base="girl"></button><button type="button" role="radio" aria-checked="false" aria-label="Character 2" data-base="boy"></button></div>
+      <div class="cards six" id="onbCards" role="radiogroup" aria-label="Choose a character"><canvas id="onbCv" aria-hidden="true"></canvas>
+      ${CREATURES.map((c,i)=>`<button type="button" role="radio" aria-checked="false" aria-label="Character ${i+1}" data-creature="${c}"></button>`).join('')}</div>
+      <div class="accRow" id="onbAcc" role="radiogroup" aria-label="Add an extra (optional)" hidden>${ACCESSORIES.map(a=>`<button type="button" role="radio" aria-checked="${a==='none'}" class="${a==='none'?'on':''}" data-acc="${a}">${ACC_LABEL[a]}</button>`).join('')}</div>
       <label class="nm">Name your agent<input id="onbName" maxlength="16" autocomplete="off" enterkeyhint="done" placeholder="e.g. Chinni"></label>
       <button class="primary big" id="onbCreate" disabled>Continue</button><button class="link" id="onbLater" type="button">Customise look later</button>`));
     const btns=[...body.querySelectorAll('#onbCards button')],name=$('onbName'),go=$('onbCreate');
     const upd=()=>{go.disabled=!(base&&name.value.trim());};name.oninput=upd;
-    for(const b of btns)b.onclick=()=>{base=b.dataset.base;$('onbCards').classList.add('chosen');for(const x of btns){x.classList.toggle('on',x===b);x.setAttribute('aria-checked',String(x===b));}
+    for(const b of btns)b.onclick=()=>{base=b.dataset.creature;$('onbCards').classList.add('chosen');$('onbAcc').hidden=false;for(const x of btns){x.classList.toggle('on',x===b);x.setAttribute('aria-checked',String(x===b));}
       cards?.wave(base);track('look_base_selected',{base});upd();};
+    for(const b of body.querySelectorAll('#onbAcc button'))b.onclick=()=>{acc=b.dataset.acc;for(const x of body.querySelectorAll('#onbAcc button')){x.classList.toggle('on',x===b);x.setAttribute('aria-checked',String(x===b));}
+      cards?.setAccessory(acc);track('look_accessory_selected',{acc});};
     $('onbLater').onclick=()=>{track('customise_later_tap');if(!go.disabled)go.click();else toast(base?'Give your agent a name first':'Tap a character first');};
     go.onclick=()=>{const n=name.value.trim().slice(0,16);if(!base||!n)return;track('agent_named',{len:n.length});create(n);};
-    const want=step;import('./cards3d.js').then(m=>{if(step!==want||!btns[0].isConnected)return;cards=m.cardRenderer($('onbCv'),btns);if(base)cards?.wave(base);}).catch(e=>console.warn('cards',e?.message));}
+    const want=step;import('./cards3d.js').then(m=>{if(step!==want||!btns[0].isConnected)return;cards=m.cardRenderer($('onbCv'),btns);cards?.setAccessory(acc);if(base)cards?.wave(base);}).catch(e=>console.warn('cards',e?.message));}
   function disposeCards(){cards?.dispose();cards=null;}
-  function create(n){const u=currentUser();if(!u||!spot)return;const look=sanitize({...defaultLook(base),v:1,base});
+  function create(n){const u=currentUser();if(!u||!spot)return;const look=sanitize({creature:base,accessory:acc});
     const a={name:n,look,personality:'',ownerName:(u.displayName||'').slice(0,80),lat:spot.lat,lon:spot.lon,spotApprox:!!spot.approx};
     track('agent_created',{base,customised:false});
     // Firestore queues the write while offline; don't block the greeting on the server ack.

@@ -1,7 +1,7 @@
 import {signIn,logOut,onUser,loadAgent,cachedAgent,cacheAgent,saveAgent,authMsg,redirectResult} from './firebase.js';
 import {flyTo} from './map.js';
 import {agentsOnMap} from './world-agents.js';
-import {toLook,defaultLook,sanitize,SKIN,HAIR_COLOURS,OUTFIT_COLOURS,HAIRSTYLES,OUTFITS,ACCESSORIES} from './character-data.js';
+import {toLook,sanitize,ACCESSORIES,ACC_LABEL} from './character-data.js';
 import {toast} from './ui.js';
 import {track} from './onboarding.js';
 const $=id=>document.getElementById(id);
@@ -66,30 +66,21 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
     setProfile(p){if(!agent||!user||!p)return;agent={...agent,interests:Array.isArray(p.interests)?p.interests:agent.interests,bio:typeof p.bio==='string'?p.bio:(agent.bio||'')};cacheAgent(user.uid,agent);},
     _preview(a){agent=a;av.set(a);render();onAgent(a);}};}
 
-// Character look editor in the agent sheet. New agents start with nothing picked and no name-based guess: the user taps one
-// of two character cards (rendered from character.js) before Save is enabled. Existing agents open on their saved look.
-// Each base keeps its own edits. Live-previews on the map character when editing.
-const LABEL={none:'None',glasses:'Glasses',headphones:'Headphones',cap:'Cap',bindi:'Bindi'};
-function lookEditor(onChange){let per={},base=null;
-  const cur=()=>per[base]||(per[base]=defaultLook(base));
-  const swatches=(id,list,key)=>{const el=$(id);el.innerHTML='';for(const c of list){const b=document.createElement('button');b.type='button';b.style.background=c;b.ariaLabel=c;b.dataset.c=c;
-    b.onclick=()=>{if(!base)return;cur()[key]=c;paint();};el.append(b);}};
-  const opts=(id,list)=>{const el=$(id);el.innerHTML='';for(const v of list){const o=document.createElement('option');o.value=v;o.textContent=v[0].toUpperCase()+v.slice(1);el.append(o);}};
-  function paint(){$('lkBase').classList.toggle('chosen',!!base);
-    for(const b of $('lkBase').querySelectorAll('button')){const on=b.dataset.base===base;b.classList.toggle('on',on);b.setAttribute('aria-checked',String(on));}
-    $('lkMore').hidden=!base;if(!base){onChange(null);return;}
-    const l=cur();opts('lkHair',HAIRSTYLES[base]);opts('lkOutfit',OUTFITS[base]);$('lkHair').value=l.hair;$('lkOutfit').value=l.outfit;
-    for(const [id,key] of [['lkSkin','skin'],['lkHairC','hairColour'],['lkOutfitC','outfitColour']])for(const b of $(id).children)b.classList.toggle('on',b.dataset.c===l[key]);
-    const acc=$('lkAcc');acc.innerHTML='';for(const a of ACCESSORIES[base].filter(a=>a!=='none')){const lb=document.createElement('label'),i=document.createElement('input');i.type='checkbox';i.checked=l.acc.includes(a);
-      i.onchange=()=>{l.acc=i.checked?[...new Set([...l.acc,a])]:l.acc.filter(x=>x!==a);onChange(value());};lb.append(i,' '+LABEL[a]);acc.append(lb);}
-    onChange(value());}
-  swatches('lkSkin',SKIN,'skin');swatches('lkHairC',HAIR_COLOURS,'hairColour');swatches('lkOutfitC',OUTFIT_COLOURS,'outfitColour');
-  $('lkHair').onchange=()=>{cur().hair=$('lkHair').value;paint();};$('lkOutfit').onchange=()=>{cur().outfit=$('lkOutfit').value;paint();};
-  for(const b of $('lkBase').querySelectorAll('button'))b.onclick=()=>{base=b.dataset.base;paint();};
-  let shown=false;const showThumbs=()=>{if(shown)return;shown=true;import('./cards3d.js').then(m=>{const t=m.cardThumbs();for(const b of $('lkBase').querySelectorAll('button')){const img=b.querySelector('img');if(t[b.dataset.base])img.src=t[b.dataset.base];}}).catch(e=>console.warn('picker thumbs',e?.message));};
+// Creature look editor in the agent sheet. New agents start with nothing picked: the user taps one of six creature cards
+// (thumbnails rendered from character.js, no labels) before Save is enabled, then may add one accessory.
+// Existing agents open on their saved look (older human looks are migrated by toLook). Live-previews on the map when editing.
+function lookEditor(onChange){let creature=null,acc='none';
+  const accBox=$('lkAcc');accBox.innerHTML=ACCESSORIES.map(a=>`<button type="button" role="radio" data-acc="${a}" aria-checked="false">${ACC_LABEL[a]}</button>`).join('');
+  function paint(){$('lkBase').classList.toggle('chosen',!!creature);
+    for(const b of $('lkBase').querySelectorAll('button')){const on=b.dataset.creature===creature;b.classList.toggle('on',on);b.setAttribute('aria-checked',String(on));}
+    for(const b of accBox.querySelectorAll('button')){const on=b.dataset.acc===acc;b.classList.toggle('on',on);b.setAttribute('aria-checked',String(on));}
+    $('lkMore').hidden=!creature;onChange(value());}
+  for(const b of $('lkBase').querySelectorAll('button'))b.onclick=()=>{creature=b.dataset.creature;paint();};
+  for(const b of accBox.querySelectorAll('button'))b.onclick=()=>{acc=b.dataset.acc;paint();};
+  let shown=false;const showThumbs=()=>{if(shown)return;shown=true;import('./cards3d.js').then(m=>{const t=m.cardThumbs();for(const b of $('lkBase').querySelectorAll('button')){const img=b.querySelector('img');if(t[b.dataset.creature])img.src=t[b.dataset.creature];}}).catch(e=>console.warn('picker thumbs',e?.message));};
   new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))showThumbs();}).observe($('lkBase'));
-  function value(){return base?sanitize({...cur(),v:1,base}):null;}
-  return {value,picked:()=>!!base,load(look,name){per={};base=null;
-    if(look){const l=toLook(look,name);base=l.base;per[base]=l;}
+  function value(){return creature?sanitize({creature,accessory:acc}):null;}
+  return {value,picked:()=>!!creature,load(look,name){creature=null;acc='none';
+    if(look){const l=toLook(look,name);creature=l.creature;acc=l.accessory;}
     paint();}};}
 // three.js (~267 KB gz) is only fetched once there is an agent to draw and the map is zoomed in far enough to see it (perf audit #2).

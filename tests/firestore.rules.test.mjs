@@ -149,6 +149,17 @@ describe('agents/{uid} rules', { concurrency: false }, () => {
     })));
   });
 
+  test('owner can save creatures v2 looks, and bad creature looks are refused', async () => {
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({ look: { creature: 'drip', accessory: 'beanie' } })));
+    const stored = await getDoc(agentRef(ALICE));
+    assert.equal(stored.get('look.creature'), 'drip');
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({ look: { creature: 'mallow', accessory: 'none' } })));
+    await assertFails(setDoc(agentRef(ALICE), agent({ look: { creature: 'dragon', accessory: 'none' } })));
+    await assertFails(setDoc(agentRef(ALICE), agent({ look: { creature: 'blob', accessory: 'crown' } })));
+    await assertFails(setDoc(agentRef(ALICE), agent({ look: { creature: 'blob' } })));
+    await assertFails(setDoc(agentRef(ALICE), agent({ look: { creature: 'blob', accessory: 'none', colour: '#fff' } })));
+  });
+
   test('owner can save v1 character looks for both bases', async () => {
     await assertSucceeds(setDoc(agentRef(ALICE), agent({ look: GIRL_LOOK })));
     const stored = await assertSucceeds(getDoc(agentRef(ALICE)));
