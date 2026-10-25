@@ -132,8 +132,10 @@ body[data-tab=world] .think::after,body[data-tab=world] .orbit,body[data-tab=wor
 #chatIn{flex:1;min-height:38px;padding:0 4px;border:0;border-radius:0;background:none;outline:0;color:var(--text);font-size:15.5px}
 #chatIn:focus{outline:0}#chatIn::placeholder{color:rgba(255,255,255,.4)}
 #chatF .plus{width:34px;height:34px;min-height:0;padding:0;border-radius:50%;background:none;box-shadow:none;color:var(--muted);font-size:18px}
-#chatF .send{width:36px;height:36px;flex:none;min-height:0;padding:0;border-radius:50%;background:#fff;color:#0a0b10;box-shadow:none;display:grid;place-items:center;transition:opacity var(--t-fast)}
-#chatF .send:disabled{background:#fff;opacity:.18}
+#chatF .send{width:36px;height:36px;flex:none;min-height:0;padding:0;border-radius:50%;background:#2a2d36;color:rgba(255,255,255,.4);box-shadow:none;display:grid;place-items:center;opacity:1;transition:transform var(--t-fast) var(--spring)}
+#chatF .send:disabled{opacity:1}
+#chatF .send.busy{background:#1E2129;color:rgba(255,255,255,.4)}
+#chatF .send.on{background:#fff;color:#0a0b10}
 /* agent sheet inside Chat (More / ＋) */
 .scrim{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity var(--t-slow) var(--ease-out);z-index:30}
 .scrim.on{opacity:.55;pointer-events:auto}

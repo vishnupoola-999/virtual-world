@@ -235,4 +235,14 @@ test('chat input sits above the tab bar at 360x740', async ({ page }) => {
   expect(r.tabBottom).toBeLessThanOrEqual(r.vh);
   expect(Math.round(r.inH)).toBe(52);
   expect(Math.round(r.tabH)).toBe(56);
+  // v3: typing makes Send a solid white circle with a dark arrow, with no fade to wait for.
+  await page.fill('#chatIn', 'Find me a cafe');
+  const send = await page.evaluate(() => {
+    const b = document.querySelector('#chatF .send');
+    const c = getComputedStyle(b);
+    return { bg: c.backgroundColor, color: c.color, op: c.opacity, on: b.classList.contains('on') };
+  });
+  expect(send).toEqual({ bg: 'rgb(255, 255, 255)', color: 'rgb(10, 11, 16)', op: '1', on: true });
+  await page.fill('#chatIn', '   ');
+  expect(await page.locator('#chatF .send').evaluate((b) => getComputedStyle(b).backgroundColor)).not.toBe('rgb(255, 255, 255)');
 });

@@ -298,7 +298,13 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     }, 900);
   }
 
-  const sync = () => { send.disabled = busy || !input.value.trim(); };
+  // Send is a solid white circle whenever there is text (class `on`), even while a reply is still running (`busy`).
+  const sync = () => {
+    const hasText = !!input.value.trim();
+    send.classList.toggle('on', hasText);
+    send.classList.toggle('busy', busy);
+    send.disabled = busy || !hasText;
+  };
   input.addEventListener('input', sync);
   sync();
   
