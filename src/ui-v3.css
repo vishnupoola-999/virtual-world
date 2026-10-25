@@ -17,6 +17,7 @@
  --edge:linear-gradient(var(--border),var(--border));
  --chip-on-bg:var(--acc-tint);--chip-on-border:var(--acc-line);--chip-on-text:var(--tx);--chip-on-icon:var(--tx);
  /* radii, spacing, motion */
+ --sp-4:4px;--sp-8:8px;--sp-12:12px;--sp-16:16px;--sp-20:20px;--sp-24:24px;
  --r-xs:8px;--r-sm:8px;--r-md:14px;--r-lg:20px;--r-xl:20px;--pill:999px;--pad:16px;
  --ease-out:cubic-bezier(.2,.8,.2,1);--spring:cubic-bezier(.2,.8,.2,1);--t-fast:120ms;--t-med:180ms;--t-slow:240ms;
  --tick:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E")}
@@ -52,7 +53,7 @@ button.danger,#liveBtn.on{background:rgba(255,90,106,.12);border:1px solid rgba(
 .onbTop .link{color:var(--tx-2);font-size:13px;font-weight:500;text-decoration:none}
 
 /* chips: 36px pill; selected = 14% accent tint, accent border, tick */
-.chip{height:36px;min-height:36px;padding:0 14px;border-radius:var(--pill);background:var(--sheet);border:1px solid var(--border);color:var(--tx);box-shadow:none;display:inline-flex;align-items:center;gap:6px}
+.chip{height:36px;min-height:36px;padding:0 14px;border-radius:var(--pill);background:var(--sheet);border:1px solid var(--border);color:var(--tx);box-shadow:none;display:inline-flex;align-items:center;gap:var(--sp-8)}
 .chip.on,.chip.solid,.chip[aria-pressed=true]{background:var(--acc-tint);border-color:var(--acc-line);color:var(--tx)}
 .chip.on::before,.chip.solid::before{content:'';width:14px;height:14px;background:var(--tx);-webkit-mask:var(--tick) center/contain no-repeat;mask:var(--tick) center/contain no-repeat}
 .chip .ck svg{stroke:var(--tx)}
@@ -72,7 +73,7 @@ button.danger,#liveBtn.on{background:rgba(255,90,106,.12);border:1px solid rgba(
 @keyframes v3SheetIn{from{transform:translateY(100%)}}
 .grab,#sheetHead .grab,.cs-sheet .grab{width:36px;height:4px;border-radius:2px;background:rgba(255,255,255,.18)}
 #scrim,.scrim.on,.cs-scrim[data-open=true]{opacity:.5}.cs-scrim{background:#000}
-#away .scrim{position:absolute;z-index:0;background:#000;opacity:.5;animation:none;pointer-events:auto}
+#away .scrim{position:absolute;z-index:0;background:rgba(0,0,0,.5);opacity:1;animation:none;pointer-events:auto}
 #away .card{z-index:1;top:auto;max-height:calc(100% - 48px - var(--safe-t,0px))}
 .cs-card,#away .sum div,.famItem,.srow .ic,.cs-sheet .tile{background:var(--sheet);border-color:var(--hair)}
 .cs-card,#away .sum div{border-radius:var(--r-md)}
@@ -94,6 +95,10 @@ button.danger,#liveBtn.on{background:rgba(255,90,106,.12);border:1px solid rgba(
 .onbBottom,.onbInt .bottom,.onbPanel{padding-left:var(--pad);padding-right:var(--pad)}
 .head{padding-left:var(--pad);padding-right:var(--pad)}
 #chatLog{padding-left:var(--pad);padding-right:var(--pad)}
+
+/* tiny date labels (Today) are the only all-caps text */
+.msg.sys{text-transform:uppercase;letter-spacing:.04em;font-size:11px}
+#sheet .sec,#away .sec{text-transform:none;letter-spacing:0;font-size:13px;font-weight:500;color:var(--tx-2)}
 
 /* #37 input bar and tab bar: keep exactly as shipped */
 #chatIn{color:#f3f5fa}#chatF .plus{color:#7d8497;border:0;background:none}
