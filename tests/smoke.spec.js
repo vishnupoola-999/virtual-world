@@ -246,3 +246,44 @@ test('chat input sits above the tab bar at 360x740', async ({ page }) => {
   await page.fill('#chatIn', '   ');
   expect(await page.locator('#chatF .send').evaluate((b) => getComputedStyle(b).backgroundColor)).not.toBe('rgb(255, 255, 255)');
 });
+
+// UI v3 tokens (Diggy's spec): Inter, 48px pill buttons, 36px chips with an accent tint when selected, no blur anywhere.
+test('UI v3 tokens on buttons, chips and type, and no backdrop-filter', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto('/?onb=0');
+  await page.waitForFunction(() => window.__vw?.onb);
+  const r = await page.evaluate(() => {
+    const mk = (html) => { const w = document.createElement('div'); w.innerHTML = html; document.body.append(w); return w.firstElementChild; };
+    const cs = (el) => getComputedStyle(el);
+    const primary = cs(mk('<button class="primary">Go</button>'));
+    const secondary = cs(mk('<button>Back</button>'));
+    const ghost = cs(mk('<button class="ghost">Skip</button>'));
+    const icon = cs(mk('<button class="iconbtn" aria-label="More"></button>'));
+    const chip = cs(mk('<button class="chip">Tech</button>'));
+    const chipOn = cs(mk('<button class="chip on">Tech</button>'));
+    const blur = [...document.querySelectorAll('*')].filter((el) => {
+      const s = cs(el);
+      return (s.backdropFilter && s.backdropFilter !== 'none') || (s.webkitBackdropFilter && s.webkitBackdropFilter !== 'none') || /blur/.test(s.filter);
+    }).length;
+    const sheetsUseBlur = [...document.styleSheets].some((sh) => { try { return [...sh.cssRules].some((x) => /backdrop-filter|blur\(/.test(x.cssText)); } catch { return false; } });
+    return {
+      font: cs(document.body).fontFamily,
+      primary: [primary.height, primary.backgroundColor, primary.color, primary.fontSize, primary.fontWeight, primary.borderRadius],
+      secondary: [secondary.height, secondary.backgroundColor, secondary.borderTopColor],
+      ghost: ghost.color,
+      icon: [icon.width, icon.height, icon.borderRadius],
+      chip: [chip.height, chip.backgroundColor],
+      chipOn: [chipOn.backgroundColor, chipOn.borderTopColor],
+      blur, sheetsUseBlur,
+    };
+  });
+  expect(r.font).toMatch(/^"?Inter"?,/);
+  expect(r.primary).toEqual(['48px', 'rgb(255, 255, 255)', 'rgb(0, 0, 0)', '15px', '600', '999px']);
+  expect(r.secondary).toEqual(['48px', 'rgb(22, 24, 31)', 'rgba(255, 255, 255, 0.1)']);
+  expect(r.ghost).toBe('rgba(255, 255, 255, 0.6)');
+  expect(r.icon).toEqual(['40px', '40px', '50%']);
+  expect(r.chip).toEqual(['36px', 'rgb(22, 24, 31)']);
+  expect(r.chipOn).toEqual(['rgba(123, 124, 255, 0.14)', 'rgb(123, 124, 255)']);
+  expect(r.blur).toBe(0);
+  expect(r.sheetsUseBlur).toBe(false);
+});

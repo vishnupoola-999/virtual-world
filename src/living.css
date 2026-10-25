@@ -9,8 +9,8 @@
 #onb[data-step="5"] #onbBody{min-height:0}
 .onbInt .about{flex:none;padding-bottom:16px}
 .onbInt .grid{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;align-content:flex-start;padding-bottom:4px}
-.onbInt .hd{padding:14px 22px 6px}.onbInt .hd h2{margin:0;font-size:26px;line-height:1.15;font-weight:650;letter-spacing:-.02em}.onbInt .hd p{margin:8px 0 0;font-size:14.5px;line-height:1.45;color:var(--text-2)}
-.onbInt .count{display:flex;align-items:center;justify-content:space-between;padding:12px 22px 10px}.onbInt .count b{font-size:13px;font-weight:600}
+.onbInt .hd{padding:14px 22px var(--sp-8)}.onbInt .hd h2{margin:0;font-size:26px;line-height:1.15;font-weight:650;letter-spacing:-.02em}.onbInt .hd p{margin:8px 0 0;font-size:14.5px;line-height:1.45;color:var(--text-2)}
+.onbInt .count{display:flex;align-items:center;justify-content:space-between;padding:12px 22px var(--sp-12)}.onbInt .count b{font-size:13px;font-weight:600}
 .meter{display:flex;gap:4px}.meter i{width:18px;height:4px;border-radius:2px;background:var(--s4);position:relative;overflow:hidden}
 .meter i::after{content:'';position:absolute;inset:0;background:var(--grad);opacity:0;transition:opacity 200ms}.meter i.on::after{opacity:1}
 .onbInt .grid{display:flex;flex-wrap:wrap;gap:8px;padding:0 20px 4px}
@@ -24,11 +24,11 @@
 .onbInt .about{padding:16px 22px 0}.onbInt .about label{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin-bottom:7px}
 .onbInt .about textarea{display:block;width:100%;box-sizing:border-box;height:calc(2lh + 24px);line-height:1.4;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;border-radius:16px;background:var(--s1);border:1px solid var(--line-2);color:var(--text);font:inherit;font-size:15px;padding:12px 14px;outline:0}.onbInt .about textarea:focus{border-color:#8b7bff99}
 .onbInt .about small{display:block;margin-top:7px;font-size:12px;color:var(--muted)}
-.onbInt .bottom{position:sticky;bottom:0;z-index:2;flex:none;margin-top:auto;background:var(--bg);padding:12px 16px calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:6px}
+.onbInt .bottom{position:sticky;bottom:0;z-index:2;flex:none;margin-top:auto;background:var(--bg);padding:12px 16px calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:var(--sp-8)}
 .onbInt .bottom::before{content:'';position:absolute;left:0;right:0;top:-16px;height:16px;background:linear-gradient(to bottom,transparent,var(--bg));opacity:1;pointer-events:none}
 .onbInt .bottom .primary{width:100%}
 /* keyboard open / short screens: drop secondary copy so the bio box and Continue both fit */
-@media (max-height:480px){.onbInt .hd p,.onbInt .about small,.onbInt .hint{display:none}.onbInt .hd{padding-top:8px}.onbInt .hd h2{font-size:20px}.onbInt .count{padding:6px 22px}.onbInt .about{padding-top:8px}}
+@media (max-height:480px){.onbInt .hd p,.onbInt .about small,.onbInt .hint{display:none}.onbInt .hd{padding-top:8px}.onbInt .hd h2{font-size:20px}.onbInt .count{padding:var(--sp-8) 22px}.onbInt .about{padding-top:8px}}
 #onb[data-step="5"].kb .onbInt .hd p,#onb[data-step="5"].kb .onbInt .about small,#onb[data-step="5"].kb .onbInt .hint{display:none}
 .onbInt .hint{text-align:center;font-size:12.5px;color:var(--muted);height:18px}
 /* 2. living states on the map */
@@ -58,7 +58,7 @@ body[data-tab=chat] .ag .stat,body[data-tab=chat] .ag .stat .prog::after{animati
 #away[hidden]{display:none}
 #away .scrim{position:absolute;inset:0;background:linear-gradient(#07080d99,#07080dee 60%);animation:fadeIn 250ms both}
 @keyframes fadeIn{from{opacity:0}}
-#away .card{position:absolute;left:10px;right:10px;bottom:calc(10px + var(--safe-b,0px));top:calc(48px + var(--safe-t,0px));border-radius:28px;padding:18px 18px 16px;display:flex;flex-direction:column;animation:awayUp 250ms var(--ease-out) both;overflow-y:auto}
+#away .card{position:absolute;left:10px;right:10px;bottom:calc(10px + var(--safe-b,0px));top:calc(48px + var(--safe-t,0px));border-radius:28px;padding:var(--sp-20) var(--sp-20) 16px;display:flex;flex-direction:column;animation:awayUp 250ms var(--ease-out) both;overflow-y:auto}
 @keyframes awayUp{from{opacity:0;transform:translateY(24px)}}
 #away .ahd{display:flex;gap:12px;align-items:center}
 .aav{width:46px;height:46px;border-radius:50%;background:radial-gradient(circle at 50% 75%,#2a2f52,#11131d);position:relative;overflow:hidden;flex:none;box-shadow:inset 0 0 0 1px #ffffff1f;display:grid;place-items:center;font-weight:650;color:var(--text)}
@@ -66,8 +66,8 @@ body[data-tab=chat] .ag .stat,body[data-tab=chat] .ag .stat .prog::after{animati
 .aav.mono{background:var(--grad);color:#0a0b10;font-size:17px}
 #away .ahd h2{margin:0;white-space:nowrap;font-size:19px;font-weight:650;letter-spacing:-.015em}#away .ahd p{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
 #away .x{margin-left:auto;width:34px;height:34px;min-height:34px;padding:0;border-radius:50%;border:1px solid var(--line);background:var(--s2);color:var(--text-2);display:grid;place-items:center;cursor:pointer;align-self:flex-start;box-shadow:none}
-#away .sum{display:flex;gap:8px;margin:14px 0 4px}#away .sum div{flex:1;background:var(--s2);border-radius:14px;padding:9px 10px}#away .sum b{display:block;font-size:17px;font-weight:650}#away .sum small{font-size:11.5px;color:var(--muted)}
-#away .sec{margin:14px 0 8px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+#away .sum{display:flex;gap:8px;margin:14px 0 4px}#away .sum div{flex:1;background:var(--s2);border-radius:14px;padding:9px var(--sp-12)}#away .sum b{display:block;font-size:17px;font-weight:650}#away .sum small{font-size:11.5px;color:var(--muted)}
+#away .sec{margin:14px 0 8px;font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--muted)}
 .diary{list-style:none;margin:0;padding:0;position:relative}
 .diary::before{content:'';position:absolute;left:43px;top:8px;bottom:8px;width:1px;background:var(--line-2)}
 .diary li{display:flex;gap:12px;align-items:flex-start;padding:5px 0;font-size:13.5px;line-height:1.4;color:var(--text-2);animation:awayUp 250ms var(--ease-out) both}
@@ -76,20 +76,20 @@ body[data-tab=chat] .ag .stat,body[data-tab=chat] .ag .stat .prog::after{animati
 .diary .d{width:9px;height:9px;border-radius:50%;background:var(--s4);border:2px solid var(--bg);flex:none;margin-top:4px;position:relative;z-index:1}
 .diary li.met .d{background:var(--grad)}.diary b{color:var(--text);font-weight:600}
 .met-row{display:flex;gap:8px}
-.mcard{flex:1;min-width:0;background:var(--s2);border:1px solid var(--line);border-radius:18px;padding:10px 8px;text-align:center;cursor:pointer;min-height:0;box-shadow:none;color:var(--text);display:block;margin:0}
-.mcard .aav{width:44px;height:44px;margin:0 auto 6px}
+.mcard{flex:1;min-width:0;background:var(--s2);border:1px solid var(--line);border-radius:18px;padding:var(--sp-12) 8px;text-align:center;cursor:pointer;min-height:0;box-shadow:none;color:var(--text);display:block;margin:0}
+.mcard .aav{width:44px;height:44px;margin:0 auto var(--sp-8)}
 .mcard b{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .itag{display:inline-flex;align-items:center;gap:4px;margin-top:5px;height:22px;padding:0 8px;border-radius:var(--pill);background:#8b7bff1f;color:#cfc8ff;font-size:11px;font-weight:600}
 .itag svg{width:12px;height:12px;stroke:#cfc8ff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .intro{margin-top:14px;border-radius:20px;padding:14px;background:linear-gradient(#141722,#141722) padding-box,linear-gradient(135deg,#8b7bff88,#4fd1ff55) border-box;border:1px solid transparent}
 .intro[hidden]{display:none}
-.intro .irow{display:flex;flex-direction:row;gap:10px;align-items:center}.intro .aav{width:40px;height:40px;flex:none}
+.intro .irow{display:flex;flex-direction:row;gap:var(--sp-12);align-items:center}.intro .aav{width:40px;height:40px;flex:none}
 .intro p{margin:0;font-size:14px;line-height:1.45;color:var(--text-2)}.intro p b{color:var(--text)}
 .intro .acts{display:flex;gap:8px;margin-top:12px}.intro .acts button{flex:1;height:44px;min-height:44px;margin:0;border-radius:var(--pill);font-weight:600}
 .intro .acts .brand{background:var(--grad);color:#0a0b10;box-shadow:none;border:0}
 @media (prefers-reduced-motion:reduce){.ag .stat,.ag .stat .prog::after,#liveHint,#away .card,#away .scrim,.diary li,.chip .ck{animation:none}}
 /* V1 plain away list: who the agent met (gradient initial + stored name only). */
 .met-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-.met-list li{display:flex;align-items:center;gap:10px;font-size:14px}
+.met-list li{display:flex;align-items:center;gap:var(--sp-12);font-size:14px}
 .met-list .aav{width:32px;height:32px;font-size:14px}
 .met-list b{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

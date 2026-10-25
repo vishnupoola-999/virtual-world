@@ -2,7 +2,7 @@
 :root{--glass-fill:rgba(20,23,34,.92)}
 /* chrome: glass search pill + gradient account button, right icon rail, recenter */
 #topbar{top:calc(12px + var(--safe-t));left:12px;right:12px;gap:8px;justify-content:flex-start}
-#topbar .search{flex:1;height:44px;min-height:44px;border-radius:var(--pill);display:flex;align-items:center;gap:10px;padding:0 16px;color:var(--muted);font-size:14.5px;font-weight:450;box-shadow:none;text-align:left}
+#topbar .search{flex:1;height:44px;min-height:44px;border-radius:var(--pill);display:flex;align-items:center;gap:var(--sp-12);padding:0 16px;color:var(--muted);font-size:14.5px;font-weight:450;box-shadow:none;text-align:left}
 .me-btn{width:44px;height:44px;min-height:0;border-radius:50%;padding:0;overflow:hidden;background:var(--grad);display:grid;place-items:center;font-weight:700;font-size:16px;color:#0a0b10;box-shadow:none;flex:none}
 .me-btn img{width:100%;height:100%;object-fit:cover}
 .me-btn.out{background:var(--s2);box-shadow:inset 0 0 0 1px var(--line-2)}
@@ -17,7 +17,7 @@ body.sheet-open .recenter{visibility:hidden}
 /* (a) credits: dark glass, collapsed to ⓘ */
 .maplibregl-ctrl-bottom-right{bottom:calc(76px + var(--safe-b))}
 .maplibregl-ctrl.maplibregl-ctrl-attrib,.maplibregl-ctrl-attrib.maplibregl-compact{background:linear-gradient(var(--glass-fill),var(--glass-fill)) padding-box,var(--edge) border-box!important;border:1px solid transparent;color:var(--muted);border-radius:var(--pill);font:500 11px/1.4 var(--font);margin:0 12px 8px 0}
-.maplibregl-ctrl-attrib.maplibregl-compact{min-height:28px;padding:4px 30px 4px 10px}
+.maplibregl-ctrl-attrib.maplibregl-compact{min-height:28px;padding:4px 30px 4px var(--sp-12)}
 .maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show){padding:0;width:28px;height:28px;min-height:28px}
 .maplibregl-ctrl-attrib.maplibregl-compact-show{border-radius:14px;max-width:calc(100vw - 24px)}
 .maplibregl-ctrl-attrib a{color:var(--text-2)!important;text-decoration:none}.maplibregl-ctrl-attrib a:hover{color:var(--text)!important;text-decoration:underline}
@@ -51,15 +51,15 @@ body[data-tab=chat] .ag *{animation:none}
 .prof h3{margin:0;font-size:20px;font-weight:640;letter-spacing:-.015em;display:flex;align-items:center;gap:8px}
 .tag{font-size:11px;font-weight:600;padding:3px 8px;border-radius:var(--pill);background:#8b7bff22;color:#cfc8ff}
 .prof .meta{font-size:13px;color:var(--muted);margin-top:3px}
-.pstatus{margin-top:14px;padding:10px 12px;border-radius:14px;background:var(--s2);font-size:13.5px;color:var(--text-2);display:flex;gap:10px;align-items:center}
+.pstatus{margin-top:14px;padding:var(--sp-12) 12px;border-radius:14px;background:var(--s2);font-size:13.5px;color:var(--text-2);display:flex;gap:var(--sp-12);align-items:center}
 .pstatus .d{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
 .acts{display:flex;gap:8px;margin-top:14px}.acts button{flex:1;min-height:48px;width:auto;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:15px;font-weight:600}
 #pInterests{margin-top:4px}#pInterests[hidden]{display:none}
 /* (d) layers */
-#sheet .sec{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:6px 2px 8px}
+#sheet .sec{font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--muted);margin:var(--sp-8) 2px 8px}
 #sheet .sec~.sec{margin-top:16px}
 .styles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.sty{border-radius:16px;padding:6px;min-height:0;background:var(--s2);box-shadow:inset 0 0 0 1px var(--line);font-size:12px;font-weight:550;color:var(--text-2);text-align:center;display:flex;flex-direction:column;align-items:stretch;gap:6px}
+.sty{border-radius:16px;padding:var(--sp-8);min-height:0;background:var(--s2);box-shadow:inset 0 0 0 1px var(--line);font-size:12px;font-weight:550;color:var(--text-2);text-align:center;display:flex;flex-direction:column;align-items:stretch;gap:var(--sp-8)}
 .sty small{font-size:10px;color:var(--muted);margin-top:-4px}
 .swatch{display:block;height:54px;border-radius:11px}
 .swatch.night{background:linear-gradient(135deg,#0c1328,#1f2b55 60%,#ffb347 61%,#ffb347 64%,#0c1328 65%)}
@@ -70,7 +70,7 @@ body[data-tab=chat] .ag *{animation:none}
 .lrow{display:flex;align-items:center;gap:12px;padding:12px 2px;border-bottom:1px solid var(--line)}
 .lrow .ic{width:36px;height:36px;border-radius:12px;background:var(--s3);display:grid;place-items:center;color:var(--text-2);flex:none}
 .lrow div{flex:1}.lrow b{display:block;font-size:15px;font-weight:560}.lrow small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.35}
-.perf{display:inline-block;font-size:10.5px;font-weight:600;color:var(--glow);background:#ffc8611a;border-radius:var(--pill);padding:2px 7px;margin-left:6px;vertical-align:1px}
+.perf{display:inline-block;font-size:10.5px;font-weight:600;color:var(--glow);background:#ffc8611a;border-radius:var(--pill);padding:2px 7px;margin-left:var(--sp-8);vertical-align:1px}
 #layDone{margin-top:14px}
 .ag canvas{opacity:0;transform:translateY(6px) scale(.86);transform-origin:50% 100%;transition:opacity .45s ease-out,transform .55s cubic-bezier(.2,1.4,.4,1)}
 .ag.born canvas{opacity:1;transform:none}
@@ -78,7 +78,7 @@ body[data-tab=chat] .ag *{animation:none}
 .birth{position:absolute;left:50%;bottom:6px;width:0;height:0;pointer-events:none;transition:opacity .4s ease-out}
 .birth i{position:absolute;left:-30px;top:-15px;width:60px;height:30px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--brand-b),0 0 0 1px #4fd1ff59,0 0 12px 3px #4fd1ff73,0 0 26px 6px #4fd1ff2e;opacity:0;animation:birth 1.8s ease-out infinite}
 .birth i+i{animation-delay:.9s}
-.birth em{position:absolute;left:0;bottom:44px;transform:translateX(-50%);white-space:nowrap;font:600 11.5px/22px var(--font);font-style:normal;color:var(--text-2);padding:0 10px;border-radius:var(--pill);background:rgba(20,23,34,.86);box-shadow:inset 0 0 0 1px var(--line-2)}
+.birth em{position:absolute;left:0;bottom:44px;transform:translateX(-50%);white-space:nowrap;font:600 11.5px/22px var(--font);font-style:normal;color:var(--text-2);padding:0 var(--sp-12);border-radius:var(--pill);background:rgba(20,23,34,.86);box-shadow:inset 0 0 0 1px var(--line-2)}
 @keyframes birth{0%{opacity:1;transform:scale(.35)}100%{opacity:0;transform:scale(1.5)}}
 .ag.mine:not(.born) .pill,.ag.mine:not(.born) .shadow,.ag.mine:not(.born) .halo{opacity:0}
 .ag.mine:not(.born) .busy,.ag.mine:not(.born) .bubble{display:none}
