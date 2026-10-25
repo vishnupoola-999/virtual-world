@@ -30,12 +30,52 @@ export function cooldownFor(activeCount) {
 // Town agents: built-in residents an agent can meet when no real agent is free. They have no owner, no
 // Firestore doc and no diary; only the real agent's side of the meeting is saved. uid prefix "town-".
 export const TOWN_AGENTS = [
-  { uid: 'town-chai', name: 'Chaiwala Ravi (town)', interests: ['food', 'cricket', 'meeting people'], bio: 'Runs the corner tea stall' },
-  { uid: 'town-library', name: 'Librarian Meera (town)', interests: ['books', 'science', 'exploring'], bio: 'Knows every shelf in the city library' },
-  { uid: 'town-coder', name: 'Coder Arjun (town)', interests: ['tech', 'ai', 'startups'], bio: 'Builds apps at the co-working space' },
-  { uid: 'town-artist', name: 'Painter Zoya (town)', interests: ['art', 'music', 'photography'], bio: 'Paints murals near the lake' },
-  { uid: 'town-guide', name: 'Guide Kiran (town)', interests: ['exploring', 'travel', 'history'], bio: 'Shows visitors the old forts' },
+  { uid: 'town-chai', name: 'Chaiwala Ravi', interests: ['food', 'cricket', 'meeting people'], bio: 'Runs the corner tea stall', status: 'Pouring chai' },
+  { uid: 'town-library', name: 'Librarian Meera', interests: ['books', 'science', 'exploring'], bio: 'Knows every shelf in the city library', status: 'Sorting new books' },
+  { uid: 'town-coder', name: 'Coder Arjun', interests: ['tech', 'ai', 'startups'], bio: 'Builds apps at the co-working space', status: 'Shipping an app' },
+  { uid: 'town-artist', name: 'Painter Zoya', interests: ['art', 'music', 'photography'], bio: 'Paints murals near the lake', status: 'Painting a mural' },
+  { uid: 'town-guide', name: 'Guide Kiran', interests: ['exploring', 'travel', 'history'], bio: 'Shows visitors the old forts', status: 'Leading a fort walk' },
 ];
+
+// Older diary entries and statuses carry the literal " (town)" suffix; user-facing strings drop it (town: true marks them instead).
+export const stripTown = (s) => String(s ?? '').replace(/\s*\(town\)\s*$/i, '');
+
+// Stable look for a town character: same seed and colour on every device and every day.
+export const TOWN_COLORS = 8;
+export function townLook(uid) {
+  const h = createHash('sha256').update(`look|${uid}`).digest();
+  return { seed: h.readUInt32BE(0), colorIndex: h[4] % TOWN_COLORS };
+}
+
+// Deterministic offset in metres (east, north) between minM and maxM, keyed by `key`.
+export function offsetFor(key, minM, maxM) {
+  const h = createHash('sha256').update(`off|${key}`).digest();
+  const angle = (h.readUInt16BE(0) / 65535) * 2 * Math.PI, m = minM + (h.readUInt16BE(2) / 65535) * (maxM - minM);
+  return { east: Math.round(m * Math.sin(angle) * 10) / 10, north: Math.round(m * Math.cos(angle) * 10) / 10 };
+}
+export function shiftLatLng(pos, off) {
+  if (!pos || !Number.isFinite(pos.lat) || !Number.isFinite(pos.lng)) return null;
+  const lat = pos.lat + off.north / 111_320, lng = pos.lng + off.east / (111_320 * Math.cos(pos.lat * Math.PI / 180));
+  return { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 };
+}
+
+// A town agent as a map character, positioned relative to `pos` (the caller's agent). No uid.
+export function townCharacter(t, salt, pos, off, status) {
+  const out = { id: hashId(t.uid, salt), name: stripTown(t.name), interests: [...t.interests], bio: t.bio, look: townLook(t.uid), status, offsetM: off, town: true };
+  const at = shiftLatLng(pos, off);
+  if (at) { out.lat = at.lat; out.lng = at.lng; }
+  return out;
+}
+export function townByPublicId(id, salt) { return TOWN_AGENTS.find((t) => hashId(t.uid, salt) === id) || null; }
+
+// Town agents standing around the caller's agent: deterministic per user and day, 80–300 m away.
+export function nearbyTown(uid, salt, pos, now, count = 3) {
+  const day = dayKey(now);
+  return TOWN_AGENTS.map((t) => ({ t, k: createHash('sha256').update(`near|${salt}|${uid}|${day}|${t.uid}`).digest().readUInt32BE(0) }))
+    .sort((a, b) => a.k - b.k).slice(0, count)
+    .map(({ t }) => townCharacter(t, salt, pos, offsetFor(`${salt}|${uid}|${day}|${t.uid}`, 80, 300), t.status));
+}
+
 export const isTown = (uid) => typeof uid === 'string' && uid.startsWith('town-');
 
 // Best town agent for `me` not met within the cooldown (most shared interests, then list order).
@@ -100,6 +140,13 @@ export function lifeSalt(env = process.env) {
 }
 
 // Opaque, stable id for another user's agent. Raw uids never land in someone else's diary, friends or met map.
+// Best position for an agent doc: exact lat/lon, else the ~1 km approx.
+export function posOf(a) {
+  if (Number.isFinite(a?.lat) && Number.isFinite(a?.lon)) return { lat: a.lat, lng: a.lon };
+  if (Number.isFinite(a?.approx?.lat) && Number.isFinite(a?.approx?.lon)) return { lat: a.approx.lat, lng: a.approx.lon };
+  return null;
+}
+
 export function hashId(uid, salt) {
   return 'h_' + createHash('sha256').update(`id|${salt}|${uid}`).digest('hex').slice(0, 20);
 }
@@ -223,7 +270,7 @@ export function parseDecision(text, me, hasMatch) {
 // agent.status per design/living-spec.md: { kind, label (<=40), since, destination?{name,lngLat}, withAgentId?, withName?, progress?{done,total} }.
 // Friends may read it, so it never holds a uid or an exact location: withAgentId is the salted hash, lngLat is placeNear's ~1 km-rounded spot.
 export const STATUS_KINDS = ['walking', 'meeting', 'working', 'idle'];
-export function makeStatus(kind, { label, now, destination, withAgentId, withName, progress } = {}) {
+export function makeStatus(kind, { label, now, destination, withAgentId, withName, progress, town } = {}) {
   if (!STATUS_KINDS.includes(kind)) kind = 'idle';
   const st = { kind, label: safeLine(label, 40) || (kind === 'idle' ? 'Resting' : ''), since: now };
   if (kind === 'walking' && destination) {
@@ -233,7 +280,8 @@ export function makeStatus(kind, { label, now, destination, withAgentId, withNam
   }
   if (kind === 'meeting') {
     if (/^h_[0-9a-f]{20}$/.test(withAgentId || '')) st.withAgentId = withAgentId;
-    const n = safeLine(withName, 40); if (n) st.withName = n;
+    const n = safeLine(stripTown(withName), 40); if (n) st.withName = n;
+    if (town) st.withTown = true;
   }
   if (kind === 'working' && progress) {
     const total = Math.max(0, Math.floor(progress.total) || 0), done = Math.min(total, Math.max(0, Math.floor(progress.done) || 0));
@@ -381,7 +429,7 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       if (match.town) {
         // Town agents have no doc: only our side of the meeting is saved.
         await save(me, { ...life, activity: 'meet', status: `Chatting with ${theirs.name}`, met: { ...(me.life?.met || {}), [otherId]: now } }, { updateTime: me.updateTime,
-          status: makeStatus('meeting', { now, label: `With ${theirs.name}`, withAgentId: otherId, withName: theirs.name }) });
+          status: makeStatus('meeting', { now, label: `With ${theirs.name}`, withAgentId: otherId, withName: theirs.name, town: true }) });
         await store.addDiary(me.uid, { kind: 'meet', withId: otherId, withName: theirs.name, shared, lines, town: true, at: now });
         summary.townMeets++;
         continue;
@@ -508,6 +556,15 @@ export function lifeStore(admin) {
     },
     async listPublicMeets(n = 30) {
       return recent(base, 'publicMeets', n);
+    },
+    // The caller's own agent position (returned only to that owner via /feed, to stand town characters beside it).
+    async getAgentPos(uid) {
+      if (!UID_RE.test(uid)) return null;
+      const r = await fetchImpl(`${base}/agents/${uid}?mask.fieldPaths=lat&mask.fieldPaths=lon&mask.fieldPaths=approx`, { headers: { Authorization: `Bearer ${await accessToken()}` }, signal: AbortSignal.timeout(8000) });
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error(`firestore ${r.status}`);
+      const f = Object.fromEntries(Object.entries((await r.json()).fields || {}).map(([k, v]) => [k, fromValue(v)]));
+      return posOf(f);
     },
     // ---- connect requests: connects/{id}, server-only (firestore.rules denies clients) ----
     async getDiary(uid, id) {

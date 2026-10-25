@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { describe, test } from 'node:test';
 import { createServer, connectText, CONNECT } from '../proxy/server.js';
 import {
-  cooldownFor, pickTown, shardOf, publicCard, maxCallsFromEnv, TOWN_AGENTS,
+  cooldownFor, pickTown, stripTown, townLook, nearbyTown, offsetFor, shiftLatLng, shardOf, publicCard, maxCallsFromEnv, TOWN_AGENTS,
   SAFETY_SETTINGS, geminiLlm, makeStatus, lifeStore, lifeSalt, LIFE, capAllows, checkTickSecret, cleanInterests, countAction, dayKey, parseConversation, parseDecision,
   pickMatch, placeNear, runTick, shouldAct, similarity, hashId, scrub, safeLine, decidePrompt, conversationPrompt, publicProfile, parseNote, notePrompt, NOTE_MAX,
 } from '../proxy/life.js';
@@ -370,7 +370,7 @@ describe('life v2: reliable world (#39)', () => {
     let n = 0;
     const r = await runTick({ store, llm: async () => (++n === 1 ? '{"action":"meet"}' : 'A: Hi!\nB: Hello!\nA: Tech?\nB: Always.'), now: NOW, salt: SALT });
     assert.equal(r.townMeets, 1);
-    assert.equal(store.diary.a[0].withName, 'Coder Arjun (town)');
+    assert.equal(store.diary.a[0].withName, 'Coder Arjun');
     assert.ok(store.diary.a[0].town);
     assert.ok(store.lives.a.met[hashId('town-coder', SALT)] === NOW);
     assert.equal(Object.keys(store.lives).length, 1);
@@ -601,5 +601,52 @@ describe('POST /connect', () => {
       assert.equal(codes.at(-1), 429);
       assert.ok(codes.slice(0, -1).every((c) => c === 401));
     });
+  });
+});
+
+describe('visible town characters', () => {
+  const dist = (a, b) => Math.hypot((a.lat - b.lat) * 111_320, (a.lng - b.lng) * 111_320 * Math.cos(a.lat * Math.PI / 180));
+  test('no " (town)" in names, statuses or diary; status carries withTown', async () => {
+    assert.ok(TOWN_AGENTS.every((t) => !t.name.includes('(town)')));
+    assert.equal(stripTown('Coder Arjun (town)'), 'Coder Arjun');
+    const store = fakeStore([agent('a', ['tech', 'ai'])]);
+    let n = 0;
+    await runTick({ store, llm: async () => (++n === 1 ? '{"action":"meet"}' : 'A: Hi there\nB: Hello\nA: You like tech?\nB: Yes, and ai.\nA: Cool.'), now: NOW, salt: SALT });
+    const all = JSON.stringify([store.diary, store.lives, store.status, store.pub]);
+    assert.ok(!all.includes('(town)'));
+    assert.equal(store.status.a.withName, 'Coder Arjun');
+    assert.equal(store.status.a.withTown, true);
+  });
+  test('look and placement are deterministic and in range', () => {
+    assert.deepEqual(townLook('town-coder'), townLook('town-coder'));
+    assert.ok(townLook('town-coder').colorIndex >= 0 && townLook('town-coder').colorIndex < 8);
+    for (let i = 0; i < 50; i++) { const o = offsetFor(`k${i}`, 15, 40), m = Math.hypot(o.east, o.north); assert.ok(m >= 14.9 && m <= 40.1, String(m)); }
+    const pos = { lat: 17.97, lng: 79.59 };
+    const a = nearbyTown('alice', SALT, pos, NOW), b = nearbyTown('alice', SALT, pos, NOW);
+    assert.deepEqual(a, b);
+    assert.equal(a.length, 3);
+    for (const c of a) { const d = dist(pos, c); assert.ok(d >= 79 && d <= 301, String(d)); assert.ok(c.town && c.look && c.status && !('uid' in c)); }
+    assert.equal(shiftLatLng(null, { east: 1, north: 1 }), null);
+  });
+  test('/feed: town meet has a positioned partner 15–40 m away, nearby[] present, no uids/notes', async () => {
+    const store = fakeStore([]);
+    const pos = { lat: 17.9689, lng: 79.5941 };
+    store.getAgentPos = async (uid) => (uid === 'alice' ? pos : null);
+    store.diary.alice = [{ kind: 'meet', withId: hashId('town-coder', SALT), withName: 'Coder Arjun (town)', shared: ['tech'], lines: [], town: true, note: 'x', at: NOW }];
+    const server = createServer({ admin: null, memory: null, rateLimiter: { allow: async () => true }, lifeSalt: SALT, lifeStore: store,
+      verifyIdToken: async () => ({ uid: 'alice' }) });
+    server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    try {
+      const j = await (await fetch(`http://127.0.0.1:${server.address().port}/feed`, { headers: { Authorization: 'Bearer aaa.bbb.ccc' } })).json();
+      const m = j.mine[0];
+      assert.equal(m.withName, 'Coder Arjun');
+      assert.ok(m.town && !('note' in m));
+      assert.equal(m.partner.id, hashId('town-coder', SALT));
+      assert.equal(m.partner.name, 'Coder Arjun');
+      assert.deepEqual(m.partner.look, townLook('town-coder'));
+      const d = dist(pos, m.partner); assert.ok(d >= 14.9 && d <= 40.1, String(d));
+      assert.equal(j.nearby.length, 3);
+      assert.ok(!JSON.stringify(j).includes('town-coder') && !JSON.stringify(j).includes('"alice"'));
+    } finally { server.close(); }
   });
 });
