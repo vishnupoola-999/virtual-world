@@ -1,3 +1,4 @@
+/* global document */
 import { expect, test } from '@playwright/test';
 
 // Loads the static site the way GitHub Pages does (plain files, no build) and
