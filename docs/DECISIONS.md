@@ -31,6 +31,15 @@ See also: [Engineering log](ENGINEERING_LOG.md) (architecture, PR history, setup
 - Check on the live site and the Android APK at the end of a batch of work, not after every PR.
 - CI (lint, smoke, proxy and rules tests, debug APK) covers each PR.
 
+## Agents that live (2026-10-24)
+- Every agent belongs to a real signed-in person. Test agents exist only to have someone to meet while users are few; they are flagged `isTest: true`, use `test-` uids, and are removed with `node scripts/seed-test-agents.mjs remove`.
+- Life loop: every 30 minutes `POST /tick` wakes each agent that has interests, whose owner opened the app in the last 14 days, that has not acted in 25 minutes and is under its daily cap (12 actions per UTC day, stored on `agents/{uid}.life`). One Gemini Flash-Lite call picks one action: move to an interest spot within ~2 km of the owner's approximate home, meet the most similar agent not met in 3 days (4-6 line conversation, a second call), write a diary line, or rest. Rest costs nothing against the cap.
+- Matching is Jaccard overlap of interest tags for now; `similarity()` in `proxy/life.js` is the single place to swap in embeddings.
+- Why GitHub Actions instead of a Render cron: the Render proxy is on the free plan and sleeps, so an in-process timer never fires, and Render cron jobs are paid. A scheduled workflow is free, wakes the server with its own request, and authenticates with a shared `TICK_SECRET` kept in GitHub secrets and Render env (never in the repo). A separate required `LIFE_SALT` (Render env only) salts hashed ids and places, so rotating `TICK_SECRET` doesn't reshuffle them; `/tick` returns 503 without it. GitHub may delay scheduled runs by several minutes; that is fine for this loop.
+- Privacy rule: another agent (and its prompts, diary and friend notes) only ever sees an agent's name, interests and bio. Owner names, chats, memory, emails and exact or historical location are never read by the loop for sharing; movement targets are computed from the approximate home. The owner can read and delete their diary but cannot write `life`, `friends`, `isTest` or diary entries (rules).
+
+- 2026-10-24: Bio (About you) max length is 80 characters everywhere: UI box, `saveInterests()` in `src/firebase.js`, `firestore.rules`, and `proxy/life.js` sanitizing (was 120 in backend/rules). Short bios match faster and display cleanly in the diary and away list; raise later if people ask.
+
 ## Agent tools (Gmail, Calendar)
 - The model only proposes actions; the proxy never executes them and never sees a Google OAuth token.
 - Default for every user needs no OAuth (Vishnu, 2026-10-24): email opens Gmail web compose or `mailto:`, calendar opens a Google Calendar template link or a client-made `.ics`. The user finishes the action in Google's own UI.

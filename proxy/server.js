@@ -23,6 +23,7 @@ import { createPublicKey, createSign, createVerify, X509Certificate } from 'node
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
+import { checkTickSecret, geminiLlm, lifeSalt, lifeStore, runTick } from './life.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
 
 const DEFAULT_PROJECT_ID = 'virtual-world-8ac82';
@@ -45,7 +46,7 @@ export const LIMITS = {
   perIpPerMin: 6,
   globalPerHour: 60,
   globalPerDay: 600,
-  maxOutputTokens: 200,
+  maxOutputTokens: 1024, // thinking models (gemini-*-latest) spend output tokens on reasoning; 200 left no text
 };
 
 const keyCache = { current: null };
@@ -487,9 +488,16 @@ async function handleChat(req, res, ctx) {
   } catch {
     throw new HttpError(502, 'upstream unavailable');
   }
-  if (!upstream.ok) throw new HttpError(502, 'upstream unavailable');
+  if (!upstream.ok) {
+    console.error('gemini error', upstream.status, model, String(payload?.error?.message || '').slice(0, 200));
+    throw new HttpError(502, 'upstream unavailable');
+  }
   // Proposed tool calls are returned as pending actions only; nothing is executed here.
   const { text, actions } = parseModelReply(payload);
+  if (!text && !(actions && actions.length)) {
+    console.error('gemini empty reply', model, payload.candidates?.[0]?.finishReason || payload.promptFeedback?.blockReason || 'none');
+    throw new HttpError(502, 'empty reply');
+  }
   sendJson(res, 200, { choices: [{ message: { role: 'assistant', content: text } }], ...(prepared.tools ? { actions } : {}) });
   if (ctx.memory && text) {
     const turn = (ctx.turns.get(uid) || 0) + 1;
@@ -529,6 +537,25 @@ export async function updateMemory(ctx, model, uid, memory, contents, reply) {
   await ctx.memory.set(uid, facts);
 }
 
+// POST /tick (life loop). Called by .github/workflows/life-tick.yml every 30 min with x-tick-secret.
+// No browser origin is involved; the shared secret is the only auth. 401 without it, 503 if the server is not configured.
+async function handleTick(req, res, ctx) {
+  req.resume();
+  if (!checkTickSecret(req.headers['x-tick-secret'], ctx.tickSecret)) throw new HttpError(401, 'unauthorized');
+  if (!ctx.lifeSalt) throw new HttpError(503, 'life loop not configured (LIFE_SALT)');
+  if (!ctx.lifeStore || !(ctx.llm || ctx.apiKey)) throw new HttpError(503, 'life loop not configured');
+  if (ctx.ticking) throw new HttpError(409, 'tick already running');
+  ctx.ticking = true;
+  try {
+    const model = MODEL_RE.test(ctx.model) ? ctx.model : DEFAULT_MODEL;
+    const llm = ctx.llm || geminiLlm({ fetchImpl: ctx.fetchImpl, apiKey: ctx.apiKey, model });
+    const summary = await runTick({ store: ctx.lifeStore, llm, now: Date.now(), salt: ctx.lifeSalt });
+    sendJson(res, 200, summary);
+  } finally {
+    ctx.ticking = false;
+  }
+}
+
 export function createServer(options = {}) {
   const fetchImpl = options.fetchImpl || fetch;
   // One admin client per process, shared by memory and the uid rate limiter.
@@ -552,6 +579,11 @@ export function createServer(options = {}) {
     }),
     memory: options.memory !== undefined ? options.memory : memoryFromAdmin(admin),
     pending: options.pending,
+    tickSecret: options.tickSecret !== undefined ? options.tickSecret : process.env.TICK_SECRET,
+    lifeSalt: options.lifeSalt !== undefined ? options.lifeSalt : lifeSalt(),
+    lifeStore: options.lifeStore !== undefined ? options.lifeStore : lifeStore(admin),
+    llm: options.llm,
+    ticking: false,
   };
   return http.createServer(async (req, res) => {
     const originOk = applyCors(req, res);
@@ -578,17 +610,24 @@ export function createServer(options = {}) {
         res.end('ok');
         return;
       }
+      if (req.method === 'POST' && url.pathname === '/tick') {
+        await handleTick(req, res, ctx);
+        return;
+      }
       if (req.method !== 'POST' || url.pathname !== '/chat') {
         sendJson(res, 404, { error: 'not found' });
         return;
       }
       if (!originOk) throw new HttpError(403, 'origin not allowed');
+      const started = Date.now();
       await handleChat(req, res, ctx);
+      console.log('chat ok', res.statusCode, Date.now() - started, 'ms');
     } catch (error) {
       if (res.headersSent || res.writableEnded) return;
       req.resume();
       const status = error instanceof HttpError ? error.statusCode : 500;
       if (!(error instanceof HttpError)) console.error('proxy', error);
+      else console.warn('chat rejected', req.method, req.url, status, error.message);
       const message = error instanceof HttpError ? error.message : 'bad request';
       sendJson(res, status, { error: message });
     }

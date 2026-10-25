@@ -46,7 +46,7 @@ export function cleanAction(call) {
 export function parseModelReply(payload) {
   const parts = payload?.candidates?.[0]?.content?.parts;
   const list = Array.isArray(parts) ? parts : [];
-  const reply = list.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('');
+  const reply = list.map((p) => (!p?.thought && typeof p?.text === 'string' ? p.text : '')).join('').trim();
   const actions = list.map((p) => cleanAction(p?.functionCall)).filter(Boolean).slice(0, 3);
   return { text: reply, actions };
 }
