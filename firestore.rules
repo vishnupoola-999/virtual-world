@@ -92,6 +92,10 @@ service cloud.firestore {
     match /rateLimits/{uid}/windows/{window} {
       allow read, write: if false;
     }
+    // "Say hi" connect requests: written and read only by the proxy (admin credentials). Holds uids, so clients get nothing.
+    match /connects/{id} {
+      allow read, write: if false;
+    }
     match /{document=**} { allow read, write: if false; }
   }
 }

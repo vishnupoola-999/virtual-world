@@ -391,6 +391,19 @@ describe('rate limit counter rules', { concurrency: false }, () => {
     await assertSucceeds(getDoc(doc(google, 'publicAgents', 'h_0123456789abcdef0123')));
     await assertSucceeds(getDocs(collection(google, 'publicMeets')));
   });
+
+  test('connects: clients can never read, list, write or delete (proxy only)', async () => {
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), 'connects', 'c1'), { fromUid: ALICE, toUid: BOB, text: 'hi', status: 'pending' });
+    });
+    const google = testEnv.authenticatedContext(BOB, { firebase: { sign_in_provider: 'google.com' } }).firestore();
+    for (const d of [db(ALICE), db(BOB), google, db(null)]) {
+      await assertFails(getDoc(doc(d, 'connects', 'c1')));
+      await assertFails(getDocs(collection(d, 'connects')));
+      await assertFails(setDoc(doc(d, 'connects', 'c2'), { text: 'x' }));
+      await assertFails(deleteDoc(doc(d, 'connects', 'c1')));
+    }
+  });
 });
 
 function omit(data, key) {

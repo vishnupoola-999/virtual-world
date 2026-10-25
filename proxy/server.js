@@ -24,7 +24,7 @@ import { createPublicKey, createSign, createVerify, X509Certificate } from 'node
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
-import { checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
+import { EMOJI_RE, isTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
 import { calendarToolContext, reviewCalendarTurn, sanitizeZone } from '../src/calendarWhen.js';
 
@@ -319,7 +319,7 @@ export async function verifyFirebaseIdToken(token, options = {}) {
   const authTimeOk = finite(payload.auth_time) && payload.auth_time <= nowSec + CLOCK_SKEW_SEC;
   const subOk = typeof payload.sub === 'string' && payload.sub.length > 0 && payload.sub.length <= 128;
   if (!audOk || !issOk || !expOk || !iatOk || !authTimeOk || !subOk) throw new HttpError(401, 'unauthorized');
-  return { uid: payload.sub, auth_time: payload.auth_time };
+  return { uid: payload.sub, auth_time: payload.auth_time, provider: payload.firebase?.sign_in_provider };
 }
 
 function originAllowed(origin) {
@@ -362,7 +362,7 @@ async function requireUser(req, verifyIdToken) {
   }
   const uid = decoded && (decoded.uid || decoded.sub);
   if (typeof uid !== 'string' || !uid || uid.length > 128) throw new HttpError(401, 'unauthorized');
-  return { uid };
+  return { uid, provider: decoded.provider || decoded.firebase?.sign_in_provider || null };
 }
 
 function applyCors(req, res) {
@@ -589,6 +589,70 @@ export function feedEntry(e) {
   return out;
 }
 
+// ---- POST /connect: "Say hi" request to someone the caller's agent actually met ----
+export const CONNECT = { maxText: 200, perDay: 10, perRecipientMs: 86_400_000, ipBurst: 5, ipWindowMs: 60_000, feedMax: 20 };
+const AGENT_ID_RE = /^h_[0-9a-f]{20}$/;
+const MEET_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+// Returns the cleaned text or throws 400. Up to 3 lines are joined with spaces; anything unsafe is rejected, not edited.
+export function connectText(raw) {
+  if (typeof raw !== 'string') throw new HttpError(400, 'text required');
+  const t0 = raw.trim();
+  if (!t0) throw new HttpError(400, 'text required');
+  if (t0.split(/\r?\n/).length > 3) throw new HttpError(400, 'text must be one line');
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u0008\u000B-\u001F\u007F]/.test(t0)) throw new HttpError(400, 'text not allowed');
+  const t = t0.replace(/\s+/g, ' ');
+  if (t.length > CONNECT.maxText) throw new HttpError(400, 'text too long');
+  if (EMOJI_RE.test(t)) throw new HttpError(400, 'no emoji');
+  if (safeLine(t, CONNECT.maxText) !== t) throw new HttpError(400, 'text not allowed');
+  return t;
+}
+
+// hashId -> agent, cached briefly (the store has no reverse index).
+async function agentByPublicId(ctx, id) {
+  const now = Date.now();
+  if (!ctx.agentIndex || now - ctx.agentIndex.at > 60_000) {
+    const agents = await ctx.lifeStore.listAgents();
+    ctx.agentIndex = { at: now, map: new Map(agents.map((a) => [hashId(a.uid, ctx.lifeSalt), { uid: a.uid, name: a.name }])) };
+  }
+  return ctx.agentIndex.map.get(id) || null;
+}
+
+async function handleConnect(req, res, ctx) {
+  const now = Date.now();
+  if (!allowHit(ctx.connectIpHits, clientIp(req), CONNECT.ipBurst, CONNECT.ipWindowMs, now)) throw new HttpError(429, 'rate limited');
+  const { uid, provider } = await requireUser(req, ctx.verifyIdToken);
+  if (provider === 'anonymous') throw new HttpError(403, 'sign in required');
+  const s = ctx.lifeStore;
+  if (!ctx.lifeSalt || !s?.addConnect || !s.getDiary || !s.listConnects) throw new HttpError(503, 'connect not configured');
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch (e) { if (e instanceof HttpError) throw e; throw new HttpError(400, 'invalid json'); }
+  if (!body || typeof body !== 'object') throw new HttpError(400, 'invalid json');
+  const { toAgentId, meetId } = body;
+  if (typeof toAgentId === 'string' && isTown(toAgentId)) throw new HttpError(403, 'cannot connect to town agents');
+  if (typeof toAgentId !== 'string' || !AGENT_ID_RE.test(toAgentId)) throw new HttpError(400, 'invalid toAgentId');
+  if (typeof meetId !== 'string' || !MEET_ID_RE.test(meetId)) throw new HttpError(400, 'invalid meetId');
+  const text = connectText(body.text);
+  const fromAgentId = hashId(uid, ctx.lifeSalt);
+  if (toAgentId === fromAgentId) throw new HttpError(403, 'cannot connect to yourself');
+  const meet = await s.getDiary(uid, meetId);
+  if (!meet || meet.kind !== 'meet' || meet.withId !== toAgentId) throw new HttpError(404, 'meet not found');
+  if (meet.town) throw new HttpError(403, 'cannot connect to town agents');
+  const [to, me] = await Promise.all([agentByPublicId(ctx, toAgentId), agentByPublicId(ctx, fromAgentId)]);
+  if (!to || to.uid === uid) throw new HttpError(404, 'agent not found');
+  const sent = await s.listConnects('fromUid', uid);
+  if (sent.some((c) => c.toUid === to.uid && c.status === 'pending')) throw new HttpError(409, 'already pending');
+  const recent = sent.filter((c) => now - (Number(c.createdAt) || 0) < CONNECT.perRecipientMs);
+  if (recent.some((c) => c.toUid === to.uid)) throw new HttpError(429, 'one request per person per day');
+  if (recent.length >= CONNECT.perDay) throw new HttpError(429, 'daily limit reached');
+  const fromName = String(me?.name || meet.selfName || 'Agent').slice(0, 40);
+  const id = await s.addConnect({ fromUid: uid, fromAgentId, fromName, toUid: to.uid, toAgentId, meetId, text, status: 'pending', createdAt: now });
+  sendJson(res, 201, { id, createdAt: now });
+}
+
+const byNewest = (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
+
 async function handleFeed(req, res, ctx, url) {
   const { uid } = await requireUser(req, ctx.verifyIdToken);
   if (!ctx.lifeStore?.listDiary) throw new HttpError(503, 'feed not configured');
@@ -597,10 +661,18 @@ async function handleFeed(req, res, ctx, url) {
     ctx.lifeStore.listDiary(uid, n),
     ctx.lifeStore.listPublicMeets ? ctx.lifeStore.listPublicMeets(n).catch(() => []) : [],
   ]);
+  const [inc, out] = ctx.lifeStore.listConnects ? await Promise.all([
+    ctx.lifeStore.listConnects('toUid', uid).catch(() => []),
+    ctx.lifeStore.listConnects('fromUid', uid).catch(() => []),
+  ]) : [[], []];
   sendJson(res, 200, {
     // The caller's own publicAgents doc id, so the app can skip drawing its own card twice.
     myId: ctx.lifeSalt ? hashId(uid, ctx.lifeSalt) : null,
     mine: diary.map(feedEntry),
+    // Uids never leave the server: only public agent ids and names.
+    incoming: inc.filter((c) => c.status === 'pending').sort(byNewest).slice(0, CONNECT.feedMax)
+      .map((c) => ({ id: c.id, fromAgentId: c.fromAgentId, fromName: c.fromName, text: c.text, meetId: c.meetId, createdAt: Number(c.createdAt) || 0 })),
+    outgoing: out.sort(byNewest).slice(0, CONNECT.feedMax).map((c) => ({ id: c.id, toAgentId: c.toAgentId, createdAt: Number(c.createdAt) || 0, status: c.status })),
     town: meets.map((m) => ({ id: m.id, aId: m.aId, aName: m.aName, bId: m.bId, bName: m.bName, shared: Array.isArray(m.shared) ? m.shared : [], at: Number(m.at) || 0 })),
   });
 }
@@ -654,6 +726,7 @@ export function createServer(options = {}) {
     llm: options.llm,
     maxCalls: options.maxCalls || maxCallsFromEnv(),
     ticking: false,
+    connectIpHits: new Map(),
   };
   return http.createServer(async (req, res) => {
     const originOk = applyCors(req, res);
@@ -682,6 +755,10 @@ export function createServer(options = {}) {
       if (req.method === 'GET') {
         res.statusCode = 200;
         res.end('ok');
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/connect') {
+        await handleConnect(req, res, ctx);
         return;
       }
       if (req.method === 'POST' && url.pathname === '/tick') {
