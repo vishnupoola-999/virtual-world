@@ -92,3 +92,9 @@ Times are IST. Newest entries are at the bottom; keep appending.
 - User messages are right-aligned bubbles with a 10% white fill (`rgba(255,255,255,0.10)`) and light text, rounded, max-width 80%.
 - Spacing: 8px between messages from the same side, 20px when the side switches. Animations stay transform/opacity only, no blur, no emoji.
 - Screenshots: `chat-before.png`, `chat-after.png` (360x740).
+
+## 2026-10-25: Nav stack (v3 input and tab bar)
+- Tab bar: centred floating pill, 56px, #111318, hairline border rgba(255,255,255,.06), safe-area padding below. Active tab #1E2129 with white text, inactive 60% white.
+- Chat input: 52px, fully rounded, #111318, border rgba(255,255,255,.10), placeholder 40% white. Send is a 36px circle that is solid white when there is text (dimmed when empty). It sits 12px above the tab bar.
+- The chat list pads its bottom by input + tabs + safe area, so the last message is never hidden.
+- Screenshot: `polish-nav.png` (360x740).

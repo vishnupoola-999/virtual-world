@@ -14,7 +14,9 @@
  --font:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
  /* v1 names mapped onto v2 tokens so older rules pick up the new palette */
  --surface:var(--s2);--surface-2:var(--s3);--accent:#6e7bff;--accent-2:#a99fff;
- --tabs:calc(66px + var(--safe-b))}
+ /* nav stack (v3): tab pill 56px floating 12px above the safe area; composer 52px sitting 12px above the tabs */
+ --tab-h:56px;--tab-gap:12px;--input-h:52px;
+ --tabs:calc(var(--tab-h) + var(--tab-gap) + var(--safe-b))}
 html,body{font-family:var(--font);font-feature-settings:'cv11','ss01','ss03';-webkit-font-smoothing:antialiased;background:var(--bg);color:var(--text)}
 input,textarea,select{font-family:inherit}
 #map{inset:0;background:radial-gradient(#141a2c,#05060a)}
@@ -45,12 +47,12 @@ button.big{min-height:48px;border-radius:var(--pill);font-size:15px}
 .maplibregl-ctrl-attrib-button{background-color:#fff!important;border-radius:50%}
 
 /* ---- tab bar: floating glass pill with a sliding indicator */
-#tabs{left:60px;right:60px;bottom:calc(14px + var(--safe-b));height:52px;padding:4px;border-radius:var(--pill);gap:0;
- background:linear-gradient(rgba(20,23,34,.92),rgba(20,23,34,.92)) padding-box,var(--edge) border-box;border:1px solid transparent}
-#tabs .ind{position:absolute;top:4px;bottom:4px;left:4px;width:calc(50% - 4px);border-radius:var(--pill);background:var(--s4);transition:transform var(--t-slow) var(--spring)}
+#tabs{box-sizing:border-box;left:50%;right:auto;width:min(260px,calc(100% - 48px));transform:translateX(-50%);bottom:calc(var(--tab-gap) + var(--safe-b));height:var(--tab-h);padding:4px;border-radius:var(--pill);gap:0;
+ background:#111318;border:1px solid rgba(255,255,255,.06)}
+#tabs .ind{position:absolute;top:4px;bottom:4px;left:4px;width:calc(50% - 4px);border-radius:var(--pill);background:#1E2129;transition:transform var(--t-slow) var(--spring)}
 #tabs[data-on=world] .ind{transform:translateX(100%)}
 .tab{position:relative;flex:1;flex-direction:row;gap:7px;min-height:0;border-radius:var(--pill);background:none;box-shadow:none;color:var(--muted);font-size:13px;font-weight:600;transition:color var(--t-med),transform var(--t-fast) var(--spring)}
-.tab svg{width:17px;height:17px}.tab[aria-selected=true]{color:var(--text)}
+.tab{color:rgba(255,255,255,.6)}.tab svg{width:17px;height:17px}.tab[aria-selected=true]{color:#fff}
 
 /* ---- sheet: floating card 8px inside the edges, radius 28, scrim 55% */
 #scrim{position:absolute;inset:0;background:#000;opacity:.55;z-index:4;animation:fadeIn var(--t-slow) var(--ease-out)}
@@ -92,7 +94,7 @@ button.big{min-height:48px;border-radius:var(--pill);font-size:15px}
 .banner .ic{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:#ffc8611a;color:var(--glow);flex:none}
 .banner.err .ic{background:#ff6b7a1a;color:var(--err)}
 .banner b{color:var(--text);font-weight:600}.banner button{min-height:36px;margin-left:auto;flex:none}
-#chatLog{position:relative;z-index:1;padding:8px 16px 16px;gap:0;scrollbar-width:none}
+#chatLog{position:relative;z-index:1;padding:8px 16px calc(var(--input-h) + 12px + var(--tabs) + 16px);gap:0;scrollbar-width:none}
 #chatLog>.msg+.msg{margin-top:20px}#chatLog>.msg.bot+.msg.bot,#chatLog>.msg.user+.msg.user{margin-top:8px}
 .msg{max-width:none;padding:0;border-radius:0;background:none;font-size:15.5px;line-height:1.55;white-space:normal}
 .msg.sys{align-self:center;font-size:11px;line-height:1.3;font-weight:560;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:0}
@@ -125,13 +127,13 @@ button.big{min-height:48px;border-radius:var(--pill);font-size:15px}
 .sks{display:grid;gap:8px;margin-top:10px}
 body[data-tab=world] .think::after,body[data-tab=world] .orbit,body[data-tab=world] .sk::after,body[data-tab=world] .caret{animation:none}
 /* composer: floating glass pill above the tab bar */
-#chatF{position:relative;z-index:2;margin:0 12px calc(var(--tabs) + 8px);border-radius:26px;padding:6px 6px 6px 8px;display:flex;align-items:center;gap:6px;border-top:1px solid transparent;
- background:linear-gradient(rgba(20,23,34,.92),rgba(20,23,34,.92)) padding-box,var(--edge) border-box;border:1px solid transparent}
+#chatF{position:absolute;z-index:2;left:12px;right:12px;bottom:calc(var(--tabs) + 12px);flex:none;box-sizing:border-box;height:var(--input-h);border-radius:var(--pill);padding:0 7px 0 8px;display:flex;align-items:center;gap:6px;
+ background:#111318;border:1px solid rgba(255,255,255,.10)}
 #chatIn{flex:1;min-height:38px;padding:0 4px;border:0;border-radius:0;background:none;outline:0;color:var(--text);font-size:15.5px}
-#chatIn:focus{outline:0}#chatIn::placeholder{color:var(--muted)}
+#chatIn:focus{outline:0}#chatIn::placeholder{color:rgba(255,255,255,.4)}
 #chatF .plus{width:34px;height:34px;min-height:0;padding:0;border-radius:50%;background:none;box-shadow:none;color:var(--muted);font-size:18px}
-#chatF .send{width:38px;height:38px;min-height:0;padding:0;border-radius:50%;background:var(--text);color:#0a0b10;box-shadow:none;display:grid;place-items:center}
-#chatF .send:disabled{opacity:.25}
+#chatF .send{width:36px;height:36px;flex:none;min-height:0;padding:0;border-radius:50%;background:#fff;color:#0a0b10;box-shadow:none;display:grid;place-items:center;transition:opacity var(--t-fast)}
+#chatF .send:disabled{background:#fff;opacity:.18}
 /* agent sheet inside Chat (More / ＋) */
 .scrim{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity var(--t-slow) var(--ease-out);z-index:30}
 .scrim.on{opacity:.55;pointer-events:auto}
