@@ -236,3 +236,4 @@ One line per pull request. Status is `merged` or `open` as of 2026-10-24. #15 is
 ## How to update
 
 Every pull request adds one row to the changelog (number, title, `merged` or `open`, one-line summary) and updates every section that the change affects, including architecture, the proxy, Firestore rules, Android signing and auth, CI, secret names, and known issues. Put product roadmap items in `docs/ROADMAP.md` and product decisions in `docs/DECISIONS.md`. Do not paste secret values, certificate fingerprints, or keystore passwords into this file.
+- 2026-10-24 design/head-framing-birth-pulse: fix head clipping (map camera + chat avatar), birth pulse while the character loads, preload the 3D code on map load; SW cache v13.
