@@ -85,3 +85,10 @@ Times are IST. Newest entries are at the bottom; keep appending.
 - Continue sits in a sticky footer on the solid sheet background, full width with 16px side padding and `calc(16px + env(safe-area-inset-bottom))` below. A 16px gradient fade on its top edge (no blur) hints that chips scroll under it.
 - With the keyboard open the sheet follows the visual viewport: secondary copy (subtitle, helper line, hint) hides so the bio box and Continue both fit, and the footer never covers the bio.
 - Screenshots: `continue-closed.png`, `continue-keyboard.png` (360x640, 5 picked).
+
+## 2026-10-25: Grok-style chat
+- Bot replies have no avatar, name or bubble: full-width plain text on the dark background, 15px, line-height 1.5, continuous like Grok Bot. Long words wrap with `overflow-wrap:anywhere`, never `break-all`.
+- Copy, like and read-aloud sit small (14px icons) and grey under each reply.
+- User messages are right-aligned bubbles with a 10% white fill (`rgba(255,255,255,0.10)`) and light text, rounded, max-width 80%.
+- Spacing: 8px between messages from the same side, 20px when the side switches. Animations stay transform/opacity only, no blur, no emoji.
+- Screenshots: `chat-before.png`, `chat-after.png` (360x740).

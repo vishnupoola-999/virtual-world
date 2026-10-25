@@ -43,21 +43,14 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     read: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
   };
   const REDUCED = matchMedia('(prefers-reduced-motion: reduce)');
-  // Agent replies: a 26 px gradient monogram, the name in small text, then plain text with no bubble.
+  // Agent replies: full-width plain text on the dark background, no avatar, name or bubble (Grok-style).
+  // Class is `msg bot`, never `ag`: `.ag` is the map-marker class and its 64px width collapsed replies.
   const agentShell = () => {
     const d = document.createElement('div');
-    d.className = 'msg ag';
-    const mini = document.createElement('span');
-    mini.className = 'mini';
-    mini.setAttribute('aria-hidden', 'true');
-    mini.textContent = (name()[0] || 'A').toUpperCase();
+    d.className = 'msg bot';
     const body = document.createElement('div');
     body.className = 'mbody';
-    const who = document.createElement('div');
-    who.className = 'name';
-    who.textContent = getAgent()?.name || 'Your agent';
-    body.append(who);
-    d.append(mini, body);
+    d.append(body);
     return { d, body };
   };
   const actions = (body, text) => {
@@ -80,7 +73,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     let d;
     if (role === 'user') {
       d = document.createElement('div');
-      d.className = `msg me ${cls}`.trim();
+      d.className = `msg user ${cls}`.trim();
       d.textContent = text;
     } else if (cls === 'sys') {
       d = document.createElement('div');
