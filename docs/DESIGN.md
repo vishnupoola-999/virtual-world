@@ -118,3 +118,4 @@ Times are IST. Newest entries are at the bottom; keep appending.
 - Map rail: the Friends' agents icon is never covered and stays 95% white. Its on state is a 6px accent dot centred below it.
 - Right-hand column (account button, rail, zoom controls, recenter) shares one centre axis. Floating sheets on tablets are rounded on all corners.
 - Screenshots: `shots/crisp/*-before.png` and `*-after.png` (deviceScaleFactor 2).
+- Chat header avatar framing: head and shoulders sit inside the 44px circle with a margin above the hair, with the face centred.

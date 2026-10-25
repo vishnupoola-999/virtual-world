@@ -263,3 +263,4 @@ Every pull request adds one row to the changelog (number, title, `merged` or `op
   - Rail: the gradient count badge covered the Friends icon. It is now a 6px accent dot centred under the icon, and the icon stays 95% white.
   - Alignment sweep at 360x740 and 768: account button (3px), zoom controls (11.5px) and recenter (5px) were off the rail axis and are now centred on it. The ≥768 floating sheet had flat bottom corners and is now rounded all round. No clipped text found.
   - Playwright tests for the rail dot and the canvas buffer, pixel ratio cap and antialias. SW cache vw-shell-v38.
+  - Chat header (#heroCv, 44px): Bs's hair was clipped by the circle. The small-canvas camera moved from z 1.9 to 2.3 and is centred on the face (y 1.06), so the head and shoulders fit with breathing room. Shots: shots/crisp/chat-header-v2-*.png, idle recording shots/crisp/idle.mp4.
