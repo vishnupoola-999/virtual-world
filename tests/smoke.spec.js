@@ -121,3 +121,18 @@ test('own character follows live location while sharing', async ({ page, context
   await page.evaluate(() => globalThis.document.getElementById('liveBtn').click());
   await expect(page.locator('#liveBtn')).toContainText('Share my live location');
 });
+
+// Regression: chat.js once grabbed the first <button> in #chatF (the "+" button),
+// so typing never enabled the real Send button.
+test('typing enables the chat Send button', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => document.getElementById('chatF')?.onsubmit);
+  const state = await page.evaluate(() => {
+    const input = document.getElementById('chatIn');
+    input.value = 'hello';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    const f = document.getElementById('chatF');
+    return { send: f.querySelector('button.send').disabled, plus: f.querySelector('#chatPlus').disabled };
+  });
+  expect(state).toEqual({ send: false, plus: false });
+});

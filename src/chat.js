@@ -31,7 +31,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
   let greetTimer = 0;
   const log = $('chatLog');
   const input = $('chatIn');
-  const send = $('chatF').querySelector('button');
+  const send = $('chatF').querySelector('button.send');
   const name = () => getAgent()?.name || 'your agent';
   const scrollEnd = () => { log.scrollTop = 1e9; };
   const ICON = {
