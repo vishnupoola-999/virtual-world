@@ -112,10 +112,10 @@ button.danger,#liveBtn.on{background:rgba(255,90,106,.12);border:1px solid rgba(
 .maplibregl-ctrl-top-right .maplibregl-ctrl{margin-right:21.5px}
 .recenter{right:17px}
 @media (min-width:768px){#sheet{border-radius:20px}}
-/* Creatures v2 picker: six creatures side by side (no labels), then an optional accessory row. */
-.cards.six,.pick.six{grid-template-columns:repeat(6,minmax(44px,1fr));gap:6px}
-.cards.six button,.pick.six button{aspect-ratio:3/4;min-height:58px}
-.cards.six button.on::after,.pick.six button.on::after{top:4px;right:4px;width:8px;height:8px}
+/* Creatures v2 picker: six creatures in a 3x2 grid of 100px cards (no labels, violet border only on the selected one), then an optional accessory row. */
+.cards.six,.pick.six{grid-template-columns:repeat(3,100px);justify-content:center;gap:12px}
+.cards.six button,.pick.six button{width:100px;aspect-ratio:4/5;min-height:0}
+.cards.six button.on::after,.pick.six button.on::after{content:none;display:none}
 .accRow{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
 .accRow[hidden]{display:none}
 .accRow button{min-height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--border);background:var(--sheet);color:inherit;font:inherit;font-size:13px;transition:border-color .15s,opacity .15s}

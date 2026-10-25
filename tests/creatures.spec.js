@@ -11,14 +11,18 @@ test('picker: six creatures side by side with no labels or default, then an opti
   expect(await cards.evaluateAll((b) => b.map((x) => x.dataset.creature))).toEqual(['blob', 'puff', 'sprout', 'pebble', 'drip', 'mallow']);
   expect(await cards.evaluateAll((b) => b.map((x) => x.textContent.trim()).join(''))).toBe('');
   expect(await cards.evaluateAll((b) => b.filter((x) => x.getAttribute('aria-checked') === 'true').length)).toBe(0);
-  // one row: all six share a top edge and fit inside 360 px
+  // 3x2 grid of ~100px cards with a 12px gap, inside 360 px
   const boxes = await cards.evaluateAll((b) => b.map((x) => x.getBoundingClientRect().toJSON()));
-  expect(new Set(boxes.map((r) => Math.round(r.top))).size).toBe(1);
-  for (const r of boxes) { expect(r.left).toBeGreaterThanOrEqual(0); expect(r.right).toBeLessThanOrEqual(360); expect(r.width).toBeGreaterThanOrEqual(44); }
+  expect(new Set(boxes.map((r) => Math.round(r.top))).size).toBe(2);
+  expect(new Set(boxes.map((r) => Math.round(r.left))).size).toBe(3);
+  for (const r of boxes) { expect(r.left).toBeGreaterThanOrEqual(0); expect(r.right).toBeLessThanOrEqual(360); expect(Math.abs(r.width - 100)).toBeLessThan(2); }
+  expect(Math.round(boxes[1].left - boxes[0].right)).toBe(12); expect(Math.round(boxes[3].top - boxes[0].bottom)).toBe(12);
   await expect(page.locator('#onbAcc')).toBeHidden();
   await expect(page.locator('#onbCreate')).toBeDisabled();
   await cards.nth(4).click();
   await expect(cards.nth(4)).toHaveAttribute('aria-checked', 'true');
+  // selection is the violet border only: no glyph in the corner
+  expect(await cards.nth(4).evaluate((b) => globalThis.getComputedStyle(b, '::after').content)).toMatch(/^(none|normal)$/);
   await expect(page.locator('#onbAcc button')).toHaveCount(6);
   await expect(page.locator('#onbAcc button.on')).toHaveAttribute('data-acc', 'none');
   await page.locator('#onbAcc button[data-acc="headphones"]').click();
@@ -34,6 +38,9 @@ test('agent sheet editor saves look as {creature, accessory} and opens old human
     return [d.toLook({ v: 1, base: 'girl', outfitColour: '#e25d9b', acc: ['cap'] }), d.toLook({ creature: 'sprout', accessory: 'tuft' })]; });
   expect(m).toEqual([{ creature: 'puff', accessory: 'beanie' }, { creature: 'sprout', accessory: 'tuft' }]);
   await expect(page.locator('#lkBase button')).toHaveCount(6);
+  const cols = await page.evaluate(() => globalThis.getComputedStyle(globalThis.document.getElementById('lkBase')).gridTemplateColumns);
+  expect(cols).toMatch(/^(100px 100px 100px|repeat\(3, 100px\))$/); // the sheet is hidden here, so the specified value comes back
+  expect(await page.evaluate(() => globalThis.getComputedStyle(globalThis.document.getElementById('lkBase')).columnGap)).toBe('12px');
 });
 
 test('triangle budget: every creature with every accessory is under 4k triangles', async ({ page }) => {
