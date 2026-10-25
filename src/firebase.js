@@ -94,11 +94,19 @@ const r2=x=>Math.round(x*100)/100;
 export async function saveAgent(uid,a){const {setDoc,doc,db,serverTimestamp}=await fs();const d={name:a.name,look:a.look,personality:a.personality||'',ownerName:a.ownerName||'',lat:a.lat,lon:a.lon,
   approx:{lat:r2(a.lat),lon:r2(a.lon)},spotApprox:!!a.spotApprox,preciseVisibility:'private',updatedAt:serverTimestamp()};
   // merge keeps the server-written `memory` field (rules reject any client change to it).
-  await setDoc(doc(db,'agents',uid),d,{merge:true});cacheAgent(uid,d);return d;}
+  await setDoc(doc(db,'agents',uid),d,{merge:true});
+  // merge keeps interests/bio already stored. The payload omits them, so keep the cached copy.
+  const prev=cachedAgent(uid);if(prev?.interests&&d.interests==null)d.interests=prev.interests;if(typeof prev?.bio==='string'&&d.bio==null)d.bio=prev.bio;
+  cacheAgent(uid,d);return d;}
 // Chat history: agents/{uid}/messages, owner-only. Kept to the newest MAX_MESSAGES.
 // Life loop profile: 3-5 interest tags and a one-line bio (rules enforce the same limits). UI is owned by design.
 export function cleanInterests(list){const out=[];for(const t of Array.isArray(list)?list:[]){if(typeof t!=='string')continue;const g=t.trim().toLowerCase().replace(/\s+/g,' ');if(/^[a-z0-9][a-z0-9 &+-]{0,23}$/.test(g)&&!out.includes(g))out.push(g);}return out.slice(0,5);}
-export async function saveInterests(uid,interests,bio=''){const tags=cleanInterests(interests);if(tags.length<3)throw new Error('Pick 3 to 5 interests');
+// proxy/life.js DEFAULT_INTERESTS, applied in memory for the life loop only. Not a saved profile.
+const BRAIN_DEFAULT_INTERESTS=['exploring','meeting people'];
+export function realSavedInterests(list){const tags=cleanInterests(list);
+  if(tags.length===BRAIN_DEFAULT_INTERESTS.length&&BRAIN_DEFAULT_INTERESTS.every(t=>tags.includes(t)))return [];
+  return tags;}
+export async function saveInterests(uid,interests,bio=''){const tags=cleanInterests(interests);if(tags.length<3||realSavedInterests(tags).length<3)throw new Error('Pick 3 to 5 interests');
   const {updateDoc,doc,db,serverTimestamp}=await fs();const d={interests:tags,bio:String(bio).replace(/\s+/g,' ').trim().slice(0,80),updatedAt:serverTimestamp()};
   await updateDoc(doc(db,'agents',uid),d);return d;}
 // Life loop diary (owner-read-only): newest first. Entries: {kind:'meet'|'diary', text?, withId?, withName?, shared?, at}.

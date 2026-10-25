@@ -1,8 +1,10 @@
 // First-60-seconds onboarding (Diggy's spec: /workspace/design/onboarding-spec.md, docs/DESIGN.md).
 // 6 steps over the real map: night globe → Google sign-in + system location prompt → dive and landing →
 // pick (two unlabelled cards, nothing preselected, no name guess) and name → interests (3-5, design/living-spec.md §1) → the agent greets first.
-// Returning users (signed in with an agent) never see it. Never blocks on location: city fallback, then Warangal centre.
-import {signIn,saveAgent,saveInterests,currentUser} from './firebase.js';
+// Returning users (signed in with an agent) skip the tour. If that agent has fewer than 3 interests
+// stored in Firestore, the same interests sheet still opens. Skip lasts for this session only.
+// Never blocks on location: city fallback, then Warangal centre.
+import {signIn,saveAgent,saveInterests,currentUser,realSavedInterests} from './firebase.js';
 import {ICONS,LABEL,icon} from './interests.js';
 import {defaultLook,sanitize} from './character-data.js';
 import {toast} from './ui.js';
@@ -17,21 +19,21 @@ const CANCEL=new Set(['auth/popup-closed-by-user','auth/cancelled-popup-request'
 const el=(tag,cls,html)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriends=()=>{}}={}){
+export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriends=()=>{},onInterests=()=>{}}={}){
   const root=$('onb');let step=0,stepT=0,spot=null,locP=null,base=null,cards=null,globeRaf=0,active=false,timers=[];
   const later=(fn,ms)=>{const t=setTimeout(fn,ms);timers.push(t);return t;};
   const clearTimers=()=>{for(const t of timers)clearTimeout(t);timers=[];};
   const body=$('onbBody');
   // ---- chrome
-  function chrome(n,{back=false,skip=''}={}){$('onbBack').hidden=!back;$('onbSkip').hidden=!skip;$('onbSkip').textContent=skip;
-    const p=$('onbPills');p.innerHTML='';p.setAttribute('aria-valuenow',n);for(let i=1;i<=6;i++)p.append(el('i',i===n?'on':i<n?'done':''));}
+  function chrome(n,{back=false,skip='',pills=true}={}){$('onbBack').hidden=!back;$('onbSkip').hidden=!skip;$('onbSkip').textContent=skip;
+    const p=$('onbPills');p.hidden=!pills;p.innerHTML='';if(!pills)return;p.setAttribute('aria-valuenow',n);for(let i=1;i<=6;i++)p.append(el('i',i===n?'on':i<n?'done':''));}
   function show(n,how='next'){if(step)track('onboarding_step_complete',{step,ms:Math.round(performance.now()-stepT),how});
     clearTimers();stopGlobe();if(step===4&&n!==4)disposeCards();step=n;stepT=performance.now();track('onboarding_step_view',{step:n});
     root.dataset.step=n;body.innerHTML='';[null,s1,s2,s3,s4,s5,s6][n]();}
   function open(n=1){if(active)return;active=true;root.hidden=false;document.body.classList.add('onb');show(n);}
   function close(){active=false;clearTimers();stopGlobe();disposeCards();root.hidden=true;document.body.classList.remove('onb');}
   $('onbBack').onclick=()=>{if(step===2)show(1,'back');else if(step===4)show(2,'back');};
-  $('onbSkip').onclick=()=>{if(step===1)show(2,'skip');else if(step===3)landNow();};
+  $('onbSkip').onclick=()=>{if(step===1)show(2,'skip');else if(step===3)landNow();else if(step===5)skipInterests();};
   // ---- offline pill
   const offline=()=>{const off=!navigator.onLine;$('onbOffline').hidden=!off;if(off&&active)track('offline_shown');};
   addEventListener('online',offline);addEventListener('offline',offline);offline();
@@ -113,11 +115,28 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
     // Firestore queues the write while offline; don't block the greeting on the server ack.
     const local={...a,approx:{lat:Math.round(a.lat*100)/100,lon:Math.round(a.lon*100)/100},preciseVisibility:'private'};
     saveAgent(u.uid,a).then(d=>onCreated(d,true)).catch(e=>toast('Could not save your agent: '+(e.code||e.message),8000));
-    onCreated(local,false);agentName=n;show(5);}
+    onCreated(local,false);agentName=n;interestMode='onboarding';interestAgent=null;show(5);}
 
-  // ---- 5. interests: pick 3-5 of 16 chips, optional one-line bio (saved via saveInterests; never blocks the greeting)
-  let agentName='';
-  function s5(){chrome(5);track('interests_view');const sel=new Set();const who=esc(agentName||'Your agent');
+  // ---- 5. interests: pick 3-5 of 16 chips, optional one-line bio (saved via saveInterests).
+  // Same sheet for first-time onboarding, for a signed-in agent with fewer than 3 stored tags, and for Edit interests.
+  // Skip is sessionStorage only (vw-int-skip:<uid>), so the prompt returns next session until 3 real tags are saved.
+  // proxy/life.js DEFAULT_INTERESTS never count and are never written here.
+  let agentName='',interestMode='onboarding',interestAgent=null;
+  const skipKey=uid=>'vw-int-skip:'+(uid||'');
+  const sessionSkipped=uid=>{try{return sessionStorage.getItem(skipKey(uid))==='1';}catch{return false;}};
+  const markSkipped=uid=>{try{sessionStorage.setItem(skipKey(uid),'1');}catch{}};
+  function skipInterests(){if(interestMode==='edit'){close();return;}
+    markSkipped(currentUser()?.uid||'');track('interests_skip',{mode:interestMode});
+    if(interestMode==='onboarding')show(6,'skip');else close();}
+  function presentInterests(agent,mode){interestMode=mode;interestAgent=agent||null;agentName=agent?.name||agentName||'';
+    if(active)show(5);else open(5);}
+  function promptIfNeeded(agent){const u=currentUser();if(!u||!agent)return false;
+    if(realSavedInterests(agent.interests).length>=3||sessionSkipped(u.uid))return false;
+    presentInterests(agent,'prompt');return true;}
+  function editInterests(agent){if(!agent)return;presentInterests(agent,'edit');}
+  function s5(){chrome(5,{skip:interestMode==='edit'?'Cancel':'Skip',pills:interestMode==='onboarding'});track('interests_view',{mode:interestMode});
+    const known=realSavedInterests(interestMode==='onboarding'?[]:interestAgent?.interests).filter(k=>ICONS[k]);
+    const sel=new Set(known.slice(0,5));const who=esc(agentName||interestAgent?.name||'Your agent');
     const ck='<span class="ck"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c9c1ff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg></span>';
     body.append(el('div','onbInt',`<div class="hd"><h2>What are you into?</h2><p>Pick 3 to 5. ${who} uses these to find people and agents you'll click with.</p></div>
       <div class="count"><b id="intCnt" aria-live="polite">0 of 5</b><span class="meter" id="intMeter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span></div>
@@ -129,15 +148,20 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
       $('intCnt').textContent=`${n} of 5`;[...$('intMeter').children].forEach((m,i)=>m.classList.toggle('on',i<n));$('intNext').disabled=n<3;
       $('intHint').textContent=n<3?`Pick ${3-n} more`:n<5?`Nice. You can add up to ${5-n} more.`:"That's 5, the max";};
     $('intGrid').onclick=e=>{const c=e.target.closest('.chip');if(!c)return;const k=c.dataset.k;if(sel.has(k))sel.delete(k);else if(sel.size<5)sel.add(k);else return;track('interest_toggle',{key:k,on:sel.has(k)});ui();};
-    const bio=$('intBio');bio.oninput=()=>{if(/\n/.test(bio.value))bio.value=bio.value.replace(/\n+/g,' ').slice(0,80);$('intBc').textContent=bio.value.length+'/80';};
+    const bio=$('intBio');
+    if(interestMode!=='onboarding'){const start=String(interestAgent?.bio||'').replace(/\s+/g,' ').trim().slice(0,80);bio.value=start;$('intBc').textContent=start.length+'/80';}
+    bio.oninput=()=>{if(/\n/.test(bio.value))bio.value=bio.value.replace(/\n+/g,' ').slice(0,80);$('intBc').textContent=bio.value.length+'/80';};
     bio.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();bio.blur();}};
     // keep Continue above the keyboard: size the sheet to the visual viewport while the bio is focused
     const vv=window.visualViewport,fit=()=>{if(step!==5||!vv){root.style.removeProperty('--vvh');root.classList.remove('kb');return;}
       const kb=window.innerHeight-vv.height>80;root.classList.toggle('kb',kb&&document.activeElement===bio);root.style.setProperty('--vvh',vv.height+'px');};
     if(vv){vv.addEventListener('resize',fit);const off=()=>{if(step!==5){vv.removeEventListener('resize',fit);fit();}};vv.addEventListener('resize',off);}
     bio.onfocus=()=>{fit();later(()=>{fit();bio.scrollIntoView({block:'nearest'});},300);};bio.onblur=()=>later(fit,100);
-    $('intNext').onclick=()=>{if(sel.size<3)return;const list=[...sel],b=bio.value.replace(/\s+/g,' ').trim().slice(0,80);track('interests_saved',{count:list.length,has_bio:!!b});
-      const u=currentUser();if(u)saveInterests(u.uid,list,b).catch(e=>toast("Couldn't save your interests: "+(e.code||e.message),6000));show(6);};
+    $('intNext').onclick=async()=>{if(sel.size<3)return;const list=[...sel],b=bio.value.replace(/\s+/g,' ').trim().slice(0,80);track('interests_saved',{count:list.length,has_bio:!!b,mode:interestMode});
+      const u=currentUser();$('intNext').disabled=true;
+      try{if(u){await saveInterests(u.uid,list,b);onInterests({interests:list,bio:b});}}
+      catch(e){toast("Couldn't save your interests: "+(e.code||e.message),6000);ui();return;}
+      if(interestMode==='onboarding')show(6);else close();};
     ui();}
 
   // ---- 6. first chat: local template greeting, never needs the network
@@ -152,5 +176,5 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
     $('onbNot').onclick=()=>{track('find_friends_dismiss');close();onDone('chat');};
     $('onbMove').onclick=()=>{track('move_agent_tap',{from:'onboarding'});close();onDone('move');};}
 
-  return {open,close,afterSignIn,_show:show,get active(){return active;},get step(){return step;}};}
+  return {open,close,afterSignIn,promptIfNeeded,editInterests,_show:show,get active(){return active;},get step(){return step;}};}
 

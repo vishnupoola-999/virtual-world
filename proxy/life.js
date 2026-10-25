@@ -225,6 +225,7 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
   if (!salt) throw new Error('LIFE_SALT missing');
   const started = clock();
   // Agents born before the interests step (#26) have none; give them a neutral default so they still live instead of being skipped forever.
+  // In memory only. Never write DEFAULT_INTERESTS back onto agents/{uid}.interests — the client asks until 3 real tags are saved.
   const agents = (await store.listAgents()).map((a) => ({ ...a, interests: cleanInterests(a.interests).length ? cleanInterests(a.interests) : [...DEFAULT_INTERESTS] }));
   const summary = { agents: agents.length, acted: 0, skipped: 0, moves: 0, meets: 0, diary: 0, rests: 0, errors: 0, calls: 0, stopped: null };
   const touched = new Set();

@@ -63,6 +63,7 @@ window.__vw.tabs=tabs;
 const noOnb=new URLSearchParams(location.search).get('onb')==='0';
 const goChat=()=>{if(chat.open()){closeSheet();tabs.set('chat');}};
 const ob=setupOnboarding(map,{onCreated:(a,saved)=>window.__vw.agent.adopt(a,saved),
+  onInterests:p=>window.__vw.agent.setProfile(p),
   onDone:w=>{if(w==='move'){tabs.set('world');window.__vw.agent.startMove('onboarding');}else goChat();},
   onFindFriends:()=>{tabs.set('world');openSheet('family');}});
 window.__vw.onb=ob;
@@ -75,12 +76,14 @@ $('railMe').onclick=()=>{const mine=agents.get('me');if(mine){closeSheet();agent
 $('layDone').onclick=()=>closeSheet();
 $('swFriends').onclick=()=>{const on=$('swFriends').getAttribute('aria-checked')!=='true';$('swFriends').setAttribute('aria-checked',String(on));agents.showFriends(on);toast(on?"Friends' agents shown":"Friends' agents hidden");};
 agents.configure({onmove:()=>window.__vw.agent.startMove('profile'),oncustom:()=>{openSheet('agent');$('agEdit')?.click();},
+  oninterests:()=>ob.editInterests(window.__vw.agent?.agent),
   onvisit:a=>{const ll=a.marker.getLngLat();flyTo(map,ll.lng,ll.lat,18);},onchat:a=>toast(`Chatting with ${a.name}'s agent is coming soon`),
   onLongPress:()=>window.__vw.agent.startMove('longpress')});
 $('chatShow').onclick=()=>{const a=window.__vw.agent?.agent;tabs.set('world');if(a)flyTo(map,a.lon,a.lat,19);};
 $('chatMore').onclick=$('chatPlus').onclick=()=>more(true);dragToClose($('moreSheet'),()=>more(false));$('moreDone').onclick=$('moreScrim').onclick=()=>more(false);
 $('chatMove').onclick=()=>{more(false);tabs.set('world');window.__vw.agent.startMove('chat');};
 $('chatCustom').onclick=()=>{more(false);tabs.set('world');openSheet('agent');$('agEdit')?.click();};
+$('chatInterests').onclick=()=>{more(false);ob.editInterests(window.__vw.agent?.agent);};
 $('chatLive').onclick=()=>{$('liveBtn').click();$('chatLive').setAttribute('aria-checked',String(watch!==null));};
 // Living agents: status pill / route / link / hint card on the map, and the "While you were away" card on open.
 // V1 (friends test): map walking/meeting/working states, status pill and hint card are off. Flip after V1.
@@ -88,7 +91,16 @@ const LIVING_MAP=false;
 const living=LIVING_MAP?setupLiving(map,{hintEl:$('liveHint')}):{showOwn:a=>readStatus(a),readStatus};const away=setupAway({track});window.__vw.living=living;window.__vw.away=away;
 addEventListener('pagehide',()=>markVisit());document.addEventListener('visibilitychange',()=>{if(document.hidden&&!away.open)markVisit();});
 const showLife=(u,a)=>{living.showOwn(a);if(!u||!a||ob.active)return;loadDiary(u.uid).then(entries=>away.maybeShow({name:a.name,entries})).catch(e=>console.warn('diary',e?.code||e?.message));};
-window.__vw.agent=setupAgent(map,{onLoaded:(u,a)=>{showLife(u,a);if(!u||noOnb)return;if(!a)ob.afterSignIn();else if(ob.active&&ob.step<=2){ob.close();goChat();}},onAgent:a=>{chat.reset();if(a&&autoChat){autoChat=false;if(chat.open()){closeSheet();tabs.set('chat');return true;}}else if(!a&&tabs.current==='chat')tabs.set('world');else if(a&&tabs.current==='chat')chat.open();}});
+window.__vw.agent=setupAgent(map,{onLoaded:(u,a)=>{
+  // Ask for interests whenever a signed-in agent has fewer than 3 tags stored in Firestore.
+  // ?onb=0 still skips the first-time tour, but not this prompt. Don't interrupt onboarding past sign-in.
+  const returningMidIntro=!!(u&&a&&ob.active&&ob.step<=2);
+  if(u&&!a&&!noOnb)ob.afterSignIn();
+  else if(returningMidIntro)ob.close();
+  const asking=!!(u&&a&&!ob.active&&ob.promptIfNeeded(a));
+  showLife(u,a);
+  if(returningMidIntro&&!asking)goChat();
+},onAgent:a=>{chat.reset();if(a&&autoChat){autoChat=false;if(chat.open()){closeSheet();tabs.set('chat');return true;}}else if(!a&&tabs.current==='chat')tabs.set('world');else if(a&&tabs.current==='chat')chat.open();}});
 $('tabWorld').addEventListener('click',()=>{autoChat=false;});
 // Share my own live location from inside the app, so the map (and my agent) stay on screen.
 let watch=null,timer=null,lastPos=null;
