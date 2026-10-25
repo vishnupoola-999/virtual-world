@@ -131,6 +131,11 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
     $('intGrid').onclick=e=>{const c=e.target.closest('.chip');if(!c)return;const k=c.dataset.k;if(sel.has(k))sel.delete(k);else if(sel.size<5)sel.add(k);else return;track('interest_toggle',{key:k,on:sel.has(k)});ui();};
     const bio=$('intBio');bio.oninput=()=>{if(/\n/.test(bio.value))bio.value=bio.value.replace(/\n+/g,' ').slice(0,80);$('intBc').textContent=bio.value.length+'/80';};
     bio.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();bio.blur();}};
+    // keep Continue above the keyboard: size the sheet to the visual viewport while the bio is focused
+    const vv=window.visualViewport,fit=()=>{if(step!==5||!vv){root.style.removeProperty('--vvh');root.classList.remove('kb');return;}
+      const kb=window.innerHeight-vv.height>80;root.classList.toggle('kb',kb&&document.activeElement===bio);root.style.setProperty('--vvh',vv.height+'px');};
+    if(vv){vv.addEventListener('resize',fit);const off=()=>{if(step!==5){vv.removeEventListener('resize',fit);fit();}};vv.addEventListener('resize',off);}
+    bio.onfocus=()=>{fit();later(()=>{fit();bio.scrollIntoView({block:'nearest'});},300);};bio.onblur=()=>later(fit,100);
     $('intNext').onclick=()=>{if(sel.size<3)return;const list=[...sel],b=bio.value.replace(/\s+/g,' ').trim().slice(0,80);track('interests_saved',{count:list.length,has_bio:!!b});
       const u=currentUser();if(u)saveInterests(u.uid,list,b).catch(e=>toast("Couldn't save your interests: "+(e.code||e.message),6000));show(6);};
     ui();}

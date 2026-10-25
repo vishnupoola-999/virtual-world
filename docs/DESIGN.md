@@ -79,3 +79,9 @@ Times are IST. Newest entries are at the bottom; keep appending.
   - The agent is lifted, you drag it, then confirm with "My agent lives here". That clears `approx`.
 - **The flow is now 5 steps:** globe → sign-in (plus the system location prompt) → dive and landing → pick and name → first chat. There are 5 progress pills.
 - **Screenshots re-rendered.** The obsolete location screens were deleted. The denied state is kept as `onboarding-3b-denied-fallback.png`.
+
+## 2026-10-25: Interests step, pinned Continue
+- The interests sheet is a fixed column (max 100dvh). Only the chip list scrolls; the header, About you box and Continue stay put.
+- Continue sits in a sticky footer on the solid sheet background, full width with 16px side padding and `calc(16px + env(safe-area-inset-bottom))` below. A 16px gradient fade on its top edge (no blur) hints that chips scroll under it.
+- With the keyboard open the sheet follows the visual viewport: secondary copy (subtitle, helper line, hint) hides so the bio box and Continue both fit, and the footer never covers the bio.
+- Screenshots: `continue-closed.png`, `continue-keyboard.png` (360x640, 5 picked).

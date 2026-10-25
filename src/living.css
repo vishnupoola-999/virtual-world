@@ -2,12 +2,18 @@
    No blur or filter; only transform and opacity animate; no emoji (line SVG icons only). */
 :root{--chip-on-bg:#8b7bff1f;--chip-on-border:#8b7bff88;--chip-on-text:#ded9ff;--chip-on-icon:#c9c1ff}
 /* 1. interests step (onboarding step 5 of 6) */
-.onbInt{flex:1;display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+.onbInt{flex:1;display:flex;flex-direction:column;min-height:0;max-height:100dvh;background:var(--bg)}
+/* step 5 sheet is a fixed-height column: only the chip list scrolls, Continue is pinned (sticky footer).
+   --vvh follows the visual viewport so the footer sits above the on-screen keyboard. */
+#onb[data-step="5"]{height:var(--vvh,100dvh);max-height:100dvh;bottom:auto}
+#onb[data-step="5"] #onbBody{min-height:0}
+.onbInt .about{flex:none;padding-bottom:16px}
+.onbInt .grid{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;align-content:flex-start;padding-bottom:4px}
 .onbInt .hd{padding:14px 22px 6px}.onbInt .hd h2{margin:0;font-size:26px;line-height:1.15;font-weight:650;letter-spacing:-.02em}.onbInt .hd p{margin:8px 0 0;font-size:14.5px;line-height:1.45;color:var(--text-2)}
 .onbInt .count{display:flex;align-items:center;justify-content:space-between;padding:12px 22px 10px}.onbInt .count b{font-size:13px;font-weight:600}
 .meter{display:flex;gap:4px}.meter i{width:18px;height:4px;border-radius:2px;background:var(--s4);position:relative;overflow:hidden}
 .meter i::after{content:'';position:absolute;inset:0;background:var(--grad);opacity:0;transition:opacity 200ms}.meter i.on::after{opacity:1}
-.onbInt .grid{display:flex;flex-wrap:wrap;gap:8px;padding:0 20px}
+.onbInt .grid{display:flex;flex-wrap:wrap;gap:8px;padding:0 20px 4px}
 .chip{height:40px;min-height:40px;width:auto;margin:0;padding:0 14px 0 11px;border-radius:var(--pill);background:var(--s2);border:1px solid var(--line-2);color:var(--text);font-size:14px;font-weight:550;display:inline-flex;align-items:center;gap:7px;cursor:pointer;box-shadow:none;transition:transform 150ms var(--spring),opacity 150ms}
 .chip:active{transform:scale(.97)}
 .chip svg{width:17px;height:17px;stroke:var(--text-2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -18,7 +24,12 @@
 .onbInt .about{padding:16px 22px 0}.onbInt .about label{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin-bottom:7px}
 .onbInt .about textarea{display:block;width:100%;box-sizing:border-box;height:calc(2lh + 24px);line-height:1.4;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;border-radius:16px;background:var(--s1);border:1px solid var(--line-2);color:var(--text);font:inherit;font-size:15px;padding:12px 14px;outline:0}.onbInt .about textarea:focus{border-color:#8b7bff99}
 .onbInt .about small{display:block;margin-top:7px;font-size:12px;color:var(--muted)}
-.onbInt .bottom{margin-top:auto;padding:14px 20px calc(24px + var(--safe-b,0px));display:flex;flex-direction:column;gap:6px}
+.onbInt .bottom{position:sticky;bottom:0;z-index:2;flex:none;margin-top:auto;background:var(--bg);padding:12px 16px calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:6px}
+.onbInt .bottom::before{content:'';position:absolute;left:0;right:0;top:-16px;height:16px;background:linear-gradient(to bottom,transparent,var(--bg));opacity:1;pointer-events:none}
+.onbInt .bottom .primary{width:100%}
+/* keyboard open / short screens: drop secondary copy so the bio box and Continue both fit */
+@media (max-height:480px){.onbInt .hd p,.onbInt .about small,.onbInt .hint{display:none}.onbInt .hd{padding-top:8px}.onbInt .hd h2{font-size:20px}.onbInt .count{padding:6px 22px}.onbInt .about{padding-top:8px}}
+#onb[data-step="5"].kb .onbInt .hd p,#onb[data-step="5"].kb .onbInt .about small,#onb[data-step="5"].kb .onbInt .hint{display:none}
 .onbInt .hint{text-align:center;font-size:12.5px;color:var(--muted);height:18px}
 /* 2. living states on the map */
 .ag .stat{position:absolute;left:50%;bottom:92px;transform:translateX(-50%);height:30px;padding:0 12px 0 8px;border-radius:var(--pill);display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;white-space:nowrap;color:var(--text);animation:statIn 250ms var(--spring) both;pointer-events:none}
