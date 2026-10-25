@@ -93,7 +93,8 @@ $('tabWorld').addEventListener('click',()=>{autoChat=false;});
 // Share my own live location from inside the app, so the map (and my agent) stay on screen.
 let watch=null,timer=null,lastPos=null;
 const myName=()=>currentUser()?.displayName||localStorage.getItem('vw-name')||'Family member';
-const sendPos=()=>{if(lastPos){usedKeys.add(myKey());relay.publish(myKey(),{name:myName(),...lastPos,ts:Date.now()});}};
+// One dot per person: once signed in, retire any key this device used before (anon device id) so viewers drop it now, not after STALE_MS.
+const retired=new Set();const sendPos=()=>{if(lastPos){const k=myKey();usedKeys.add(k);for(const o of usedKeys)if(o!==k&&!retired.has(o)){retired.add(o);relay.clear(o);}relay.publish(k,{name:myName(),uid:currentUser()?.uid||undefined,...lastPos,ts:Date.now()});}};
 const clearMe=()=>{for(const k of usedKeys)relay.clear(k);};
 function stopLive(){if(watch!==null)navigator.geolocation.clearWatch(watch);clearInterval(timer);watch=timer=null;lastPos=null;clearMe();window.__vw.agent?.setLive(null);$('liveBtn').classList.remove('on');$('liveBtn').textContent='Share my live location';}
 $('liveBtn').onclick=()=>{if(watch!==null){stopLive();return toast('Stopped sharing');}
