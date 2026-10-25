@@ -65,6 +65,6 @@ export function setupLiving(map,{hintEl}={}){const agents=agentsOnMap(map);let d
     agents.setLiving('me',{kind:st.kind,html:pillHtml(st)},yaw);hint(st,agent?.name,opts);return st;}
   // Someone else's agent: kind + label only, at an approximate area. Destination, route and progress are ignored.
   function putOther(d){const st=readStatus(d),p=d.approx&&num(d.approx.lat)&&num(d.approx.lon)?d.approx:approx(d.lat,d.lon);
-    agents.put({id:d.id,name:d.name,lat:p.lat,lon:p.lon,look:d.look,ownerName:d.ownerName,meta:d.meta||'Friend · approximate area',status:st.label||undefined});
+    agents.put({id:d.id,name:d.name,lat:p.lat,lon:p.lon,look:d.look,ownerName:d.ownerName,meta:d.meta||'Friend · approximate area',status:st.label||undefined,other:!!d.other});
     const safe={...st,destination:null,progress:null};agents.setLiving(d.id,{kind:st.kind,html:pillHtml(safe)});return safe;}
   return {showOwn,putOther,readStatus};}

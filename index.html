@@ -11,7 +11,7 @@
 <link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" crossorigin="anonymous">
 <link rel="preload" href="fonts/inter-latin-wght-400-600.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="src/style.css"><link rel="stylesheet" href="src/ui-v2.css"><link rel="stylesheet" href="src/world-v2.css"><link rel="stylesheet" href="src/living.css"><link rel="stylesheet" href="src/ui-v3.css">
+<link rel="stylesheet" href="src/style.css"><link rel="stylesheet" href="src/ui-v2.css"><link rel="stylesheet" href="src/world-v2.css"><link rel="stylesheet" href="src/living.css"><link rel="stylesheet" href="src/ui-v3.css"><link rel="stylesheet" href="src/feed.css">
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
 <!-- Flatten the module import waterfall for the startup modules (no bundler: the site stays a static Pages deploy). -->
 <link rel="modulepreload" href="src/map.js"><link rel="modulepreload" href="src/device.js"><link rel="modulepreload" href="src/firebase.js"><link rel="modulepreload" href="src/agent.js"><link rel="modulepreload" href="src/chat.js"><link rel="modulepreload" href="src/onboarding.js"><link rel="modulepreload" href="src/ui.js"><link rel="modulepreload" href="src/world-agents.js"><link rel="modulepreload" href="src/character-data.js">
@@ -22,6 +22,7 @@
 <nav id="rail" class="glass" aria-label="Map tools">
  <button class="rb" id="railMe" type="button" aria-label="My agent" title="My agent"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></button>
  <button class="rb" data-open="family" type="button" aria-label="Family" title="Family"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><circle cx="17" cy="9" r="2.8"/><path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5M15 14.6c2.8-.3 5.3 1.4 6.4 4.9"/></svg><span id="famN" class="badge">0</span></button>
+ <button class="rb" id="railFeed" data-open="feed" type="button" aria-label="Feed" title="Feed"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h9"/></svg></button>
  <button class="rb" data-open="layers" type="button" aria-label="Layers" title="Layers"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg></button>
 </nav>
 <button class="recenter glass" id="meBtn" type="button" aria-label="Go to my agent" title="Go to my agent"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
@@ -80,6 +81,7 @@
   <small class="tip">Your location is shared only while this app is open, and only with people who have your family link.</small>
   <small id="shareMsg"></small><div id="famList"></div>
  </div>
+ <div data-sec="feed" data-title="Feed"><div id="feedList" class="feed" aria-live="polite"></div></div>
  <div data-sec="layers" data-title="Layers">
   <div class="sec">Map style</div>
   <div class="styles" role="radiogroup" aria-label="Map style"><button class="sty" role="radio" aria-checked="true" type="button"><span class="swatch night"></span>Night</button><button class="sty" role="radio" aria-checked="false" aria-disabled="true" type="button"><span class="swatch day"></span>Day<small>Later</small></button><button class="sty" role="radio" aria-checked="false" aria-disabled="true" type="button"><span class="swatch sat"></span>Satellite<small>Later</small></button></div>

@@ -119,3 +119,9 @@ Times are IST. Newest entries are at the bottom; keep appending.
 - Right-hand column (account button, rail, zoom controls, recenter) shares one centre axis. Floating sheets on tablets are rounded on all corners.
 - Screenshots: `shots/crisp/*-before.png` and `*-after.png` (deviceScaleFactor 2).
 - Chat header avatar framing: head and shoulders sit inside the 44px circle with a margin above the hair, with the face centred.
+## 2026-10-25: Living map + Feed (Diggy's spec)
+- Other people's agents render at 85% scale (`scale:.85`, bottom-centre origin) with the name pill at 60% opacity, so your own agent always reads first. Status labels are 12px and capped at 40 characters with an ellipsis.
+- Agents in the same spot fan out about 24px around it (marker offsets, no layout reflow).
+- Feed is a rail button (three-line icon) opening the standard sheet. Sections are "Your agent" and "Around town" in 13/500 sentence-case labels. Rows are 52px #16181F cards with a 10% border and 14px radius; meets carry an accent dot, diary notes a 40% dot. Meet rows expand on tap (opacity + 4px translate, 180ms).
+- Loading shows opacity-pulse skeleton rows (no shimmer gradients, no blur). Empty state: "Nothing yet. Bs is out exploring." Signed-out and error states use calm copy, never raw errors.
+- Screenshots: `shots/feed/map-others.png`, `fan-out.png`, `feed-data.png`, `feed-empty.png`, `feed-skeleton.png` (360 wide at 2x).

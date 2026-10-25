@@ -11,6 +11,7 @@ import {setupTabs} from './tabs.js';
 import {currentUser,onUser,loadDiary} from './firebase.js';
 import {setupLiving,readStatus} from './living.js';
 import {setupAway,markVisit} from './away.js';
+import {setupTown} from './town.js';
 import {track} from './onboarding.js';
 import {setupUI,toast,closeSheet,openSheet,dragToClose} from './ui.js';
 const $=id=>document.getElementById(id);
@@ -87,8 +88,12 @@ $('chatInterests').onclick=()=>{more(false);ob.editInterests(window.__vw.agent?.
 $('chatLive').onclick=()=>{$('liveBtn').click();$('chatLive').setAttribute('aria-checked',String(watch!==null));};
 // Living agents: status pill / route / link / hint card on the map, and the "While you were away" card on open.
 // V1 (friends test): map walking/meeting/working states, status pill and hint card are off. Flip after V1.
-const LIVING_MAP=false;
+const LIVING_MAP=true;
 const living=LIVING_MAP?setupLiving(map,{hintEl:$('liveHint')}):{showOwn:a=>readStatus(a),readStatus};const away=setupAway({track});window.__vw.living=living;window.__vw.away=away;
+// Other people's public agents on the map + the Feed sheet (signed-in, non-anonymous users only).
+const town=setupTown({agents,living,getUser:currentUser,el:$('feedList')});window.__vw.town=town;
+onUser(u=>{if(u&&!u.isAnonymous)town.refreshMap(u);else town.clearMap();});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);
+$('railFeed').addEventListener('click',()=>town.loadFeed());
 addEventListener('pagehide',()=>markVisit());document.addEventListener('visibilitychange',()=>{if(document.hidden&&!away.open)markVisit();});
 const showLife=(u,a)=>{living.showOwn(a);if(!u||!a||ob.active)return;loadDiary(u.uid).then(entries=>away.maybeShow({name:a.name,entries})).catch(e=>console.warn('diary',e?.code||e?.message));};
 window.__vw.agent=setupAgent(map,{onLoaded:(u,a)=>{

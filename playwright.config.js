@@ -4,7 +4,7 @@ const port = Number(process.env.PW_PORT) || 4173;
 
 export default defineConfig({
   testDir: 'tests',
-  testMatch: ['smoke.spec.js', 'confirm.spec.js', 'interests.spec.js'],
+  testMatch: ['smoke.spec.js', 'confirm.spec.js', 'interests.spec.js', 'feed.spec.js'],
   timeout: 90_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
