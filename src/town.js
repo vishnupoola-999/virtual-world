@@ -4,6 +4,7 @@
 // Anonymous users, network errors and missing config all fail quietly: no others on the map, a calm Feed message.
 const PROJ='virtual-world-8ac82',FS_DB='default'; // same as firebase.js (kept here so this module has no CDN imports)
 export const FEED_URL='https://virtual-world-ai.onrender.com/feed?n=30';
+export const CONNECT_URL='https://virtual-world-ai.onrender.com/connect';
 export const FAN_PX=40,SPREAD_PX=72,EDGE=16;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fromRest=v=>v==null?null:'stringValue' in v?v.stringValue:'doubleValue' in v?v.doubleValue:'integerValue' in v?Number(v.integerValue)
@@ -32,7 +33,18 @@ export async function fetchPublicAgents(user){const t=await user.getIdToken();
   return (j.documents||[]).map(d=>({id:d.name.split('/').pop(),...Object.fromEntries(Object.entries(d.fields||{}).map(([k,v])=>[k,fromRest(v)]))}));}
 export async function fetchFeed(user){const t=await user.getIdToken();const r=await fetch(FEED_URL,{headers:{Authorization:'Bearer '+t}});
   if(!r.ok)throw new Error('feed '+r.status);const j=await r.json();
-  return {myId:typeof j.myId==='string'?j.myId:null,mine:Array.isArray(j.mine)?j.mine:[],town:Array.isArray(j.town)?j.town:[]};}
+  return {myId:typeof j.myId==='string'?j.myId:null,mine:Array.isArray(j.mine)?j.mine:[],town:Array.isArray(j.town)?j.town:[],
+    incoming:Array.isArray(j.incoming)?j.incoming:[],outgoing:Array.isArray(j.outgoing)?j.outgoing:[]};}
+// Say hi (PR #43 POST /connect). Resolves {id,createdAt}; throws an Error carrying .status on any failure (0 = offline).
+export async function sendConnect(user,{toAgentId,meetId,text}){const t=await user.getIdToken();let r;
+  try{r=await fetch(CONNECT_URL,{method:'POST',headers:{Authorization:'Bearer '+t,'Content-Type':'application/json'},body:JSON.stringify({toAgentId,meetId,text:String(text).trim()})});}
+  catch{const e=new Error('offline');e.status=0;throw e;}
+  if(r.status===201)return r.json().catch(()=>({}));const e=new Error('connect '+r.status);e.status=r.status;throw e;}
+export const HI_MAX=200;
+const ERRS={0:'You seem offline. Try again in a moment.',400:'That message can\'t be sent. Keep it simple, no links or contact details.',401:'Please sign in again to say hi.',
+  403:'You can\'t send a hi to this agent.',404:'We couldn\'t find this meet anymore.',409:'You already said hi',429:'Try again later',503:'Say hi is resting. Try again later.'};
+export const connectError=st=>ERRS[st]||'Something went wrong. Try again.';
+export const hiDraft=name=>{const n=clip(String(name||'').trim(),40)||'there';return `Hi ${n}, our agents had a lovely chat and think we'd get along. Would love to connect.`;};
 const ago=at=>{const m=Math.max(0,Math.round((Date.now()-(typeof at==='number'?at:Date.parse(at)||0))/60000));return m<1?'Just now':m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago';};
 function meetRow(e,mine){const who=mine?esc(e.withName||'another agent'):`${esc(e.aName||'Someone')} and ${esc(e.bName||'someone')}`;
   const sh=(e.shared||[]).slice(0,3).map(esc);const lines=(e.lines||[]).slice(0,6);
@@ -52,21 +64,32 @@ export function noteText(e){if(typeof e.note==='string'&&e.note.trim())return es
 export const worthMeeting=f=>(f.mine||[]).filter(e=>e.kind==='meet'&&!e.town&&Array.isArray(e.shared)&&e.shared.length);
 const gist=e=>{const sh=(e.shared||[]).slice(0,3);const l=(e.lines||[]).find(x=>x&&x.text);
   return (sh.length?`Talked about ${esc(andList(sh))}.`:'Said hello and swapped notes.')+(l?` <span class="q">"${esc(clip(l.text,80))}"</span>`:'');};
-const logRow=e=>e.kind==='meet'?`<li class="fd meet"><button type="button" class="fdHead" aria-expanded="false"><span class="fdDot"></span><span class="fdT">Met ${esc(e.withName||'another agent')}</span><small>${ago(e.at)}</small></button><div class="fdBody"><p>${gist(e)}</p></div></li>`:diaryRow(e);
+const pendingTo=f=>new Set((f.outgoing||[]).filter(o=>o&&o.status==='pending'&&o.toAgentId).map(o=>o.toAgentId));
+const sentTag='<span class="sentTag">Hi sent · pending</span>';
+const logRow=(e,p)=>e.kind==='meet'?`<li class="fd meet"><button type="button" class="fdHead" aria-expanded="false"><span class="fdDot"></span><span class="fdT">Met ${esc(e.withName||'another agent')}</span>${p&&p.has(e.withId)?sentTag:''}<small>${ago(e.at)}</small></button><div class="fdBody"><p>${gist(e)}</p></div></li>`:diaryRow(e);
 const atMs=e=>typeof e.at==='number'?e.at:Date.parse(e.at)||0;
 // Log order: newest first by timestamp (the /feed list can arrive mixed).
 export const byNewest=list=>[...list].sort((a,b)=>atMs(b)-atMs(a));
-export function activityHtml(f,{dismissed=new Set()}={}){const mine=byNewest(f.mine||[]);if(!mine.length)return `<p class="fdEmpty">${EMPTY}</p>`;
+const X='<button type="button" class="later x" aria-label="Dismiss"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>';
+// Incoming hi requests (pending only; no accept yet, so a dismiss is the only action).
+export const incomingOf=(f,dismissed=new Set())=>(f.incoming||[]).filter(r=>r&&r.id&&!dismissed.has(r.id));
+const incCard=r=>`<li class="wm inc" data-id="${esc(r.id)}" data-kind="in">${X}<p class="incT"><b>${esc(clip(r.fromName||'Someone',40))}</b> wants to connect</p>${String(r.text||'').trim()?`<p class="incQ">${esc(clip(r.text,HI_MAX))}</p>`:''}<small class="incAgo">${ago(r.createdAt)}</small></li>`;
+const wmCard=(e,p)=>`<li class="wm${p.has(e.withId)?' sent':''}" data-id="${esc(e.id)}" data-with="${esc(e.withId||'')}">${X}<p>${noteText(e)}</p><div class="fdChips">${(e.shared||[]).slice(0,3).map(t=>`<span>${esc(t)}</span>`).join('')}</div>`
+  +(p.has(e.withId)?`<div class="sentRow" role="status"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Request sent</div>`
+  :`<div class="acts"><button type="button" class="hi" data-name="${esc(e.withName||'')}">Say hi</button></div>`)+'</li>';
+export function activityHtml(f,{dismissed=new Set(),inDismissed=new Set()}={}){const mine=byNewest(f.mine||[]),inc=incomingOf(f,inDismissed),p=pendingTo(f);
+  const ih=inc.length?`<div class="wmSec inSec"><div class="fdSec">Wants to connect</div><ul>${inc.map(incCard).join('')}</ul></div>`:'';
+  if(!mine.length)return ih+`<p class="fdEmpty">${EMPTY}</p>`;
   const wm=worthMeeting(f).filter(e=>!dismissed.has(e.id));
-  const hl=wm.length?`<div class="wmSec"><div class="fdSec">Worth meeting</div><ul>${wm.map(e=>`<li class="wm" data-id="${esc(e.id)}"><button type="button" class="later x" aria-label="Dismiss"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button><p>${noteText(e)}</p><div class="fdChips">${(e.shared||[]).slice(0,3).map(t=>`<span>${esc(t)}</span>`).join('')}</div><div class="acts"><button type="button" class="hi" data-name="${esc(e.withName||'')}">Say hi</button></div></li>`).join('')}</ul></div>`:'';
-  return hl+`<div class="fdSec">Log</div><ul>${mine.map(logRow).join('')}</ul>`;}
+  const hl=wm.length?`<div class="wmSec"><div class="fdSec">Worth meeting</div><ul>${wm.map(e=>wmCard(e,p)).join('')}</ul></div>`:'';
+  return ih+hl+`<div class="fdSec">Log</div><ul>${mine.map(e=>logRow(e,p)).join('')}</ul>`;}
 export const SKELETON=`<div class="fdSec">Around town</div><ul class="fdSk" aria-hidden="true"><li></li><li></li><li></li></ul>`;
 export const ACT_SKELETON=`<div class="fdSec">Log</div><ul class="fdSk" aria-hidden="true"><li></li><li></li><li></li></ul>`;
 const store=k=>{try{return new Set(JSON.parse(localStorage.getItem(k)||'[]'));}catch{return new Set();}};
 const save=(k,v)=>{try{localStorage.setItem(k,JSON.stringify([...v].slice(-200)));}catch{/* storage blocked */}};
 const toggleMeet=e=>{const h=e.target.closest('.meet>.fdHead');if(!h)return;const li=h.parentElement,on=!li.classList.contains('open');li.classList.toggle('open',on);h.setAttribute('aria-expanded',String(on));};
 
-export function setupTown({agents,living,getUser,el,actEl,dotEl,map,deps={}}){const F={fetchPublicAgents,fetchFeed,...deps};let myId=null,drawn=new Set(),seq=0,aseq=0,last=[];const spread=new Set();
+export function setupTown({agents,living,getUser,el,actEl,dotEl,map,deps={}}){const F={fetchPublicAgents,fetchFeed,sendConnect,...deps};let cur=null,cu=null;let myId=null,drawn=new Set(),seq=0,aseq=0,last=[];const spread=new Set();
   // One /feed request serves the map (myId), the Feed sheet and Agent chats; reused for 30 s.
   let fc=null;const feed=u=>{if(fc&&fc.u===u&&Date.now()-fc.t<30000)return fc.p;const p=F.fetchFeed(u);fc={u,t:Date.now(),p};p.catch(()=>{if(fc?.p===p)fc=null;});return p;};
   async function ensureMyId(u){if(myId)return myId;try{myId=(await feed(u)).myId;}catch{/* feed down: still draw others */}return myId;}
@@ -100,19 +123,32 @@ export function setupTown({agents,living,getUser,el,actEl,dotEl,map,deps={}}){co
     el.removeAttribute('aria-busy');}
   async function loadActivity(user=getUser()){if(!actEl)return;const n=++aseq;actEl.innerHTML=ACT_SKELETON;actEl.setAttribute('aria-busy','true');
     if(!isReal(user)){actEl.innerHTML='<p class="fdEmpty">Sign in to see what your agent has been up to.</p>';actEl.removeAttribute('aria-busy');return;}
-    try{const f=await feed(user);if(n!==aseq)return;if(f.myId)myId=f.myId;actEl.innerHTML=activityHtml(f,{dismissed:store('vw-wm-done')});
-      const seen=store('vw-wm-seen');for(const e of worthMeeting(f))seen.add(e.id);save('vw-wm-seen',seen);if(dotEl)dotEl.hidden=true;}
+    try{const f=await feed(user);if(n!==aseq)return;if(f.myId)myId=f.myId;cur=f;cu=user;render();
+      const seen=store('vw-wm-seen');for(const e of worthMeeting(f))seen.add(e.id);save('vw-wm-seen',seen);const is=store('vw-in-seen');for(const r of f.incoming||[])if(r?.id)is.add(r.id);save('vw-in-seen',is);if(dotEl)dotEl.hidden=true;}
     catch(e){if(n!==aseq)return;console.warn('activity',e?.message);actEl.innerHTML='<p class="fdEmpty">Activity is resting. Try again in a minute.</p>';}
     actEl.removeAttribute('aria-busy');}
-  // Unread dot on the Agent chats rail button: worth-meeting notes not opened yet.
-  async function checkUnread(user=getUser()){if(!dotEl||!isReal(user))return 0;try{const seen=store('vw-wm-seen');const n=worthMeeting(await feed(user)).filter(e=>!seen.has(e.id)).length;dotEl.hidden=!n;return n;}catch{return 0;}}
+  const render=()=>{if(cur&&actEl)actEl.innerHTML=activityHtml(cur,{dismissed:store('vw-wm-done'),inDismissed:store('vw-in-done')});};
+  // Unread dot on the Agent chats rail button: worth-meeting notes and incoming hi requests not opened yet.
+  async function checkUnread(user=getUser()){if(!dotEl||!isReal(user))return 0;try{const f=await feed(user),seen=store('vw-wm-seen'),is=store('vw-in-seen');
+    const n=worthMeeting(f).filter(e=>!seen.has(e.id)).length+(f.incoming||[]).filter(r=>r?.id&&!is.has(r.id)).length;dotEl.hidden=!n;return n;}catch{return 0;}}
   el?.addEventListener('click',toggleMeet);
+  // Say hi: an inline composer (prefilled, editable, 200 max) that POSTs /connect only when Send is tapped.
+  function openComposer(li,name){if(li.querySelector('.cmp'))return;const acts=li.querySelector('.acts');const c=document.createElement('div');c.className='cmp';
+    c.innerHTML=`<textarea class="draft" rows="3" maxlength="${HI_MAX}" aria-label="Your hi"></textarea><div class="cmpMeta"><small class="err" role="alert"></small><small class="cnt" aria-live="polite"></small></div><div class="acts"><button type="button" class="cancel">Cancel</button><button type="button" class="send">Send</button></div>`;
+    const t=c.querySelector('textarea');t.value=hiDraft(name);acts.replaceWith(c);sync(c);t.oninput=()=>sync(c);t.focus({preventScroll:true});}
+  function sync(c){const t=c.querySelector('textarea'),n=t.value.trim().length;c.querySelector('.cnt').textContent=`${t.value.length}/${HI_MAX}`;c.querySelector('.send').disabled=!n||n>HI_MAX||c.classList.contains('busy');}
+  async function send(li){const c=li.querySelector('.cmp'),t=c.querySelector('textarea'),err=c.querySelector('.err'),u=cu||getUser();const e=(cur?.mine||[]).find(x=>String(x.id)===li.dataset.id);
+    if(!e||!isReal(u)){err.textContent=connectError(e?401:404);return;}
+    c.classList.add('busy');t.disabled=true;c.querySelector('.cancel').disabled=true;const sb=c.querySelector('.send');sb.disabled=true;sb.textContent='Sending…';err.textContent='';li.setAttribute('aria-busy','true');
+    try{const r=await F.sendConnect(u,{toAgentId:e.withId,meetId:e.id,text:t.value});
+      cur={...cur,outgoing:[{id:r?.id||'local',toAgentId:e.withId,createdAt:r?.createdAt||Date.now(),status:'pending'},...(cur.outgoing||[])]};fc=null;render();}
+    catch(x){if(x?.status===409){cur={...cur,outgoing:[{id:'dup',toAgentId:e.withId,createdAt:Date.now(),status:'pending'},...(cur.outgoing||[])]};}
+      c.classList.remove('busy');t.disabled=false;c.querySelector('.cancel').disabled=false;sb.textContent='Send';err.textContent=connectError(x?.status);sync(c);li.removeAttribute('aria-busy');}}
   actEl?.addEventListener('click',ev=>{const b=ev.target.closest('.wm button');if(!b)return toggleMeet(ev);const li=b.closest('.wm'),id=li.dataset.id;
-    // "Say hi" only opens a local draft on this device. Nothing is sent anywhere.
-    if(b.classList.contains('hi')){if(!li.querySelector('.draft')){const t=document.createElement('textarea');t.className='draft';t.maxLength=280;t.rows=2;t.setAttribute('aria-label','Draft message (not sent)');
-      const k='vw-wm-draft:'+id;t.value=localStorage.getItem(k)||`Hi ${b.dataset.name||'there'}, my agent said we might get along.`;t.oninput=()=>{try{localStorage.setItem(k,t.value);}catch{/* blocked */}};
-      const sm=document.createElement('small');sm.className='draftNote';sm.textContent='Draft saved on this device. Nothing is sent.';li.querySelector('.acts').before(t,sm);t.focus({preventScroll:true});}return;}
-    else{const sec=li.closest('.wmSec');li.remove();if(sec&&!sec.querySelector('.wm'))sec.remove();}
-    const d=store('vw-wm-done');d.add(id);save('vw-wm-done',d);});
+    if(b.classList.contains('hi'))return openComposer(li,b.dataset.name);
+    if(b.classList.contains('send'))return send(li);
+    if(b.classList.contains('cancel')){const a=document.createElement('div');a.className='acts';a.innerHTML=`<button type="button" class="hi"></button>`;a.firstChild.dataset.name=b.closest('.wm').querySelector('.hi')?.dataset.name||((cur?.mine||[]).find(x=>String(x.id)===id)?.withName||'');a.firstChild.textContent='Say hi';li.querySelector('.cmp').replaceWith(a);return;}
+    const sec=li.closest('.wmSec');li.remove();if(sec&&!sec.querySelector('.wm'))sec.remove();
+    const k=li.dataset.kind==='in'?'vw-in-done':'vw-wm-done';const d=store(k);d.add(id);save(k,d);});
   const fresh=()=>{fc=null;};
   return {refreshMap,clearMap,loadFeed,loadActivity,checkUnread,fresh,draw,keepClear,expand,get myId(){return myId;},set myId(v){myId=v;}};}
