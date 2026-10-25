@@ -1,23 +1,27 @@
 // Small three.js view of the agent character at the top of the Chat tab (same look as on the map).
-// Cheap on low-end phones: own small canvas, pixelRatio 1 (perf audit #4), ~30 fps while animating and ~15 fps when idle,
+// Crisp: antialias on and pixel ratio min(devicePixelRatio, 2) so the buffer matches the screen; a frame-time monitor drops it
+// to 1.5 if frames average over ~20 ms. ~30 fps while animating and ~15 fps when idle,
 // fully paused while the World tab is open or the app is in the background.
 import * as THREE from 'three';
 import {createCharacter} from './character.js';
 import {toLook} from './character-data.js';
-import {LOW_END} from './device.js';
 const REDUCED=matchMedia('(prefers-reduced-motion: reduce)');
 export function chatHero(canvas){let lastAgent=null;const ro=new ResizeObserver(()=>size());
   let r=null,scene,cam,ch,raf=0,last=0,active=false,busyUntil=0,key='',state='idle',stateT=0;const clock=new THREE.Clock();
+  let pr=Math.min(Math.max(1,devicePixelRatio||1),2);const mon={n:0,sum:0,prev:0};
+  function watch(t){if(mon.prev){mon.sum+=t-mon.prev;mon.n++;}mon.prev=t;if(mon.n<60)return;const avg=mon.sum/mon.n;mon.n=0;mon.sum=0;
+    window.__vwPerf={...(window.__vwPerf||{}),heroFrameMs:+avg.toFixed(2),heroPR:pr};if(avg>20&&pr>1.5){pr=1.5;size();}}
   function init(){if(r)return true;
-    try{r=new THREE.WebGLRenderer({canvas,antialias:!LOW_END,alpha:true,powerPreference:'low-power'});}catch(e){console.warn('hero webgl',e?.message);return false;}
-    r.setPixelRatio(1);scene=new THREE.Scene();
+    try{r=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true,powerPreference:'low-power'});}catch(e){console.warn('hero webgl',e?.message);return false;}
+    r.setPixelRatio(pr);scene=new THREE.Scene();
     scene.add(new THREE.HemisphereLight(0xffffff,0x334466,2.2));const d=new THREE.DirectionalLight(0xffffff,2);d.position.set(2,4,5);scene.add(d);
     const rim=new THREE.DirectionalLight('#5eb4ff',1.4);rim.position.set(-2,3,-4);scene.add(rim);
+    const soft=new THREE.DirectionalLight('#cfe0ff',.6);soft.position.set(2.5,1.6,-2.5);scene.add(soft);
     cam=new THREE.PerspectiveCamera(28,1,.1,10);cam.position.set(0,.62,3.4);cam.lookAt(0,.56,0);
     ch=createCharacter();scene.add(ch.group);size();return true;}
   function size(){if(!r)return;const w=canvas.clientWidth,h=canvas.clientHeight;if(!w||!h)return;
-    // The 44 px avatar renders at 2x (capped by the screen's DPR) so it stays sharp; the large hero stays at 1x (perf audit #4).
-    r.setPixelRatio(w<80?Math.min(2,Math.max(1,devicePixelRatio||1)):1);r.setSize(w,h,false);cam.aspect=w/h;
+    // Buffer = CSS size × pixel ratio (capped at 2), so the canvas is never upscaled.
+    r.setPixelRatio(pr);r.setSize(w,h,false);cam.aspect=w/h;
     // UI v2: the header avatar is a 44 px circle, so frame head and shoulders (about 0.65 m up to the hair top at 1.28 m, plus headroom).
     // Head (hair top ≈1.29 m, centre ≈1.07 m) is centred in the circle so the round edge never cuts the hair.
     if(w<80){cam.fov=25;cam.position.set(0,.99,1.9);cam.lookAt(0,.98,0);}else{cam.fov=28;cam.position.set(0,.62,3.4);cam.lookAt(0,.56,0);}cam.updateProjectionMatrix();draw();}
@@ -25,7 +29,7 @@ export function chatHero(canvas){let lastAgent=null;const ro=new ResizeObserver(
     // thinking: gentle side-to-side sway; sleeping: dimmed and sinks a little; error: still.
     const T=performance.now()/1000,g=ch.group;g.rotation.y=state==='thinking'?Math.sin(T*3)*.35:0;
     g.position.y=state==='sleeping'?-.03+Math.sin(T*1.2)*.01:0;canvas.style.opacity=state==='sleeping'?.7:1;r.render(scene,cam);}
-  function frame(t){raf=0;if(!active||document.hidden)return;
+  function frame(t){raf=0;if(!active||document.hidden){mon.prev=0;return;}watch(t);
     const busy=t<busyUntil||state==='thinking'||state==='sleeping';if(REDUCED.matches&&!busy){draw();return;}
     if(t-last>=(busy?33:66)){last=t;draw();}raf=requestAnimationFrame(frame);}
   const kick=()=>{if(active&&!raf&&!document.hidden&&init())raf=requestAnimationFrame(frame);};
@@ -39,6 +43,7 @@ export function chatHero(canvas){let lastAgent=null;const ro=new ResizeObserver(
     start(){active=true;clock.getDelta();if(!r&&lastAgent)this.set(lastAgent);kick();},
     stop(){active=false;if(raf)cancelAnimationFrame(raf);raf=0;release();},
     // idle | thinking | talking | sleeping | error
+    get pixelRatio(){return pr;},get antialias(){return r?.getContextAttributes()?.antialias===true;},
     state(s){state=s;stateT=performance.now();if(!ch)return;
       if(s==='talking'){ch.play('talk');busyUntil=stateT+1200;setTimeout(()=>{if(state==='talking'){ch.play('idle');state='idle';}},1200);}
       else if(s==='wave'){ch.play('wave');state='idle';busyUntil=stateT+2300;}

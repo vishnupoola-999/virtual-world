@@ -5,6 +5,7 @@
 // on the Chat tab and in the background. Only transform and opacity animate.
 import {dragToClose} from './ui.js';
 import {toLook} from './character-data.js';
+const basePR=()=>Math.min(Math.max(1,globalThis.devicePixelRatio||1),2); // same cap as agent-renderer.js (kept here so three.js stays lazy)
 const NEAR_Z=14,MAX_LIVE=8,FRAME_MS=33;
 const REDUCED=matchMedia('(prefers-reduced-motion: reduce)');
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -19,7 +20,7 @@ function create(map){
   const loadR=()=>rLoad||=import('./agent-renderer.js').then(m=>{R=m.sharedRenderer();window.__avatarReady=true;kick();return R;})
     .catch(e=>{rLoad=null;console.warn('agent renderer',e?.message);});
   function el(a){const d=document.createElement('div');d.className='ag'+(a.mine?' mine':'');d.setAttribute('role','button');d.tabIndex=0;
-    d.innerHTML=`${a.mine?'<span class="halo"></span><span class="birth" aria-hidden="true"><i></i><i></i><em>Finding your spot…</em></span>':''}<span class="shadow"></span><div class="bob"><canvas width="112" height="128"></canvas></div>`+
+    d.innerHTML=`${a.mine?'<span class="halo"></span><span class="birth" aria-hidden="true"><i></i><i></i><em>Finding your spot…</em></span>':''}<span class="shadow"></span><div class="bob"><canvas width="${Math.round(84*basePR())}" height="${Math.round(96*basePR())}"></canvas></div>`+
       `<span class="stat glass" hidden></span><span class="bubble glass" hidden><b></b><b></b><b></b></span><span class="busy" hidden></span><span class="pill glass"><i></i>${a.mine?'You · ':''}<span class="agLabel"></span></span>`;
     // Tap opens the profile; a 500 ms long-press on your own agent starts Move my agent (PR #14).
     let lp=0,down=null,fired=false;const cancel=()=>{clearTimeout(lp);lp=0;};
@@ -54,7 +55,12 @@ function create(map){
 
   // ---- the 30 fps loop: nearest 8 on-screen agents animate, others get one static frame
   function kick(){if(!raf&&all.size)raf=requestAnimationFrame(frame);}
-  function frame(t){raf=0;if(paused()||!near()){if(prof&&R)drawProfile(0);return;}
+  // Frame-time monitor: if the average frame (rAF to rAF) stays above ~20 ms over 60 frames, drop to pixel ratio 1.5 once.
+  const mon={n:0,sum:0,prev:0};
+  function watch(t){if(mon.prev){mon.sum+=t-mon.prev;mon.n++;}mon.prev=t;
+    if(mon.n>=60){const avg=mon.sum/mon.n;mon.n=0;mon.sum=0;window.__vwPerf={...(window.__vwPerf||{}),mapFrameMs:+avg.toFixed(2),mapPR:R?.pixelRatio};
+      if(avg>20&&R&&R.pixelRatio>1.5){R.setPixelRatio(1.5);for(const a of all.values())a.drawnKey=null;}}}
+  function frame(t){raf=0;watch(t);if(paused()||!near()){mon.prev=0;if(prof&&R)drawProfile(0);return;}
     if(!R){loadR();return;} // warm the renderer as soon as an agent exists at street zoom, even off-screen
     const vis=[];const c=map.getCanvas(),w=c.clientWidth,h=c.clientHeight,cx=w/2,cy=h/2;
     for(const a of all.values()){const ll=a.marker.getLngLat(),q=map.project(ll);if(q.x<-80||q.y<-120||q.x>w+80||q.y>h+120)continue;vis.push([a,(q.x-cx)**2+(q.y-cy)**2-(a.mine?1e12:0)]);}
@@ -65,7 +71,9 @@ function create(map){
       if(prof)drawProfile(dt);}
     raf=requestAnimationFrame(frame);}
   const animFor=a=>a.mine&&a.waveUntil>performance.now()?'wave':a.state==='walking'||a.living?.kind==='walking'?'walk':a.state==='talking'||(a.living?.kind==='meeting'&&a.mine)?'talk':'idle';
-  function blit(a,anim,dt){const src=R.draw(a.id,a.look,anim,dt,undefined,a.yaw);a.g.clearRect(0,0,112,128);a.g.drawImage(src,0,0);
+  function blit(a,anim,dt){const src=R.draw(a.id,a.look,anim,dt,undefined,a.yaw),cv=a.g.canvas;
+    if(cv.width!==src.width||cv.height!==src.height){cv.width=src.width;cv.height=src.height;}
+    a.g.clearRect(0,0,cv.width,cv.height);a.g.drawImage(src,0,0);
     if(!a.born){a.born=true;a.el.classList.add('born');}} // birth pulse fades out, character scales and fades in (CSS)
   function drawProfile(dt){const a=all.get(prof.id),cv=document.getElementById('pAv');if(!a||!cv||!R)return;const src=R.draw(a.id,a.look,animFor(a),dt,'portrait');
     const g=cv.getContext('2d');g.clearRect(0,0,144,144);g.drawImage(src,9,0,126,144);}
@@ -119,8 +127,8 @@ function create(map){
   function setLiving(id,living,yaw){const a=all.get(id);if(!a)return;a.living=living||null;a.yaw=yaw;a.drawnKey=null;paint(a);kick();}
   // One portrait frame of an agent into a 2D canvas (the away-card header avatar); loads the shared renderer if needed.
   function portrait(id,cv,anim,dt){const a=all.get(id);if(!a)return false;if(!R){loadR();return false;}const src=R.draw(a.id,a.look,anim||'idle',dt||0,'portrait');
-    const g=cv.getContext('2d');g.clearRect(0,0,cv.width,cv.height);g.drawImage(src,0,0,112,112,0,0,cv.width,cv.height);a.drawnKey=null;kick();return true;}
-  return {put,remove,setState,setLiving,portrait,openProfile,closeProfile,showFriends,get(id){return all.get(id);},configure(h){Object.assign(hooks,h);},
+    const g=cv.getContext('2d');g.clearRect(0,0,cv.width,cv.height);g.drawImage(src,0,0,src.width,src.width,0,0,cv.width,cv.height);a.drawnKey=null;kick();return true;}
+  return {get renderInfo(){return R?{size:R.size,pixelRatio:R.pixelRatio,antialias:R.antialias}:null;},put,remove,setState,setLiving,portrait,openProfile,closeProfile,showFriends,get(id){return all.get(id);},configure(h){Object.assign(hooks,h);},
     // Your own agent, used by agent.js in place of the old full-screen 3D layer.
     mine:{set(a){if(!a){remove('me');return;}put({id:'me',mine:true,name:a.name||'My agent',lat:a.lat,lon:a.lon,look:a.look,ownerName:a.ownerName,meta:a.meta,status:a.status});},
       play(n){const a=all.get('me');if(!a)return;if(n==='walk'){a.state='walking';paint(a);setTimeout(()=>{if(a.state==='walking'){a.state='online';paint(a);}},900);}

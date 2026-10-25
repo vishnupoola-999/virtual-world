@@ -10,7 +10,7 @@
 #rail{position:absolute;right:12px;top:calc(72px + var(--safe-t));display:flex;flex-direction:column;border-radius:22px;padding:4px;z-index:3;gap:2px}
 .rb{width:40px;height:40px;min-height:0;border-radius:50%;padding:0;background:none;box-shadow:none;color:var(--text-2);display:grid;place-items:center;position:relative}
 .rb[aria-pressed=true]{background:var(--s4);color:var(--text)}
-.rb .badge{position:absolute;top:4px;right:4px;min-width:16px;height:16px;border-radius:8px;background:var(--grad);color:#0a0b10;font-size:10px;font-weight:700;display:grid;place-items:center;padding:0 4px}
+.rb .badge{position:absolute;left:50%;bottom:3px;top:auto;right:auto;width:6px;height:6px;min-width:0;padding:0;margin-left:-3px;border-radius:50%;background:var(--grad);font-size:0;line-height:0;color:transparent;overflow:hidden} /* on state: 6px accent dot centred under the icon */
 .recenter{position:absolute;right:12px;bottom:calc(var(--tabs) + 52px);width:44px;height:44px;min-height:0;padding:0;border-radius:50%;z-index:3;display:grid;place-items:center;color:var(--text);box-shadow:none}
 body.sheet-open .recenter{visibility:hidden}
 .maplibregl-ctrl-top-right{top:calc(208px + var(--safe-t))}

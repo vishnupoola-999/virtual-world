@@ -287,3 +287,63 @@ test('UI v3 tokens on buttons, chips and type, and no backdrop-filter', async ({
   expect(r.blur).toBe(0);
   expect(r.sheetsUseBlur).toBe(false);
 });
+
+// Rail: the Friends' agents count is a 6px dot below the two-person icon and never covers it.
+test('rail dot sits below the Friends icon without overlapping it', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto('/?onb=0');
+  await page.waitForFunction(() => window.__vw?.tabs);
+  await page.evaluate(() => { window.__vw.tabs.set('world'); document.getElementById('famN').textContent = '2'; });
+  const r = await page.evaluate(() => {
+    const icon = document.querySelector('#rail [data-open=family] svg').getBoundingClientRect();
+    const dot = document.getElementById('famN').getBoundingClientRect();
+    return { icon: icon.toJSON(), dot: dot.toJSON(), color: getComputedStyle(document.querySelector('#rail [data-open=family]')).color };
+  });
+  expect(Math.round(r.dot.width)).toBe(6);
+  expect(r.dot.top).toBeGreaterThanOrEqual(r.icon.bottom);
+  expect(Math.abs((r.dot.left + r.dot.width / 2) - (r.icon.left + r.icon.width / 2))).toBeLessThan(1);
+  expect(r.color).toBe('rgba(255, 255, 255, 0.95)');
+});
+
+// Crisp characters: buffers are CSS size x pixel ratio (capped at 2) with antialias on, for the map and the chat header.
+test('character canvases render at device pixels, capped at 2x, with antialias', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 3, serviceWorkers: 'block' });
+  const page = await context.newPage();
+  await page.goto('/?onb=0');
+  await page.waitForFunction(() => window.__vw?.agents);
+  await page.evaluate(() => window.__vw.tabs.set('world'));
+  await page.waitForTimeout(1500);
+  await page.evaluate(() => {
+    const a = { name: 'Bs', lat: 17.97, lon: 79.59, look: null, ownerName: 'V' };
+    window.__vw.agents.mine.set(a);
+    const c = window.__vw.agents.get('me').marker._map.getCenter();
+    window.__vw.agents.mine.set({ ...a, lat: c.lat, lon: c.lng });
+  });
+  await page.waitForFunction(() => window.__vw.agents.get('me')?.el.classList.contains('born'), null, { timeout: 30_000 });
+  const map = await page.evaluate(() => {
+    const cv = window.__vw.agents.get('me').el.querySelector('canvas');
+    return { w: cv.width, h: cv.height, cssW: cv.clientWidth, cssH: cv.clientHeight, info: window.__vw.agents.renderInfo };
+  });
+  expect(map.info.pixelRatio).toBe(2);
+  expect(map.info.antialias).toBe(true);
+  expect(map.w).toBe(map.cssW * map.info.pixelRatio);
+  expect(map.h).toBe(map.cssH * map.info.pixelRatio);
+  await page.evaluate(async () => {
+    document.body.classList.remove('onb');
+    document.body.dataset.tab = 'chat';
+    document.getElementById('chatView').hidden = false;
+    const m = await import('/src/chat-hero-3d.js');
+    window.__hero = m.chatHero(document.getElementById('heroCv'));
+    window.__hero.set({ name: 'Bs' });
+    window.__hero.start();
+  });
+  await page.waitForTimeout(500);
+  const hero = await page.evaluate(() => {
+    const cv = document.getElementById('heroCv');
+    return { w: cv.width, cssW: cv.clientWidth, pr: window.__hero.pixelRatio, aa: window.__hero.antialias };
+  });
+  expect(hero.pr).toBe(2);
+  expect(hero.aa).toBe(true);
+  expect(hero.w).toBe(hero.cssW * hero.pr);
+  await context.close();
+});
