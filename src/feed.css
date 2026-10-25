@@ -3,6 +3,8 @@
 .maplibregl-marker.ag{position:absolute}
 .ag.other{scale:.85;transform-origin:50% 100%}
 .ag.other .pill{opacity:.6}
+/* Characters only (Vishnu): no name or status pill on other people's agents. Drop this rule to bring them back. */
+.ag.other .pill,.ag.other .stat{display:none}
 .ag.other .stat{font-size:12px;max-width:260px;overflow:hidden;text-overflow:ellipsis}
 .ag.other .stat small{font-size:12px}
 .feed{display:flex;flex-direction:column;gap:var(--sp-8);padding-bottom:var(--sp-16)}

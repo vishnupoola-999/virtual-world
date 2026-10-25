@@ -31,18 +31,15 @@ async function boot(page, { feed = FEED, feedDelay = 0, agents = AGENTS, feedSta
     globalThis.__vw.agent._preview({ name: 'Bs', lat: 17.4505, lon: 78.3805, look: { base: 'boy' } }); globalThis.__vw.tabs.set('world'); });
 }
 
-test('others drawn at 85% with own card skipped, fanned out', async ({ page }) => {
+test('others drawn at 85% as characters only, own card skipped, fanned out', async ({ page }) => {
   await boot(page);
   const n = await page.evaluate(() => globalThis.__vw.town.refreshMap(globalThis.__fakeUser));
   expect(n).toBe(4);
   await expect(page.locator('.ag.other')).toHaveCount(4);
   await expect(page.locator('.ag[aria-label="Bs\'s agent"]:not(.mine)')).toHaveCount(0);
-  const st = await page.locator('.ag.other .stat:not([hidden])').first().textContent();
-  expect(st.length).toBeLessThanOrEqual(42);
-  const fs = await page.locator('.ag.other .stat:not([hidden])').first().evaluate((e) => globalThis.getComputedStyle(e).fontSize);
-  expect(fs).toBe('12px');
-  const pillOp = await page.locator('.ag.other .pill').first().evaluate((e) => globalThis.getComputedStyle(e).opacity);
-  expect(pillOp).toBe('0.6');
+  // Vishnu: other people's agents are just the character, no name or status pill. Your own agent keeps its pill.
+  await expect(page.locator('.ag.other .pill:visible, .ag.other .stat:visible')).toHaveCount(0);
+  await expect(page.locator('.ag.mine .pill')).toBeVisible();
   const xs = await page.evaluate(() => ['h_b', 'h_c', 'h_d'].map((id) => globalThis.__vw.agents.get(id).marker.getOffset().x));
   expect(new Set(xs).size).toBeGreaterThan(1);
   await page.waitForFunction(() => globalThis.__avatarReady, null, { timeout: 45_000 }).catch(() => {});
