@@ -95,6 +95,11 @@ export async function saveAgent(uid,a){const {setDoc,doc,db,serverTimestamp}=awa
   // merge keeps the server-written `memory` field (rules reject any client change to it).
   await setDoc(doc(db,'agents',uid),d,{merge:true});cacheAgent(uid,d);return d;}
 // Chat history: agents/{uid}/messages, owner-only. Kept to the newest MAX_MESSAGES.
+// Life loop profile: 3-5 interest tags and a one-line bio (rules enforce the same limits). UI is owned by design.
+export function cleanInterests(list){const out=[];for(const t of Array.isArray(list)?list:[]){if(typeof t!=='string')continue;const g=t.trim().toLowerCase().replace(/\s+/g,' ');if(/^[a-z0-9][a-z0-9 &+-]{0,23}$/.test(g)&&!out.includes(g))out.push(g);}return out.slice(0,5);}
+export async function saveInterests(uid,interests,bio=''){const tags=cleanInterests(interests);if(tags.length<3)throw new Error('Pick 3 to 5 interests');
+  const {updateDoc,doc,db,serverTimestamp}=await fs();const d={interests:tags,bio:String(bio).replace(/\s+/g,' ').trim().slice(0,80),updatedAt:serverTimestamp()};
+  await updateDoc(doc(db,'agents',uid),d);return d;}
 export const MAX_MESSAGES=200;
 const msgs=({collection,db},uid)=>collection(db,'agents',uid,'messages');
 export async function loadMessages(uid){const F=await fs(),{getDocs,query,orderBy,limit}=F;const s=await getDocs(query(msgs(F,uid),orderBy('at','desc'),limit(MAX_MESSAGES)));

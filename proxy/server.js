@@ -23,6 +23,7 @@ import { createPublicKey, createSign, createVerify, X509Certificate } from 'node
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
+import { checkTickSecret, geminiLlm, lifeSalt, lifeStore, runTick } from './life.js';
 
 const DEFAULT_PROJECT_ID = 'virtual-world-8ac82';
 const PROJECT_ID_RE = /^[a-z0-9-]{6,40}$/;
@@ -531,6 +532,25 @@ export async function updateMemory(ctx, model, uid, memory, contents, reply) {
   await ctx.memory.set(uid, facts);
 }
 
+// POST /tick (life loop). Called by .github/workflows/life-tick.yml every 30 min with x-tick-secret.
+// No browser origin is involved; the shared secret is the only auth. 401 without it, 503 if the server is not configured.
+async function handleTick(req, res, ctx) {
+  req.resume();
+  if (!checkTickSecret(req.headers['x-tick-secret'], ctx.tickSecret)) throw new HttpError(401, 'unauthorized');
+  if (!ctx.lifeSalt) throw new HttpError(503, 'life loop not configured (LIFE_SALT)');
+  if (!ctx.lifeStore || !(ctx.llm || ctx.apiKey)) throw new HttpError(503, 'life loop not configured');
+  if (ctx.ticking) throw new HttpError(409, 'tick already running');
+  ctx.ticking = true;
+  try {
+    const model = MODEL_RE.test(ctx.model) ? ctx.model : DEFAULT_MODEL;
+    const llm = ctx.llm || geminiLlm({ fetchImpl: ctx.fetchImpl, apiKey: ctx.apiKey, model });
+    const summary = await runTick({ store: ctx.lifeStore, llm, now: Date.now(), salt: ctx.lifeSalt });
+    sendJson(res, 200, summary);
+  } finally {
+    ctx.ticking = false;
+  }
+}
+
 export function createServer(options = {}) {
   const fetchImpl = options.fetchImpl || fetch;
   // One admin client per process, shared by memory and the uid rate limiter.
@@ -554,6 +574,11 @@ export function createServer(options = {}) {
     }),
     memory: options.memory !== undefined ? options.memory : memoryFromAdmin(admin),
     pending: options.pending,
+    tickSecret: options.tickSecret !== undefined ? options.tickSecret : process.env.TICK_SECRET,
+    lifeSalt: options.lifeSalt !== undefined ? options.lifeSalt : lifeSalt(),
+    lifeStore: options.lifeStore !== undefined ? options.lifeStore : lifeStore(admin),
+    llm: options.llm,
+    ticking: false,
   };
   return http.createServer(async (req, res) => {
     const originOk = applyCors(req, res);
@@ -578,6 +603,10 @@ export function createServer(options = {}) {
       if (req.method === 'GET') {
         res.statusCode = 200;
         res.end('ok');
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/tick') {
+        await handleTick(req, res, ctx);
         return;
       }
       if (req.method !== 'POST' || url.pathname !== '/chat') {

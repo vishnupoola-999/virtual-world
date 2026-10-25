@@ -337,6 +337,37 @@ describe('rate limit counter rules', { concurrency: false }, () => {
     await assertFails(getDoc(windowRef(BOB, ALICE)));
     await assertFails(setDoc(doc(db(null), 'rateLimits', ALICE, 'windows', 'm-1700000000000'), { count: 1 }));
   });
+
+  test('owner can save 3-5 interests and a bio; bad tags are rejected', async () => {
+    await seed(ALICE, agent({ updatedAt: Timestamp.now() }));
+    const ref = agentRef(ALICE);
+    await assertSucceeds(setDoc(ref, { interests: ['tech', 'science', 'cricket'], bio: 'Builds drones', updatedAt: serverTimestamp() }, { merge: true }));
+    await assertSucceeds(setDoc(ref, { interests: ['a', 'b', 'c', 'd', 'e'], updatedAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(ref, { interests: ['tech', 'science'], updatedAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(ref, { interests: ['a', 'b', 'c', 'd', 'e', 'f'], updatedAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(ref, { interests: ['tech', 'tech', 'music'], updatedAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(ref, { interests: ['Tech', 'music', 'art'], updatedAt: serverTimestamp() }, { merge: true }));
+    await assertSucceeds(setDoc(ref, { bio: 'x'.repeat(80), updatedAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(ref, { bio: 'x'.repeat(81), updatedAt: serverTimestamp() }, { merge: true }));
+  });
+
+  test('owner cannot write life-loop fields (life, friends, isTest) or the diary', async () => {
+    await assertFails(setDoc(agentRef(ALICE), agent({ life: { actions: 0 } })));
+    await assertFails(setDoc(agentRef(ALICE), agent({ isTest: true })));
+    await assertFails(setDoc(agentRef(ALICE), agent({ status: { kind: 'idle', label: 'Resting' } })));
+    await seed(ALICE, agent({ updatedAt: Timestamp.now(), life: { actions: 12, day: '2026-10-24' }, friends: { bob: { name: 'B' } } }));
+    await assertFails(setDoc(agentRef(ALICE), { life: { actions: 0, day: '2026-10-24' }, updatedAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(agentRef(ALICE), { friends: {}, updatedAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(agentRef(ALICE), { status: { kind: 'walking', label: 'fake' }, updatedAt: serverTimestamp() }, { merge: true }));
+    await assertSucceeds(setDoc(agentRef(ALICE), { name: 'Ada2', updatedAt: serverTimestamp() }, { merge: true }));
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), 'agents', ALICE, 'diary', 'd1'), { kind: 'diary', text: 'hi' });
+    });
+    await assertSucceeds(getDoc(doc(db(ALICE), 'agents', ALICE, 'diary', 'd1')));
+    await assertFails(getDoc(doc(db(BOB), 'agents', ALICE, 'diary', 'd1')));
+    await assertFails(setDoc(doc(db(ALICE), 'agents', ALICE, 'diary', 'd2'), { kind: 'diary', text: 'fake' }));
+    await assertSucceeds(deleteDoc(doc(db(ALICE), 'agents', ALICE, 'diary', 'd1')));
+  });
 });
 
 function omit(data, key) {
