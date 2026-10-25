@@ -50,8 +50,8 @@ body[data-tab=chat] #topbar,body[data-tab=chat] #rail,body[data-tab=chat] .recen
 .banner button{margin-left:auto;min-height:44px;padding:0 14px;border-radius:22px;border:none;background:#fff2;color:inherit;font-weight:600}
 #chatLog{flex:1;overflow-y:auto;padding:16px 12px;display:flex;flex-direction:column;gap:8px;overscroll-behavior:contain}
 .msg{flex:none;max-width:80%;padding:10px 14px;border-radius:20px;font-size:15px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word}
-.msg.ag{align-self:flex-start;background:var(--surface-2);border-bottom-left-radius:6px}
-.msg.me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:6px}
+.msg.bot{align-self:flex-start;background:var(--surface-2);border-bottom-left-radius:6px}
+.msg.user{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:6px}
 .msg.sys{align-self:center;color:var(--muted);font-size:13px;padding:4px}
 .msg.typing span{display:inline-block;width:7px;height:7px;margin:0 2px;border-radius:50%;background:var(--muted);animation:td 1s infinite}
 .msg.typing span:nth-child(2){animation-delay:.15s}.msg.typing span:nth-child(3){animation-delay:.3s}

@@ -1,4 +1,4 @@
-/* global document, getComputedStyle */
+/* global window, document, getComputedStyle */
 import { expect, test } from '@playwright/test';
 
 // Loads the static site the way GitHub Pages does (plain files, no build) and
@@ -139,16 +139,16 @@ test('typing enables the chat Send button', async ({ page }) => {
 });
 
 // Regression: `body[data-tab=chat] .ag{display:none}` (meant for map markers) also hid chat replies,
-// which are `.msg.ag`, so the agent looked like it never answered. Replies must render on the Chat tab.
+// which were `.msg.ag` (now `.msg.bot`), so the agent looked like it never answered. Replies must render on the Chat tab.
 test('agent replies are visible on the Chat tab', async ({ page }) => {
   await page.goto('/?onb=0');
   await page.waitForFunction(() => document.getElementById('chatLog'));
   await page.evaluate(() => {
     document.body.dataset.tab = 'chat';
     const d = document.createElement('div');
-    d.className = 'msg ag';
+    d.className = 'msg bot';
     d.id = 'probeReply';
-    d.innerHTML = '<span class="mini">B</span><div class="mbody"><div class="name">Bs</div><div class="agent-text">I am at the park.</div></div>';
+    d.innerHTML = '<div class="mbody"><div class="agent-text">I am at the park.</div></div>';
     document.getElementById('chatLog').append(d);
   });
   const display = await page.locator('#probeReply').evaluate((el) => getComputedStyle(el).display);
@@ -161,4 +161,42 @@ test('agent replies are visible on the Chat tab', async ({ page }) => {
     return getComputedStyle(m).display;
   });
   expect(marker).toBe('none');
+});
+
+// Regression: chat replies used the map-marker class `.ag` (width:64px), so on phones bot text
+// wrapped one or two words per line under the avatar. Replies are now `.msg.bot`: full width, no avatar.
+test('bot replies are full width with no avatar at 360px', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto('/?onb=0');
+  await page.waitForFunction(() => document.getElementById('chatLog'));
+  await page.evaluate(() => {
+    document.body.classList.remove('onb');
+    document.body.dataset.tab = 'chat';
+    document.getElementById('chatView').hidden = false;
+    const log = document.getElementById('chatLog');
+    const me = document.createElement('div');
+    me.className = 'msg user';
+    me.textContent = 'What are you doing?';
+    const d = document.createElement('div');
+    d.className = 'msg bot';
+    d.id = 'probeBot';
+    d.innerHTML = '<div class="mbody"><div class="agent-text">Right now I am walking to the park near your place to see who is around.</div></div>';
+    log.append(me, d);
+  });
+  const r = await page.evaluate(() => {
+    const el = document.getElementById('probeBot');
+    const me = document.querySelector('#chatLog .msg.user');
+    return {
+      w: el.querySelector('.agent-text').getBoundingClientRect().width,
+      vw: window.innerWidth,
+      avatars: document.querySelectorAll('#chatLog .mini, #chatLog .name, #chatLog .ag').length,
+      userRight: Math.round(window.innerWidth - me.getBoundingClientRect().right),
+      userW: me.getBoundingClientRect().width,
+    };
+  });
+  expect(r.w).toBeGreaterThan(250);
+  expect(r.w).toBeGreaterThan(r.vw * 0.6);
+  expect(r.avatars).toBe(0);
+  expect(r.userW).toBeLessThanOrEqual(r.vw * 0.8 + 1);
+  expect(r.userRight).toBeLessThan(24);
 });
