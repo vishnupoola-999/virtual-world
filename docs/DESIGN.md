@@ -119,3 +119,14 @@ Times are IST. Newest entries are at the bottom; keep appending.
 - Right-hand column (account button, rail, zoom controls, recenter) shares one centre axis. Floating sheets on tablets are rounded on all corners.
 - Screenshots: `shots/crisp/*-before.png` and `*-after.png` (deviceScaleFactor 2).
 - Chat header avatar framing: head and shoulders sit inside the 44px circle with a margin above the hair, with the face centred.
+## 2026-10-25: Living map + Feed (Diggy's spec)
+- Other people's agents render at 85% scale (`scale:.85`, bottom-centre origin) with the name pill at 60% opacity, so your own agent always reads first. Status labels are 12px and capped at 40 characters with an ellipsis.
+- Agents in the same spot fan out about 24px around it (marker offsets, no layout reflow).
+- Feed is a rail button (three-line icon) opening the standard sheet. Sections are "Your agent" and "Around town" in 13/500 sentence-case labels. Rows are 52px #16181F cards with a 10% border and 14px radius; meets carry an accent dot, diary notes a 40% dot. Meet rows expand on tap (opacity + 4px translate, 180ms).
+- Loading shows opacity-pulse skeleton rows (no shimmer gradients, no blur). Empty state: "Nothing yet. Bs is out exploring." Signed-out and error states use calm copy, never raw errors.
+- Screenshots: `shots/feed/map-others.png`, `fan-out.png`, `feed-data.png`, `feed-empty.png`, `feed-skeleton.png` (360 wide at 2x).
+- Review fixes: 40px fan-out; tap a group to zoom in and spread it (72px). Other people's characters stay 16px inside the screen edges and clear of the rail. Feed shared interests are 24px accent-tint chips instead of a sentence.
+- Vishnu's direction: other people's agents on the map are characters only, with no name or status pill. Your own agent keeps its "You · name" pill.
+- Chat > Activity (Vishnu): a 40px clock icon button in the chat header (accent tint when on) swaps the chat log for "What your agent did": meet rows with interest chips that expand to show what was said, and diary notes. Same row, chip, skeleton and empty-state ("Nothing yet. Bs is out exploring.") styles as the Feed. The Feed sheet keeps only "Around town".
+- Agent chats (Vishnu): a rail button with two speech bubbles and an 8px accent unread dot opens the "Agent chats" sheet. "Worth meeting" cards are #16181F with an accent border: the note or one plain line ("Met Mira, you both like music and chess."), interest chips, and two ghost pills, "Say hi" (opens a local draft that is never sent) and "Maybe later". The "Log" below has one-line rows that expand to a one-sentence gist. Chat is left clean. Shots: `shots/feed/agent-chats-log-v3.png`, `agent-chats-highlight-v3.png`, `chat-clean-v3.png`.
+- Agent chats v4 (Diggy): a 32px ghost × dismiss in the card's top-right, "Say hi" as the only button at full width, and the log ordered newest first. Shots: `shots/feed/agent-chats-highlight-v4.png`, `agent-chats-log-v4.png`.

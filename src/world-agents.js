@@ -19,7 +19,7 @@ function create(map){
   const paused=()=>document.hidden||document.body.dataset.tab==='chat';
   const loadR=()=>rLoad||=import('./agent-renderer.js').then(m=>{R=m.sharedRenderer();window.__avatarReady=true;kick();return R;})
     .catch(e=>{rLoad=null;console.warn('agent renderer',e?.message);});
-  function el(a){const d=document.createElement('div');d.className='ag'+(a.mine?' mine':'');d.setAttribute('role','button');d.tabIndex=0;
+  function el(a){const d=document.createElement('div');d.className='ag'+(a.mine?' mine':'')+(a.other?' other':'');d.setAttribute('role','button');d.tabIndex=0;
     d.innerHTML=`${a.mine?'<span class="halo"></span><span class="birth" aria-hidden="true"><i></i><i></i><em>Finding your spot…</em></span>':''}<span class="shadow"></span><div class="bob"><canvas width="${Math.round(84*basePR())}" height="${Math.round(96*basePR())}"></canvas></div>`+
       `<span class="stat glass" hidden></span><span class="bubble glass" hidden><b></b><b></b><b></b></span><span class="busy" hidden></span><span class="pill glass"><i></i>${a.mine?'You · ':''}<span class="agLabel"></span></span>`;
     // Tap opens the profile; a 500 ms long-press on your own agent starts Move my agent (PR #14).
