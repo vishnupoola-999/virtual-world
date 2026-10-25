@@ -199,4 +199,17 @@ test('bot replies are full width with no avatar at 360px', async ({ page }) => {
   expect(r.avatars).toBe(0);
   expect(r.userW).toBeLessThanOrEqual(r.vw * 0.8 + 1);
   expect(r.userRight).toBeLessThan(24);
+  // The header avatar is not a per-message avatar: it must still show the agent's character face.
+  const hero = page.locator('#hero .av #heroCv');
+  await expect(hero).toBeVisible();
+  const blank = await hero.screenshot();
+  await page.evaluate(async () => {
+    const m = await import('/src/chat-hero-3d.js');
+    const h = m.chatHero(document.getElementById('heroCv'));
+    h.set({ name: 'Bs' });
+    h.start();
+  });
+  await expect.poll(async () => Buffer.compare(await hero.screenshot(), blank) !== 0, { timeout: 15_000 }).toBe(true);
+  const box = await hero.boundingBox();
+  expect(box.width).toBeGreaterThan(30);
 });
