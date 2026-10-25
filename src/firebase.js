@@ -9,7 +9,8 @@ import {initializeAuth,indexedDBLocalPersistence,browserLocalPersistence,browser
 const app=initializeApp({apiKey:'AIzaSyCfA2MaUKk-B9L4GNpM-QJiOXp3E6UUZdM',authDomain:'virtual-world-8ac82.firebaseapp.com',projectId:'virtual-world-8ac82',storageBucket:'virtual-world-8ac82.firebasestorage.app',messagingSenderId:'38479190061',appId:'1:38479190061:web:749e619be467e076de80a4',measurementId:'G-MXK91TZGGZ'});
 export const auth=initializeAuth(app,{persistence:[indexedDBLocalPersistence,browserLocalPersistence],popupRedirectResolver:browserPopupRedirectResolver});
 // Firestore (~113 KB gz) is deferred (perf audit #2): loaded on first use, or after first paint when idle.
-let fsP=null;const fs=()=>fsP||=import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js').then(m=>({...m,db:m.getFirestore(app)}));
+const FS_DB='default'; // Firestore database id (named 'default', not '(default)')
+let fsP=null;const fs=()=>fsP||=import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js').then(m=>({...m,db:m.getFirestore(app,FS_DB)}));
 (globalThis.requestIdleCallback||(f=>setTimeout(f,1500)))(()=>fs().catch(()=>{fsP=null;}),{timeout:4000});
 const provider=()=>{const p=new GoogleAuthProvider();p.setCustomParameters({prompt:'select_account'});return p;};
 const FRIENDLY={'auth/popup-closed-by-user':'Sign-in window was closed before finishing.','auth/cancelled-popup-request':'Sign-in already in progress.',
@@ -80,7 +81,7 @@ export const fromRest=v=>v==null?null:'stringValue' in v?v.stringValue:'doubleVa
   :'arrayValue' in v?(v.arrayValue.values||[]).map(fromRest):null;
 const fromRestFields=f=>Object.fromEntries(Object.entries(f).map(([k,v])=>[k,fromRest(v)]));
 async function loadAgentRest(uid){const u=auth.currentUser;if(!u||u.uid!==uid)throw new Error('no user');const t=await u.getIdToken();
-  const r=await fetch(`https://firestore.googleapis.com/v1/projects/${PROJ}/databases/(default)/documents/agents/${encodeURIComponent(uid)}`,{headers:{Authorization:'Bearer '+t}});
+  const r=await fetch(`https://firestore.googleapis.com/v1/projects/${PROJ}/databases/${FS_DB}/documents/agents/${encodeURIComponent(uid)}`,{headers:{Authorization:'Bearer '+t}});
   if(r.status===404)return null;if(!r.ok)throw Object.assign(new Error('REST '+r.status),{code:'rest-'+r.status});return fromRestFields((await r.json()).fields||{});}
 async function loadAgentSdk(uid){const {getDoc,doc,db}=await fs();const s=await getDoc(doc(db,'agents',uid));return s.exists()?s.data():null;}
 export async function loadAgent(uid){let a;try{a=await withTimeout(loadAgentRest(uid),8000);}catch{a=await withTimeout(loadAgentSdk(uid),12000);}cacheAgent(uid,a);return a;}

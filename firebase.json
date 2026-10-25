@@ -1,5 +1,6 @@
 {
   "firestore": {
+    "database": "default",
     "rules": "firestore.rules"
   },
   "emulators": {
@@ -13,4 +14,3 @@
     "singleProjectMode": true
   }
 }
-

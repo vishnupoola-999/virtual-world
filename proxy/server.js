@@ -18,6 +18,7 @@
 //
 // Limits: CORS allowlist, 64 KB body, 1000 characters per message, 20 messages, 6 chats/min per uid,
 // 6 requests/min per IP, 60 chats/hour and 600/day globally, 200 output tokens.
+const FIRESTORE_DB = encodeURIComponent(process.env.FIRESTORE_DATABASE_ID || 'default');
 import http from 'node:http';
 import { createPublicKey, createSign, createVerify, X509Certificate } from 'node:crypto';
 import { resolve } from 'node:path';
@@ -140,7 +141,7 @@ export function firebaseAdmin(env = process.env, fetchImpl = fetch, now = () => 
 function memoryFromAdmin(admin) {
   if (!admin) return null;
   const { projectId, fetchImpl, now, accessToken } = admin;
-  const docUrl = (uid) => `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/agents/${uid}`;
+  const docUrl = (uid) => `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${FIRESTORE_DB}/documents/agents/${uid}`;
   return {
     async get(uid) {
       if (!UID_RE.test(uid)) return '';
