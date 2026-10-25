@@ -103,11 +103,13 @@ function create(map){
     $('pDot').style.background=col;$('pDot').style.boxShadow=`0 0 0 4px ${col}22`;
     $('pActs').innerHTML=a.mine?`<button class="secondary" data-a="move" type="button">${PIN}Move home</button><button class="primary" data-a="custom" type="button">Customize</button>`
       :'<button class="secondary" data-a="visit" type="button">Visit</button><button class="primary" data-a="chat" type="button">Chat</button>';
+    if($('pInterests'))$('pInterests').hidden=!a.mine;
     $('profile').classList.add('on');$('profScrim').classList.add('on');$('profile').setAttribute('aria-hidden','false');last=0;
     const cv=$('pAv');cv.getContext('2d').clearRect(0,0,144,144);if(!R)loadR();kick();if(R)drawProfile(0);}
   function closeProfile(){prof=null;$('profile')?.classList.remove('on');$('profScrim')?.classList.remove('on');$('profile')?.setAttribute('aria-hidden','true');}
   if($('profile')){$('profScrim').onclick=closeProfile;
     $('pActs').onclick=e=>{const b=e.target.closest('button');if(!b||!prof)return;const a=all.get(prof.id);closeProfile();if(a)hooks['on'+b.dataset.a]?.(a);};
+    if($('pInterests'))$('pInterests').onclick=()=>{const a=prof&&all.get(prof.id);closeProfile();if(a)hooks.oninterests?.(a);};
     document.addEventListener('keydown',e=>{if(e.key==='Escape'&&prof)closeProfile();});
     dragToClose($('profile'),closeProfile);}
 

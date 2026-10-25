@@ -99,8 +99,8 @@ test('page loads with no console errors', async ({ page }) => {
 });
 
 // Live sharing must keep the user's own 3D character on screen at the live position, not swap it for a plain dot.
-test('own character follows live location while sharing', async ({ page, context }) => {
-  await context.grantPermissions(['geolocation'], { origin: 'http://127.0.0.1:4173' });
+test('own character follows live location while sharing', async ({ page, context, baseURL }) => {
+  await context.grantPermissions(['geolocation'], { origin: new URL(baseURL).origin });
   await context.setGeolocation({ latitude: 17.4485, longitude: 78.3908, accuracy: 8 });
   page.on('dialog', (d) => d.accept('Tester'));
   await page.goto('/?onb=0#19.3/17.4485/78.3908/0/60', { waitUntil: 'domcontentloaded' });

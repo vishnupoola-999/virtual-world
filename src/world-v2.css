@@ -54,6 +54,7 @@ body[data-tab=chat] .ag *{animation:none}
 .pstatus{margin-top:14px;padding:10px 12px;border-radius:14px;background:var(--s2);font-size:13.5px;color:var(--text-2);display:flex;gap:10px;align-items:center}
 .pstatus .d{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
 .acts{display:flex;gap:8px;margin-top:14px}.acts button{flex:1;min-height:48px;width:auto;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:15px;font-weight:600}
+#pInterests{margin-top:4px}#pInterests[hidden]{display:none}
 /* (d) layers */
 #sheet .sec{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:6px 2px 8px}
 #sheet .sec~.sec{margin-top:16px}

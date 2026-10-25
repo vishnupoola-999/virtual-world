@@ -78,7 +78,7 @@ body[data-tab=world] .msg.typing span{animation:none}
 #agSave:disabled{opacity:.45;cursor:not-allowed}
 /* Onboarding (Diggy's spec). Transform/opacity animations only. */
 body.onb #topbar,body.onb #rail,body.onb .recenter,body.onb #tabs,body.onb #sheet,body.onb #chatView{visibility:hidden}
-#onb{position:fixed;inset:0;z-index:20;color:var(--text);display:flex;flex-direction:column;pointer-events:none;padding:var(--safe-t) 0 var(--safe-b)}
+#onb{position:fixed;inset:0;z-index:32;color:var(--text);display:flex;flex-direction:column;pointer-events:none;padding:var(--safe-t) 0 var(--safe-b)}
 #onb>*{pointer-events:auto}#onb[data-step="1"],#onb[data-step="2"]{background:radial-gradient(ellipse at 50% 110%,transparent 30%,#070b18cc 75%)}
 #onb[data-step="4"],#onb[data-step="5"],#onb[data-step="6"]{background:var(--bg)}
 #onb.xfade{animation:xf .2s}@keyframes xf{from{opacity:0}}

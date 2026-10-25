@@ -1,4 +1,4 @@
-import {signIn,logOut,onUser,loadAgent,cachedAgent,saveAgent,authMsg,redirectResult} from './firebase.js';
+import {signIn,logOut,onUser,loadAgent,cachedAgent,cacheAgent,saveAgent,authMsg,redirectResult} from './firebase.js';
 import {flyTo} from './map.js';
 import {agentsOnMap} from './world-agents.js';
 import {toLook,defaultLook,sanitize,SKIN,HAIR_COLOURS,OUTFIT_COLOURS,HAIRSTYLES,OUTFITS,ACCESSORIES} from './character-data.js';
@@ -61,7 +61,9 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
     // Live position for the on-map character (null = back to the saved spot). Returns true when a character is drawn there.
     setLive(p){live=p&&isFinite(p.lat)&&isFinite(p.lon)?{lat:p.lat,lon:p.lon}:null;if(!moving)av.set(agent);return !!agent;},
     // Agent created by onboarding (local copy first, then the saved one).
-    adopt(a,quiet){agent=a;av.set(a);render();if(!quiet)onAgent(a);},
+    adopt(a,quiet){const keepI=agent?.interests,keepB=agent?.bio;agent={...a};if(agent.interests==null&&keepI)agent.interests=keepI;if(agent.bio==null&&typeof keepB==='string')agent.bio=keepB;av.set(agent);render();if(!quiet)onAgent(a);},
+    // Interests/bio saved from the sheet. Keeps the rest of the loaded agent and the local cache in sync.
+    setProfile(p){if(!agent||!user||!p)return;agent={...agent,interests:Array.isArray(p.interests)?p.interests:agent.interests,bio:typeof p.bio==='string'?p.bio:(agent.bio||'')};cacheAgent(user.uid,agent);},
     _preview(a){agent=a;av.set(a);render();onAgent(a);}};}
 
 // Character look editor in the agent sheet. New agents start with nothing picked and no name-based guess: the user taps one
