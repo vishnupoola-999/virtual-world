@@ -1,4 +1,4 @@
-/* global document */
+/* global document, getComputedStyle */
 import { expect, test } from '@playwright/test';
 
 // Loads the static site the way GitHub Pages does (plain files, no build) and
@@ -136,4 +136,29 @@ test('typing enables the chat Send button', async ({ page }) => {
     return { send: f.querySelector('button.send').disabled, plus: f.querySelector('#chatPlus').disabled };
   });
   expect(state).toEqual({ send: false, plus: false });
+});
+
+// Regression: `body[data-tab=chat] .ag{display:none}` (meant for map markers) also hid chat replies,
+// which are `.msg.ag`, so the agent looked like it never answered. Replies must render on the Chat tab.
+test('agent replies are visible on the Chat tab', async ({ page }) => {
+  await page.goto('/?onb=0');
+  await page.waitForFunction(() => document.getElementById('chatLog'));
+  await page.evaluate(() => {
+    document.body.dataset.tab = 'chat';
+    const d = document.createElement('div');
+    d.className = 'msg ag';
+    d.id = 'probeReply';
+    d.innerHTML = '<span class="mini">B</span><div class="mbody"><div class="name">Bs</div><div class="agent-text">I am at the park.</div></div>';
+    document.getElementById('chatLog').append(d);
+  });
+  const display = await page.locator('#probeReply').evaluate((el) => getComputedStyle(el).display);
+  expect(display).not.toBe('none');
+  // Map markers still hide on the Chat tab.
+  const marker = await page.evaluate(() => {
+    const m = document.createElement('div');
+    m.className = 'ag';
+    document.body.append(m);
+    return getComputedStyle(m).display;
+  });
+  expect(marker).toBe('none');
 });
