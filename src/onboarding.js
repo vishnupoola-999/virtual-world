@@ -1,8 +1,9 @@
 // First-60-seconds onboarding (Diggy's spec: /workspace/design/onboarding-spec.md, docs/DESIGN.md).
-// 5 steps over the real map: night globe → Google sign-in + system location prompt → dive and landing →
-// pick (two unlabelled cards, nothing preselected, no name guess) and name → the agent greets first.
+// 6 steps over the real map: night globe → Google sign-in + system location prompt → dive and landing →
+// pick (two unlabelled cards, nothing preselected, no name guess) and name → interests (3-5, design/living-spec.md §1) → the agent greets first.
 // Returning users (signed in with an agent) never see it. Never blocks on location: city fallback, then Warangal centre.
-import {signIn,saveAgent,currentUser} from './firebase.js';
+import {signIn,saveAgent,saveInterests,currentUser} from './firebase.js';
+import {ICONS,LABEL,icon} from './interests.js';
 import {defaultLook,sanitize} from './character-data.js';
 import {toast} from './ui.js';
 const $=id=>document.getElementById(id);
@@ -23,10 +24,10 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
   const body=$('onbBody');
   // ---- chrome
   function chrome(n,{back=false,skip=''}={}){$('onbBack').hidden=!back;$('onbSkip').hidden=!skip;$('onbSkip').textContent=skip;
-    const p=$('onbPills');p.innerHTML='';for(let i=1;i<=5;i++)p.append(el('i',i===n?'on':i<n?'done':''));}
+    const p=$('onbPills');p.innerHTML='';p.setAttribute('aria-valuenow',n);for(let i=1;i<=6;i++)p.append(el('i',i===n?'on':i<n?'done':''));}
   function show(n,how='next'){if(step)track('onboarding_step_complete',{step,ms:Math.round(performance.now()-stepT),how});
     clearTimers();stopGlobe();if(step===4&&n!==4)disposeCards();step=n;stepT=performance.now();track('onboarding_step_view',{step:n});
-    root.dataset.step=n;body.innerHTML='';[null,s1,s2,s3,s4,s5][n]();}
+    root.dataset.step=n;body.innerHTML='';[null,s1,s2,s3,s4,s5,s6][n]();}
   function open(n=1){if(active)return;active=true;root.hidden=false;document.body.classList.add('onb');show(n);}
   function close(){active=false;clearTimers();stopGlobe();disposeCards();root.hidden=true;document.body.classList.remove('onb');}
   $('onbBack').onclick=()=>{if(step===2)show(1,'back');else if(step===4)show(2,'back');};
@@ -112,10 +113,30 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
     // Firestore queues the write while offline; don't block the greeting on the server ack.
     const local={...a,approx:{lat:Math.round(a.lat*100)/100,lon:Math.round(a.lon*100)/100},preciseVisibility:'private'};
     saveAgent(u.uid,a).then(d=>onCreated(d,true)).catch(e=>toast('Could not save your agent: '+(e.code||e.message),8000));
-    onCreated(local,false);show(5);}
+    onCreated(local,false);agentName=n;show(5);}
 
-  // ---- 5. first chat: local template greeting, never needs the network
-  function s5(){chrome(5);const first=(currentUser()?.displayName||'').split(/\s+/)[0];const hi=first?`Hi ${esc(first)}.`:'Hi.';
+  // ---- 5. interests: pick 3-5 of 16 chips, optional one-line bio (saved via saveInterests; never blocks the greeting)
+  let agentName='';
+  function s5(){chrome(5);track('interests_view');const sel=new Set();const who=esc(agentName||'Your agent');
+    const ck='<span class="ck"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#c9c1ff" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg></span>';
+    body.append(el('div','onbInt',`<div class="hd"><h2>What are you into?</h2><p>Pick 3 to 5. ${who} uses these to find people and agents you'll click with.</p></div>
+      <div class="count"><b id="intCnt" aria-live="polite">0 of 5</b><span class="meter" id="intMeter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span></div>
+      <div class="grid" id="intGrid" role="group" aria-label="Interests">${Object.keys(ICONS).map(k=>`<button type="button" class="chip" aria-pressed="false" data-k="${k}">${icon(k)}${LABEL[k]}${ck}</button>`).join('')}</div>
+      <div class="about"><label for="intBio"><span>About you <span class="opt">· optional</span></span><span id="intBc">0/80</span></label>
+        <textarea id="intBio" rows="2" maxlength="80" placeholder="e.g. CSE 2nd year at NIT Warangal, into robotics" autocomplete="off" enterkeyhint="done"></textarea><small>Friends' agents see this line next to your agent.</small></div>
+      <div class="bottom"><div class="hint" id="intHint">Pick 3 more</div><button class="primary big" id="intNext" disabled>Continue</button></div>`));
+    const ui=()=>{const n=sel.size;for(const c of body.querySelectorAll('.chip')){c.setAttribute('aria-pressed',String(sel.has(c.dataset.k)));c.classList.toggle('full',n>=5);}
+      $('intCnt').textContent=`${n} of 5`;[...$('intMeter').children].forEach((m,i)=>m.classList.toggle('on',i<n));$('intNext').disabled=n<3;
+      $('intHint').textContent=n<3?`Pick ${3-n} more`:n<5?`Nice. You can add up to ${5-n} more.`:"That's 5, the max";};
+    $('intGrid').onclick=e=>{const c=e.target.closest('.chip');if(!c)return;const k=c.dataset.k;if(sel.has(k))sel.delete(k);else if(sel.size<5)sel.add(k);else return;track('interest_toggle',{key:k,on:sel.has(k)});ui();};
+    const bio=$('intBio');bio.oninput=()=>{if(/\n/.test(bio.value))bio.value=bio.value.replace(/\n+/g,' ').slice(0,80);$('intBc').textContent=bio.value.length+'/80';};
+    bio.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();bio.blur();}};
+    $('intNext').onclick=()=>{if(sel.size<3)return;const list=[...sel],b=bio.value.replace(/\s+/g,' ').trim().slice(0,80);track('interests_saved',{count:list.length,has_bio:!!b});
+      const u=currentUser();if(u)saveInterests(u.uid,list,b).catch(e=>toast("Couldn't save your interests: "+(e.code||e.message),6000));show(6);};
+    ui();}
+
+  // ---- 6. first chat: local template greeting, never needs the network
+  function s6(){chrome(6);const first=(currentUser()?.displayName||'').split(/\s+/)[0];const hi=first?`Hi ${esc(first)}.`:'Hi.';
     const msg=spot.approx?`${hi} I'm in ${esc(spot.city||spot.name||'your city')} for now. You can move me to your exact spot anytime. Want me to find your friends?`
       :`${hi} I'm here on ${esc((spot.name||'your street').split(',')[0])}. Want me to find your friends?`;
     body.append(el('div','onbChat',`<div class="onbHead"><b>${esc(document.querySelector('.agLabel')?.textContent||'Your agent')}</b><button id="onbMove" type="button">Move my agent</button></div>

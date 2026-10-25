@@ -1,0 +1,84 @@
+/* Living agents (design/living-spec.md): interests step, map living states, "While you were away" card.
+   No blur or filter; only transform and opacity animate; no emoji (line SVG icons only). */
+:root{--chip-on-bg:#8b7bff1f;--chip-on-border:#8b7bff88;--chip-on-text:#ded9ff;--chip-on-icon:#c9c1ff}
+/* 1. interests step (onboarding step 5 of 6) */
+.onbInt{flex:1;display:flex;flex-direction:column;min-height:0;overflow-y:auto}
+.onbInt .hd{padding:14px 22px 6px}.onbInt .hd h2{margin:0;font-size:26px;line-height:1.15;font-weight:650;letter-spacing:-.02em}.onbInt .hd p{margin:8px 0 0;font-size:14.5px;line-height:1.45;color:var(--text-2)}
+.onbInt .count{display:flex;align-items:center;justify-content:space-between;padding:12px 22px 10px}.onbInt .count b{font-size:13px;font-weight:600}
+.meter{display:flex;gap:4px}.meter i{width:18px;height:4px;border-radius:2px;background:var(--s4);position:relative;overflow:hidden}
+.meter i::after{content:'';position:absolute;inset:0;background:var(--grad);opacity:0;transition:opacity 200ms}.meter i.on::after{opacity:1}
+.onbInt .grid{display:flex;flex-wrap:wrap;gap:8px;padding:0 20px}
+.chip{height:40px;min-height:40px;width:auto;margin:0;padding:0 14px 0 11px;border-radius:var(--pill);background:var(--s2);border:1px solid var(--line-2);color:var(--text);font-size:14px;font-weight:550;display:inline-flex;align-items:center;gap:7px;cursor:pointer;box-shadow:none;transition:transform 150ms var(--spring),opacity 150ms}
+.chip:active{transform:scale(.97)}
+.chip svg{width:17px;height:17px;stroke:var(--text-2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.chip[aria-pressed=true]{background:var(--chip-on-bg);border-color:var(--chip-on-border);color:var(--chip-on-text)}.chip[aria-pressed=true] svg{stroke:var(--chip-on-icon)}
+.chip.full:not([aria-pressed=true]){opacity:.4}
+.chip .ck{display:none}.chip[aria-pressed=true] .ck{display:inline-flex;opacity:1;transform:none;animation:ckIn 200ms var(--spring)}
+@keyframes ckIn{from{transform:scale(.4);opacity:0}}
+.onbInt .about{padding:16px 22px 0}.onbInt .about label{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin-bottom:7px}
+.onbInt .about textarea{display:block;width:100%;box-sizing:border-box;height:calc(2lh + 24px);line-height:1.4;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;border-radius:16px;background:var(--s1);border:1px solid var(--line-2);color:var(--text);font:inherit;font-size:15px;padding:12px 14px;outline:0}.onbInt .about textarea:focus{border-color:#8b7bff99}
+.onbInt .about small{display:block;margin-top:7px;font-size:12px;color:var(--muted)}
+.onbInt .bottom{margin-top:auto;padding:14px 20px calc(24px + var(--safe-b,0px));display:flex;flex-direction:column;gap:6px}
+.onbInt .hint{text-align:center;font-size:12.5px;color:var(--muted);height:18px}
+/* 2. living states on the map */
+.ag .stat{position:absolute;left:50%;bottom:92px;transform:translateX(-50%);height:30px;padding:0 12px 0 8px;border-radius:var(--pill);display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;white-space:nowrap;color:var(--text);animation:statIn 250ms var(--spring) both;pointer-events:none}
+@keyframes statIn{from{opacity:0;transform:translate(-50%,6px) scale(.94)}}
+.ag .stat .ico{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:#8b7bff26}
+.ag .stat .ico svg{width:12px;height:12px;stroke:#cfc8ff;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.ag .stat small{color:var(--muted);font-weight:500;font-size:12.5px}
+.ag .stat .prog{width:34px;height:4px;border-radius:2px;background:var(--s4);overflow:hidden;position:relative}
+.ag .stat .prog::after{content:'';position:absolute;inset:0;width:40%;background:var(--grad);border-radius:2px;animation:prog 1.6s var(--ease-out) infinite}
+@keyframes prog{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
+.ag .stat[hidden]{display:none}
+.ag .bubble.big{left:auto;right:-14px;top:-4px;height:24px;padding:0 9px}.ag .bubble.big b{width:5px;height:5px}
+.dest{position:relative;width:max-content;height:32px;padding:0 12px 0 9px;border-radius:12px;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap;pointer-events:none}
+.dest svg{width:17px;height:17px;stroke:var(--text);fill:none;stroke-width:1.9;stroke-linejoin:round}
+#liveHint{position:absolute;left:12px;right:12px;bottom:calc(var(--tabs,64px) + 16px + var(--safe-b,0px));z-index:4;border-radius:18px;padding:12px 14px;display:flex;gap:12px;align-items:center;font-size:13.5px;color:var(--text-2);animation:statIn2 250ms var(--ease-out) both}
+@keyframes statIn2{from{opacity:0;transform:translateY(10px)}}
+#liveHint[hidden]{display:none}#liveHint b{color:var(--text);display:block;font-size:14px;margin-bottom:1px}
+#liveHint .ic{width:34px;height:34px;border-radius:11px;background:var(--s3);display:grid;place-items:center;flex:none}
+#liveHint .ic svg{width:17px;height:17px;fill:none;stroke:var(--text-2);stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+body.hint-on .maplibregl-ctrl-bottom-right{bottom:calc(150px + var(--safe-b,0px))}
+body.hint-on .recenter{bottom:calc(var(--tabs,64px) + 110px)}
+body[data-tab=chat] #liveHint,body.sheet-open #liveHint{display:none}
+body[data-tab=chat] .ag .stat,body[data-tab=chat] .ag .stat .prog::after{animation:none}
+/* 3. While you were away */
+#away{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column}
+#away[hidden]{display:none}
+#away .scrim{position:absolute;inset:0;background:linear-gradient(#07080d99,#07080dee 60%);animation:fadeIn 250ms both}
+@keyframes fadeIn{from{opacity:0}}
+#away .card{position:absolute;left:10px;right:10px;bottom:calc(10px + var(--safe-b,0px));top:calc(48px + var(--safe-t,0px));border-radius:28px;padding:18px 18px 16px;display:flex;flex-direction:column;animation:awayUp 250ms var(--ease-out) both;overflow-y:auto}
+@keyframes awayUp{from{opacity:0;transform:translateY(24px)}}
+#away .ahd{display:flex;gap:12px;align-items:center}
+.aav{width:46px;height:46px;border-radius:50%;background:radial-gradient(circle at 50% 75%,#2a2f52,#11131d);position:relative;overflow:hidden;flex:none;box-shadow:inset 0 0 0 1px #ffffff1f;display:grid;place-items:center;font-weight:650;color:var(--text)}
+.aav canvas{position:absolute;inset:0;width:100%;height:100%}
+.aav.mono{background:var(--grad);color:#0a0b10;font-size:17px}
+#away .ahd h2{margin:0;white-space:nowrap;font-size:19px;font-weight:650;letter-spacing:-.015em}#away .ahd p{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
+#away .x{margin-left:auto;width:34px;height:34px;min-height:34px;padding:0;border-radius:50%;border:1px solid var(--line);background:var(--s2);color:var(--text-2);display:grid;place-items:center;cursor:pointer;align-self:flex-start;box-shadow:none}
+#away .sum{display:flex;gap:8px;margin:14px 0 4px}#away .sum div{flex:1;background:var(--s2);border-radius:14px;padding:9px 10px}#away .sum b{display:block;font-size:17px;font-weight:650}#away .sum small{font-size:11.5px;color:var(--muted)}
+#away .sec{margin:14px 0 8px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.diary{list-style:none;margin:0;padding:0;position:relative}
+.diary::before{content:'';position:absolute;left:43px;top:8px;bottom:8px;width:1px;background:var(--line-2)}
+.diary li{display:flex;gap:12px;align-items:flex-start;padding:5px 0;font-size:13.5px;line-height:1.4;color:var(--text-2);animation:awayUp 250ms var(--ease-out) both}
+.diary li:nth-child(2){animation-delay:40ms}.diary li:nth-child(3){animation-delay:80ms}.diary li:nth-child(4){animation-delay:120ms}
+.diary time{width:34px;flex:none;font-size:11.5px;font-weight:600;color:var(--muted);padding-top:1px;font-variant-numeric:tabular-nums}
+.diary .d{width:9px;height:9px;border-radius:50%;background:var(--s4);border:2px solid var(--bg);flex:none;margin-top:4px;position:relative;z-index:1}
+.diary li.met .d{background:var(--grad)}.diary b{color:var(--text);font-weight:600}
+.met-row{display:flex;gap:8px}
+.mcard{flex:1;min-width:0;background:var(--s2);border:1px solid var(--line);border-radius:18px;padding:10px 8px;text-align:center;cursor:pointer;min-height:0;box-shadow:none;color:var(--text);display:block;margin:0}
+.mcard .aav{width:44px;height:44px;margin:0 auto 6px}
+.mcard b{display:block;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.itag{display:inline-flex;align-items:center;gap:4px;margin-top:5px;height:22px;padding:0 8px;border-radius:var(--pill);background:#8b7bff1f;color:#cfc8ff;font-size:11px;font-weight:600}
+.itag svg{width:12px;height:12px;stroke:#cfc8ff;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.intro{margin-top:14px;border-radius:20px;padding:14px;background:linear-gradient(#141722,#141722) padding-box,linear-gradient(135deg,#8b7bff88,#4fd1ff55) border-box;border:1px solid transparent}
+.intro[hidden]{display:none}
+.intro .irow{display:flex;flex-direction:row;gap:10px;align-items:center}.intro .aav{width:40px;height:40px;flex:none}
+.intro p{margin:0;font-size:14px;line-height:1.45;color:var(--text-2)}.intro p b{color:var(--text)}
+.intro .acts{display:flex;gap:8px;margin-top:12px}.intro .acts button{flex:1;height:44px;min-height:44px;margin:0;border-radius:var(--pill);font-weight:600}
+.intro .acts .brand{background:var(--grad);color:#0a0b10;box-shadow:none;border:0}
+@media (prefers-reduced-motion:reduce){.ag .stat,.ag .stat .prog::after,#liveHint,#away .card,#away .scrim,.diary li,.chip .ck{animation:none}}
+/* V1 plain away list: who the agent met (gradient initial + stored name only). */
+.met-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.met-list li{display:flex;align-items:center;gap:10px;font-size:14px}
+.met-list .aav{width:32px;height:32px;font-size:14px}
+.met-list b{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

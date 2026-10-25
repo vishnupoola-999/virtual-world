@@ -22,9 +22,10 @@ export function sharedRenderer(){
     s={sc,c,key:JSON.stringify(look),anim:'idle'};scenes.set(id,s);return s;}
   return {
     // look: a sanitized look; anim: idle | walk | talk | wave; dt in seconds (0 for a static frame)
-    draw(id,look,anim,dt,view){const s=scene(id,look),key=JSON.stringify(look);
+    draw(id,look,anim,dt,view,yaw){const s=scene(id,look),key=JSON.stringify(look);
       if(key!==s.key){s.key=key;s.c.setLook(look);}
       if(anim!==s.anim){s.anim=anim;s.c.play(anim);}
+      s.c.group.rotation.y=view==='portrait'?-.3:(typeof yaw==='number'?yaw:-.3); // living states: two meeting agents face each other
       s.c.update(dt);r.render(s.sc,view==='portrait'?portrait:cam);return r.domElement;},
     drop(id){const s=scenes.get(id);if(!s)return;s.sc.traverse(o=>{if(o.isMesh)o.geometry.dispose();});scenes.delete(id);},
     get size(){return [W,H];}};}
