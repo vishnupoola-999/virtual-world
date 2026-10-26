@@ -17,14 +17,13 @@ export function chatHero(canvas){let lastAgent=null;const ro=new ResizeObserver(
     scene.add(new THREE.HemisphereLight(0xffffff,0x334466,2.2));const d=new THREE.DirectionalLight(0xffffff,2);d.position.set(2,4,5);scene.add(d);
     const rim=new THREE.DirectionalLight('#5eb4ff',1.4);rim.position.set(-2,3,-4);scene.add(rim);
     const soft=new THREE.DirectionalLight('#cfe0ff',.6);soft.position.set(2.5,1.6,-2.5);scene.add(soft);
-    cam=new THREE.PerspectiveCamera(28,1,.1,10);cam.position.set(0,.62,3.4);cam.lookAt(0,.56,0);
+    cam=new THREE.PerspectiveCamera(28,1,.1,10);cam.position.set(0,.55,3.2);cam.lookAt(0,.5,0);
     ch=createCharacter();scene.add(ch.group);size();return true;}
   function size(){if(!r)return;const w=canvas.clientWidth,h=canvas.clientHeight;if(!w||!h)return;
     // Buffer = CSS size × pixel ratio (capped at 2), so the canvas is never upscaled.
     r.setPixelRatio(pr);r.setSize(w,h,false);cam.aspect=w/h;
-    // UI v2: the header avatar is a 44 px circle, so frame head and shoulders (about 0.65 m up to the hair top at 1.28 m, plus headroom).
-    // Head (hair top ≈1.29 m, centre ≈1.07 m) is centred in the circle so the round edge never cuts the hair.
-    if(w<80){cam.fov=25;cam.position.set(0,1.06,2.3);cam.lookAt(0,1.06,0);}else{cam.fov=28;cam.position.set(0,.62,3.4);cam.lookAt(0,.56,0);}cam.updateProjectionMatrix();draw();}
+    // The header avatar is a 44 px circle: the creature (<=1.0 m incl. Sprout's leaf) is centred so the round edge never cuts it.
+    if(w<80){cam.fov=25;cam.position.set(0,.5,3);cam.lookAt(0,.5,0);}else{cam.fov=28;cam.position.set(0,.55,3.2);cam.lookAt(0,.5,0);}cam.updateProjectionMatrix();draw();}
   function draw(){if(!r||!ch)return;ch.update(Math.min(clock.getDelta(),.1));
     // thinking: gentle side-to-side sway; sleeping: dimmed and sinks a little; error: still.
     const T=performance.now()/1000,g=ch.group;g.rotation.y=state==='thinking'?Math.sin(T*3)*.35:0;
@@ -35,7 +34,7 @@ export function chatHero(canvas){let lastAgent=null;const ro=new ResizeObserver(
   const kick=()=>{if(active&&!raf&&!document.hidden&&init())raf=requestAnimationFrame(frame);};
   ro.observe(canvas);
   // Free the GPU context when leaving Chat; a fresh canvas + renderer is made on the next start.
-  function release(){if(!r)return;ch.group.traverse(o=>{if(o.isMesh)o.geometry.dispose();});r.dispose();r.forceContextLoss();r=null;ch=null;key='';
+  function release(){if(!r)return;ch.group.traverse(o=>{if(o.isMesh&&!o.geometry.userData.shared)o.geometry.dispose();});r.dispose();r.forceContextLoss();r=null;ch=null;key='';
     const c=canvas.cloneNode(false);ro.unobserve(canvas);canvas.replaceWith(c);canvas=c;ro.observe(c);}
   document.addEventListener('visibilitychange',()=>{if(!document.hidden){clock.getDelta();kick();}});
   return {

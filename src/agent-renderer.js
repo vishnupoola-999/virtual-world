@@ -10,11 +10,11 @@ const W=CSS_W,H=CSS_H;
 export function sharedRenderer(){
   const r=new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});
   let pr=basePR();r.setPixelRatio(pr);r.setSize(W,H,false);r.setClearColor(0x000000,0);
-  // Map camera: the frustum used to stop at y≈1.03 m while the hair top is at ≈1.29 m, so the top of every head was cut off.
-  // Now frames -0.05…1.42 m (feet, hair, wave arm and the walk hop) with headroom.
-  const cam=new THREE.PerspectiveCamera(24,W/H,.1,10);cam.position.set(0,.70,3.45);cam.lookAt(0,.68,0);
-  // Portrait camera for the profile sheet: head and shoulders with headroom.
-  const portrait=new THREE.PerspectiveCamera(24,W/H,.1,10);portrait.position.set(0,1.12,2.2);portrait.lookAt(0,1.08,0);
+  // Map camera: creatures are <=1.0 m tall and <=0.95 m wide (character.js SCALE); frames -0.05..1.37 m so the happy hop
+  // (+0.17 m), Sprout's leaf and Drip's tip never touch the top edge.
+  const cam=new THREE.PerspectiveCamera(24,W/H,.1,10);cam.position.set(0,.66,3.3);cam.lookAt(0,.64,0);
+  // Portrait camera for the profile sheet: the whole creature is the face, so frame all of it (leaf and tip uncropped).
+  const portrait=new THREE.PerspectiveCamera(24,W/H,.1,10);portrait.position.set(0,.56,3.05);portrait.lookAt(0,.52,0);
   const scenes=new Map();
   function scene(id,look){let s=scenes.get(id);if(s)return s;
     const sc=new THREE.Scene();sc.add(new THREE.HemisphereLight('#dfe6ff','#2a2040',1.8));
@@ -30,7 +30,7 @@ export function sharedRenderer(){
       if(anim!==s.anim){s.anim=anim;s.c.play(anim);}
       s.c.group.rotation.y=view==='portrait'?-.3:(typeof yaw==='number'?yaw:-.3); // living states: two meeting agents face each other
       s.c.update(dt);r.render(s.sc,view==='portrait'?portrait:cam);return r.domElement;},
-    drop(id){const s=scenes.get(id);if(!s)return;s.sc.traverse(o=>{if(o.isMesh)o.geometry.dispose();});scenes.delete(id);},
+    drop(id){const s=scenes.get(id);if(!s)return;s.sc.traverse(o=>{if(o.isMesh&&!o.geometry.userData.shared)o.geometry.dispose();});scenes.delete(id);},
     // Buffer size in device pixels (CSS size × pixel ratio); the marker canvases match it so nothing is upscaled.
     get size(){return [Math.round(W*pr),Math.round(H*pr)];},get pixelRatio(){return pr;},get antialias(){return r.getContextAttributes()?.antialias===true;},
     setPixelRatio(p){if(p===pr)return;pr=p;r.setPixelRatio(pr);r.setSize(W,H,false);}};}

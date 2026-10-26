@@ -33,7 +33,7 @@ service cloud.firestore {
       return d.keys().hasOnly(['name','look','personality','ownerName','lat','lon','approx','preciseVisibility','updatedAt','memory','spotApprox','interests','bio','life','friends','isTest','status'])
         && d.keys().hasAll(['name','look','lat','lon','preciseVisibility','updatedAt'])
         && d.name is string && d.name.size() > 0 && d.name.size() <= 40
-        && d.look is map && (legacyLook(d.look) || characterLook(d.look))
+        && d.look is map && (legacyLook(d.look) || characterLook(d.look) || creatureLook(d.look))
         && (!('personality' in d) || (d.personality is string && d.personality.size() <= 300))
         && (!('ownerName' in d) || (d.ownerName is string && d.ownerName.size() <= 80))
         && d.lat is number && d.lat >= -90 && d.lat <= 90
@@ -73,6 +73,12 @@ service cloud.firestore {
               && l.hair in ['long','ponytail','bun','bob','curly','short']
               && l.outfit in ['tee','hoodie','kurta','dress']
               && l.acc.toSet().hasOnly(['glasses','headphones','cap','bindi'])));
+    }
+    // Creatures v2 look from src/character-data.js sanitize(): exactly {creature, accessory}.
+    function creatureLook(l) {
+      return l.keys().hasOnly(['creature','accessory']) && l.keys().hasAll(['creature','accessory'])
+        && l.creature in ['blob','puff','sprout','pebble','drip','mallow']
+        && l.accessory in ['none','glasses','beanie','tuft','headphones','bow'];
     }
     function signedInNotAnon() {
       return request.auth != null && request.auth.token.firebase.sign_in_provider != 'anonymous';

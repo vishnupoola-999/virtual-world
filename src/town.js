@@ -104,7 +104,7 @@ export function setupTown({agents,living,getUser,el,actEl,dotEl,map,deps={}}){co
     for(const p of Array.isArray(f.nearby)?f.nearby.slice(0,6):[]){if(!p||!p.id)continue;let lat=+p.lat,lon=+(p.lng??p.lon);
       if(!(Number.isFinite(lat)&&Number.isFinite(lon))&&me&&p.offsetM){lon=me.lon+(+p.offsetM.east||0)/(111320*Math.cos(me.lat*Math.PI/180));lat=me.lat+(+p.offsetM.north||0)/110540;}
       if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;const id='nb-'+p.id,ci=p.look?.colorIndex;now.add(id);
-      agents.put({id,name:dn(p.name)||'Neighbour',lat,lon,look:Number.isInteger(ci)&&living.townColour?{color:living.townColour(ci)}:undefined,ownerName:dn(p.name),other:true,meta:'Neighbour'});agents.get(id)?.el.classList.add('town','nearby');}
+      agents.put({id,name:dn(p.name)||'Neighbour',lat,lon,look:Number.isInteger(ci)&&living.townLook?living.townLook(p.look):undefined,ownerName:dn(p.name),other:true,meta:'Neighbour'});agents.get(id)?.el.classList.add('town','nearby');}
     for(const id of nb)if(!now.has(id))agents.remove(id);nb=now;}
   function draw(list){last=list;const keep=list.filter(d=>d&&d.id&&d.id!==myId&&Number.isFinite(d.lat)&&Number.isFinite(d.lon));const now=new Set();
     const off=new Map(),group=new Map();
