@@ -87,3 +87,5 @@ button:not(:disabled):active,.chip:active{transform:scale(.97);transition:transf
 @keyframes pTownIn{from{translate:0 8px;opacity:0}to{translate:0 0;opacity:1}}
 .ag.town.leave{opacity:0;translate:0 6px;transition:opacity 300ms var(--ease-sheet),translate 300ms var(--ease-sheet)}
 @media (prefers-reduced-motion:reduce){#sheet,.stag>li,.wmSec .wm,#liveHint.swap>*,.ag.town{animation:none}.vsheet,.cs-sheet,.ag.town.leave,button:active{transition:none}}
+/* Ambient creatures (src/ambient.js): characters only, not tappable, no pill or status. */
+.ag.ambient{pointer-events:none}.ag.ambient .pill,.ag.ambient .stat,.ag.ambient .bubble{display:none}

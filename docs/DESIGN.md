@@ -140,3 +140,7 @@ Times are IST. Newest entries are at the bottom; keep appending.
 - Motion: idle breathing, staggered 0.16 s blinks, slight sway; walking is a small squash-and-stretch hop; a happy hop (happy ^ ^ eyes) when a meet starts, then the mouth moves while chatting; the 30 degree turn toward each other stays.
 - Review fixes: Pebble's face lowered (eye line .40 -> .36); the beanie has a darker ribbed cuff band; map, portrait and picker cameras leave room above Sprout's leaf and Drip's tip.
 - Phone budget: under 4k triangles per creature with any accessory, shared materials per creature type, pixel ratio min(dpr, 2), no blur. Shots: /workspace/shots/creatures/ (before-*.png from main, after-*.png).
+## 2026-10-26: Ambient creatures worldwide (Vishnu)
+- About 900 creatures live around 70 major cities and regions (India weighted up), the same on every device, so the map feels populated at any zoom. Characters only: no names, pills or status, and they can't be tapped.
+- Zoomed out: small dots in each creature's colour with a thin dark ring. City zoom (11-16): tiny creature silhouettes with eyes. Street zoom (16+): the nearest four on screen become full animated creatures; their silhouettes hide.
+- Shots: /workspace/shots/ambient/world.png, city.png, neighbourhood.png, street.png (360 wide at 2x).
