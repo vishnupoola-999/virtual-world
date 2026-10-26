@@ -650,3 +650,19 @@ describe('visible town characters', () => {
     } finally { server.close(); }
   });
 });
+
+test('/tick?async=1 answers 202 at once and finishes the tick in the background', async () => {
+  const { createServer } = await import('../proxy/server.js');
+  const { once } = await import('node:events');
+  const pending = [];
+  let ran = 0;
+  const store = { listAgents: async () => { ran++; return []; }, saveLife: async () => {}, addDiary: async () => {} };
+  const server = createServer({ admin: null, memory: null, rateLimiter: { allow: async () => true }, apiKey: 'k', tickSecret: 'x'.repeat(20), lifeSalt: 's', lifeStore: store, llm: async () => '{}', pending });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    const r = await fetch(`http://127.0.0.1:${server.address().port}/tick?async=1`, { method: 'POST', headers: { 'x-tick-secret': 'x'.repeat(20) } });
+    assert.equal(r.status, 202);
+    await Promise.all(pending);
+    assert.equal(ran, 1);
+  } finally { server.closeAllConnections(); server.close(); }
+});

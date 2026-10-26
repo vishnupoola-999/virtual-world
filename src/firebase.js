@@ -91,11 +91,15 @@ export function cachedAgent(uid){try{return JSON.parse(localStorage.getItem(CK(u
 export function cacheAgent(uid,a){try{if(a)localStorage.setItem(CK(uid),JSON.stringify({...a,updatedAt:null,memory:undefined}));else localStorage.removeItem(CK(uid));}catch{/* storage full or blocked */}}
 // ~1 km grid (0.01°) for the future friends phase; exact coords stay owner-only.
 const r2=x=>Math.round(x*100)/100;
+// Ask the proxy to (re)write this user's public map card now instead of waiting for the next life tick.
+// Fire-and-forget: the proxy reads agents/{uid} itself, so nothing but the ID token is sent. Anonymous users are skipped.
+const PUBLISH_URL='https://virtual-world-ai.onrender.com/publish';
+export function publishCard(){try{const u=auth.currentUser;if(!u||u.isAnonymous)return;u.getIdToken().then(t=>fetch(PUBLISH_URL,{method:'POST',headers:{Authorization:'Bearer '+t}})).catch(()=>{});}catch{/* offline */}}
 export async function saveAgent(uid,a){const {setDoc,doc,db,serverTimestamp}=await fs();const d={name:a.name,look:a.look,personality:a.personality||'',ownerName:a.ownerName||'',lat:a.lat,lon:a.lon,
   approx:{lat:r2(a.lat),lon:r2(a.lon)},spotApprox:!!a.spotApprox,preciseVisibility:'private',updatedAt:serverTimestamp()};
   // mergeFields keeps server-written fields (memory, life...) but REPLACES `look` whole. Plain merge:true deep-merges
   // maps, so a v1 look + {creature,accessory} became a mixed map that every look rule denies.
-  await setDoc(doc(db,'agents',uid),d,{mergeFields:Object.keys(d)});
+  await setDoc(doc(db,'agents',uid),d,{mergeFields:Object.keys(d)});publishCard();
   // merge keeps interests/bio already stored. The payload omits them, so keep the cached copy.
   const prev=cachedAgent(uid);if(prev?.interests&&d.interests==null)d.interests=prev.interests;if(typeof prev?.bio==='string'&&d.bio==null)d.bio=prev.bio;
   cacheAgent(uid,d);return d;}
@@ -109,7 +113,7 @@ export function realSavedInterests(list){const tags=cleanInterests(list);
   return tags;}
 export async function saveInterests(uid,interests,bio=''){const tags=cleanInterests(interests);if(tags.length<3||realSavedInterests(tags).length<3)throw new Error('Pick 3 to 5 interests');
   const {updateDoc,doc,db,serverTimestamp}=await fs();const d={interests:tags,bio:String(bio).replace(/\s+/g,' ').trim().slice(0,80),updatedAt:serverTimestamp()};
-  await updateDoc(doc(db,'agents',uid),d);return d;}
+  await updateDoc(doc(db,'agents',uid),d);publishCard();return d;}
 // Life loop diary (owner-read-only): newest first. Entries: {kind:'meet'|'diary', text?, withId?, withName?, shared?, at}.
 export async function loadDiary(uid,n=30){const F=await fs(),{getDocs,query,orderBy,limit,collection,db}=F;
   const s=await getDocs(query(collection(db,'agents',uid,'diary'),orderBy('at','desc'),limit(n)));return s.docs.map(d=>({id:d.id,...d.data()}));}
