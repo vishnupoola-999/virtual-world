@@ -3,6 +3,7 @@
 // The caller's own card (doc id === /feed myId) is skipped: their agent is already drawn as 'me'.
 // Anonymous users, network errors and missing config all fail quietly: no others on the map, a calm Feed message.
 import {displayName as dn} from './names.js';
+import {friendsHtml,avatar,lookOf,fillAvatars} from './threads.js';
 const PROJ='virtual-world-8ac82',FS_DB='default'; // same as firebase.js (kept here so this module has no CDN imports)
 export const FEED_URL='https://virtual-world-ai.onrender.com/feed?n=30';
 export const CONNECT_URL='https://virtual-world-ai.onrender.com/connect';
@@ -69,7 +70,10 @@ export function noteText(e){if(typeof e.note==='string'&&e.note.trim())return es
 export const worthMeeting=f=>(f.mine||[]).filter(e=>e.kind==='meet'&&!e.town&&Array.isArray(e.shared)&&e.shared.length);
 const gist=e=>{const sh=(e.shared||[]).slice(0,3);const l=(e.lines||[]).find(x=>x&&x.text);
   return (sh.length?`Talked about ${esc(andList(sh))}.`:'Said hello and swapped notes.')+(l?` <span class="q">"${esc(clip(l.text,80))}"</span>`:'');};
-const pendingTo=f=>new Set((f.outgoing||[]).filter(o=>o&&o.status==='pending'&&o.toAgentId).map(o=>o.toAgentId));
+// A decline is never shown to the sender: their card stays at "Request sent".
+const pendingTo=f=>new Set((f.outgoing||[]).filter(o=>o&&(o.status==='pending'||o.status==='declined')&&o.toAgentId).map(o=>o.toAgentId));
+export const connectedTo=f=>{const m=new Map();for(const o of f.outgoing||[])if(o&&o.status==='accepted'&&o.toAgentId&&o.threadId)m.set(o.toAgentId,o.threadId);return m;};
+const openBtn=tid=>`<div class="sentRow conn"><button type="button" class="openChat" data-thread="${esc(tid)}">Connected · Open chat</button></div>`;
 const sentTag='<span class="sentTag">Hi sent · pending</span>';
 const logRow=(e,p)=>e.kind==='meet'?`<li class="fd meet"><button type="button" class="fdHead" aria-expanded="false"><span class="fdDot"></span><span class="fdT">Met ${esc(dn(e.withName)||'another agent')}</span>${p&&p.has(e.withId)?sentTag:''}<small>${ago(e.at)}</small></button><div class="fdBody"><p>${gist(e)}</p></div></li>`:diaryRow(e);
 const atMs=e=>typeof e.at==='number'?e.at:Date.parse(e.at)||0;
@@ -77,16 +81,19 @@ const atMs=e=>typeof e.at==='number'?e.at:Date.parse(e.at)||0;
 export const byNewest=list=>[...list].sort((a,b)=>atMs(b)-atMs(a));
 const X='<button type="button" class="later x" aria-label="Dismiss"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>';
 // Incoming hi requests (pending only; no accept yet, so a dismiss is the only action).
-export const incomingOf=(f,dismissed=new Set())=>(f.incoming||[]).filter(r=>r&&r.id&&!dismissed.has(r.id));
-const incCard=r=>`<li class="wm inc" data-id="${esc(r.id)}" data-kind="in">${X}<p class="incT"><b>${esc(clip(dn(r.fromName)||'Someone',40))}</b> wants to connect</p>${String(r.text||'').trim()?`<p class="incQ">${esc(clip(r.text,HI_MAX))}</p>`:''}<small class="incAgo">${ago(r.createdAt)}</small></li>`;
-const wmCard=(e,p)=>`<li class="wm${p.has(e.withId)?' sent':''}" data-id="${esc(e.id)}" data-with="${esc(e.withId||'')}">${X}<p>${noteText(e)}</p><div class="fdChips">${(e.shared||[]).slice(0,3).map(t=>`<span>${esc(t)}</span>`).join('')}</div>`
+// Requests: Accept/Decline only while pending; accepted shows Open chat; declined disappears.
+export const incomingOf=(f,dismissed=new Set())=>(f.incoming||[]).filter(r=>r&&r.id&&!dismissed.has(r.id)&&r.status!=='declined');
+const incCard=(r,lk)=>`<li class="wm inc" data-id="${esc(r.id)}" data-kind="in">${r.status==='accepted'?'':X}<div class="incH">${avatar(lk(r))}<p class="incT"><b>${esc(clip(dn(r.fromName)||'Someone',40))}</b> wants to connect</p></div>${String(r.text||'').trim()?`<p class="incQ">${esc(clip(r.text,HI_MAX))}</p>`:''}<small class="incAgo">${ago(r.createdAt)}</small>`
+  +(r.status==='accepted'&&r.threadId?openBtn(r.threadId):`<div class="acts"><button type="button" class="decline">Decline</button><button type="button" class="accept">Accept</button></div><small class="err" role="alert"></small>`)+'</li>';
+const wmCard=(e,p,c=new Map())=>c.has(e.withId)?`<li class="wm conn" data-id="${esc(e.id)}" data-with="${esc(e.withId||'')}">${X}<p>${noteText(e)}</p><div class="fdChips">${(e.shared||[]).slice(0,3).map(t=>`<span>${esc(t)}</span>`).join('')}</div>${openBtn(c.get(e.withId))}</li>`:`<li class="wm${p.has(e.withId)?' sent':''}" data-id="${esc(e.id)}" data-with="${esc(e.withId||'')}">${X}<p>${noteText(e)}</p><div class="fdChips">${(e.shared||[]).slice(0,3).map(t=>`<span>${esc(t)}</span>`).join('')}</div>`
   +(p.has(e.withId)?`<div class="sentRow" role="status"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Request sent</div>`
   :`<div class="acts"><button type="button" class="hi" data-name="${esc(dn(e.withName))}">Say hi</button></div>`)+'</li>';
-export function activityHtml(f,{dismissed=new Set(),inDismissed=new Set()}={}){const mine=byNewest(f.mine||[]),inc=incomingOf(f,inDismissed),p=pendingTo(f);
-  const ih=inc.length?`<div class="wmSec inSec"><div class="fdSec">Wants to connect</div><ul>${inc.map(incCard).join('')}</ul></div>`:'';
-  if(!mine.length)return ih+`<p class="fdEmpty">${EMPTY}</p>`;
+export function activityHtml(f,{dismissed=new Set(),inDismissed=new Set(),threads=[],lookFor=r=>lookOf(null,r.fromName)}={}){const mine=byNewest(f.mine||[]),p=pendingTo(f),c=connectedTo(f);
+  const inc=incomingOf(f,inDismissed).filter(r=>r.status!=='accepted'||!threads.some(t=>t.id===r.threadId));
+  const ih=friendsHtml(threads)+(inc.length?`<div class="wmSec inSec"><div class="fdSec">Requests</div><ul>${inc.map(r=>incCard(r,lookFor)).join('')}</ul></div>`:'');
+  if(!mine.length)return ih+(ih?'':`<p class="fdEmpty">${EMPTY}</p>`);
   const wm=worthMeeting(f).filter(e=>!dismissed.has(e.id));
-  const hl=wm.length?`<div class="wmSec"><div class="fdSec">Worth meeting</div><ul>${wm.map(e=>wmCard(e,p)).join('')}</ul></div>`:'';
+  const hl=wm.length?`<div class="wmSec"><div class="fdSec">Worth meeting</div><ul>${wm.map(e=>wmCard(e,p,c)).join('')}</ul></div>`:'';
   return ih+hl+`<div class="fdSec">Log</div><ul class="stag">${mine.map(e=>logRow(e,p)).join('')}</ul>`;}
 export const SKELETON=`<ul class="fdSk" aria-hidden="true"><li></li><li></li><li></li></ul>`;
 export const ACT_SKELETON=`<div class="fdSec">Log</div><ul class="fdSk" aria-hidden="true"><li></li><li></li><li></li></ul>`;
@@ -94,7 +101,7 @@ const store=k=>{try{return new Set(JSON.parse(localStorage.getItem(k)||'[]'));}c
 const save=(k,v)=>{try{localStorage.setItem(k,JSON.stringify([...v].slice(-200)));}catch{/* storage blocked */}};
 const toggleMeet=e=>{const h=e.target.closest('.meet>.fdHead');if(!h)return;const li=h.parentElement,on=!li.classList.contains('open');li.classList.toggle('open',on);h.setAttribute('aria-expanded',String(on));};
 
-export function setupTown({agents,living,getUser,el,actEl,dotEl,map,deps={}}){const F={fetchPublicAgents,fetchFeed,sendConnect,...deps};let cur=null,cu=null;let myId=null,drawn=new Set(),seq=0,aseq=0,last=[];const spread=new Set();
+export function setupTown({agents,living,getUser,el,actEl,dotEl,map,threads=null,deps={}}){const F={fetchPublicAgents,fetchFeed,sendConnect,...deps};let cur=null,cu=null;let myId=null,drawn=new Set(),seq=0,aseq=0,last=[];const spread=new Set();
   // One /feed request serves the map (myId), the Feed sheet and Agent chats; reused for 30 s.
   let fc=null;const feed=u=>{if(fc&&fc.u===u&&Date.now()-fc.t<30000)return fc.p;const p=F.fetchFeed(u);fc={u,t:Date.now(),p};p.catch(()=>{if(fc?.p===p)fc=null;});return p;};
   async function ensureMyId(u){try{const f=await feed(u);myId=f.myId||myId;townExtras(f);}catch{/* feed down: still draw others */}return myId;}
@@ -113,7 +120,7 @@ export function setupTown({agents,living,getUser,el,actEl,dotEl,map,deps={}}){co
       living.putOther?living.putOther({id:d.id,name:d.name||'Agent',lat:d.lat,lon:d.lon,look:d.look,approx:{lat:d.lat,lon:d.lon},status:st||undefined,other:true,meta:'Around town · approximate area'})
         :agents.put({id:d.id,name:d.name||'Agent',lat:d.lat,lon:d.lon,look:d.look,other:true});
       const a=agents.get(d.id);if(!a)continue;a.marker.setOffset([off.get(d.id)[0],-6+off.get(d.id)[1]]);a.townGroup=group.get(d.id);hookTap(a);}
-    for(const id of drawn)if(!now.has(id))agents.remove(id);drawn=now;queueClear();return keep.length;}
+    for(const id of drawn)if(!now.has(id))agents.remove(id);drawn=now;threads?.ring();queueClear();return keep.length;}
   // Tapping an agent in a closed group zooms in and spreads the group instead of opening a profile.
   function hookTap(a){const e=a.el;if(!e||e.dataset.town)return;e.dataset.town='1';
     e.addEventListener('click',ev=>{if(!a.townGroup)return;ev.stopImmediatePropagation();ev.preventDefault();expand(a.townGroup,a.marker.getLngLat());},true);}
@@ -136,11 +143,20 @@ export function setupTown({agents,living,getUser,el,actEl,dotEl,map,deps={}}){co
     el.removeAttribute('aria-busy');}
   async function loadActivity(user=getUser()){if(!actEl)return;const n=++aseq;actEl.innerHTML=ACT_SKELETON;actEl.setAttribute('aria-busy','true');
     if(!isReal(user)){actEl.innerHTML='<p class="fdEmpty">Sign in to see what your agent has been up to.</p>';actEl.removeAttribute('aria-busy');return;}
-    try{const f=await feed(user);if(n!==aseq)return;if(f.myId)myId=f.myId;cur=f;cu=user;render();
+    try{const [f]=await Promise.all([feed(user),threads?.load(user)]);if(n!==aseq)return;if(f.myId)myId=f.myId;cur=f;cu=user;render();
       const seen=store('vw-wm-seen');for(const e of worthMeeting(f))seen.add(e.id);save('vw-wm-seen',seen);const is=store('vw-in-seen');for(const r of f.incoming||[])if(r?.id)is.add(r.id);save('vw-in-seen',is);if(dotEl)dotEl.hidden=true;}
     catch(e){if(n!==aseq)return;console.warn('activity',e?.message);actEl.innerHTML='<p class="fdEmpty">Activity is resting. Try again in a minute.</p>';}
     actEl.removeAttribute('aria-busy');}
-  const render=()=>{if(cur&&actEl)actEl.innerHTML=activityHtml(cur,{dismissed:store('vw-wm-done'),inDismissed:store('vw-in-done')});};
+  const lookFor=r=>lookOf(agents.get(r.fromAgentId)?.look||null,r.fromName);
+  const render=()=>{if(cur&&actEl){actEl.innerHTML=activityHtml(cur,{dismissed:store('vw-wm-done'),inDismissed:store('vw-in-done'),threads:threads?.threads||[],lookFor});fillAvatars(actEl);}};
+  // Accept opens the private chat straight away; Decline just removes the card (the sender never sees it).
+  async function respond(li,action){const id=li.dataset.id,err=li.querySelector('.err'),bs=li.querySelectorAll('.acts button');for(const b of bs)b.disabled=true;li.setAttribute('aria-busy','true');if(err)err.textContent='';
+    try{const r=await threads.respond(id,action);fc=null;
+      cur={...cur,incoming:(cur.incoming||[]).map(x=>x.id===id?{...x,status:r.status||(action==='accept'?'accepted':'declined'),...(r.threadId?{threadId:r.threadId}:{})}:x)};
+      if(r.threadId){await threads.load();render();await threads.openThread(r.threadId);}else render();}
+    catch(x){for(const b of bs)b.disabled=false;li.removeAttribute('aria-busy');if(err)err.textContent=x?.status===404?'This request is no longer available.':x?.status===409?'Already answered.':'Something went wrong. Try again.';
+      if(x?.status===409||x?.status===404){fc=null;setTimeout(()=>loadActivity(),1200);}}}
+  if(threads)threads.onClose=()=>{if(actEl?.isConnected)threads.load().then(render);};
   // Unread dot on the Agent chats rail button: worth-meeting notes and incoming hi requests not opened yet.
   async function checkUnread(user=getUser()){if(!dotEl||!isReal(user))return 0;try{const f=await feed(user),seen=store('vw-wm-seen'),is=store('vw-in-seen');
     const n=worthMeeting(f).filter(e=>!seen.has(e.id)).length+(f.incoming||[]).filter(r=>r?.id&&!is.has(r.id)).length;dotEl.hidden=!n;return n;}catch{return 0;}}
@@ -157,7 +173,10 @@ export function setupTown({agents,living,getUser,el,actEl,dotEl,map,deps={}}){co
       cur={...cur,outgoing:[{id:r?.id||'local',toAgentId:e.withId,createdAt:r?.createdAt||Date.now(),status:'pending'},...(cur.outgoing||[])]};fc=null;render();}
     catch(x){if(x?.status===409){cur={...cur,outgoing:[{id:'dup',toAgentId:e.withId,createdAt:Date.now(),status:'pending'},...(cur.outgoing||[])]};}
       c.classList.remove('busy');t.disabled=false;c.querySelector('.cancel').disabled=false;sb.textContent='Send';err.textContent=connectError(x?.status);sync(c);li.removeAttribute('aria-busy');}}
-  actEl?.addEventListener('click',ev=>{const b=ev.target.closest('.wm button');if(!b)return toggleMeet(ev);const li=b.closest('.wm'),id=li.dataset.id;
+  actEl?.addEventListener('click',ev=>{const o=ev.target.closest('.openChat,.frBtn');if(o&&threads)return threads.openThread(o.dataset.thread||o.closest('.fr').dataset.thread);
+    const b=ev.target.closest('.wm button');if(!b)return toggleMeet(ev);const li=b.closest('.wm'),id=li.dataset.id;
+    if(b.classList.contains('accept'))return respond(li,'accept');
+    if(b.classList.contains('decline'))return respond(li,'decline');
     if(b.classList.contains('hi'))return openComposer(li,b.dataset.name);
     if(b.classList.contains('send'))return send(li);
     if(b.classList.contains('cancel')){const a=document.createElement('div');a.className='acts';a.innerHTML=`<button type="button" class="hi"></button>`;a.firstChild.dataset.name=b.closest('.wm').querySelector('.hi')?.dataset.name||((cur?.mine||[]).find(x=>String(x.id)===id)?.withName||'');a.firstChild.textContent='Say hi';li.querySelector('.cmp').replaceWith(a);return;}

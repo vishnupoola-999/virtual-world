@@ -1,0 +1,37 @@
+/* Accept/decline, Chats list and the private two-person chat. Dark, no blur; only transform/opacity animate. */
+.cav{position:relative;flex:none;width:40px;height:40px;border-radius:50%;background:color-mix(in srgb,var(--c,#6e9bff) 28%,var(--raised));overflow:hidden;display:inline-block}
+.cav img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:0;transition:opacity var(--t-med) var(--ease-out)}.cav img[src]{opacity:1}
+.cav.sm{width:24px;height:24px}
+.incH{display:flex;align-items:center;gap:var(--sp-12);padding-right:28px}.incH .incT{margin:0}
+.wm .accept{background:var(--acc);color:#0b0d12;border:0}.wm .decline{background:none;color:var(--tx-2);border:1px solid var(--border)}
+.wm .err{color:#ff8a6b;font:500 12px/1.3 Inter,system-ui,sans-serif}.wm .err:empty{display:none}
+.sentRow.conn{height:auto}.openChat{flex:1;height:40px;border-radius:var(--pill);background:none;border:1px solid var(--acc-line);color:var(--acc);font:600 14px/1 Inter,system-ui,sans-serif}
+.openChat:active{transform:scale(.97)}
+.frSec ul{display:flex;flex-direction:column;gap:2px;padding:0;margin:0}.fr{list-style:none}
+.frBtn{width:100%;display:flex;align-items:center;gap:var(--sp-12);padding:10px var(--sp-8);background:none;border:0;border-radius:var(--r-md);color:var(--tx);text-align:left}
+.frBtn:active{transform:scale(.99)}.frMain{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.frMain b{font:600 15px/1.2 Inter,system-ui,sans-serif}
+.frMain small{color:var(--tx-2);font:400 13px/1.3 Inter,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.frUn{min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--acc);color:#0b0d12;font:700 11px/20px Inter,system-ui,sans-serif;text-align:center;box-sizing:border-box}
+#dmView{position:fixed;inset:0;z-index:60;background:#0b0d12;color:var(--tx);display:flex;flex-direction:column;opacity:0;transform:translateX(24px);transition:opacity var(--t-med) var(--ease-out),transform var(--t-med) var(--ease-out)}
+#dmView.on{opacity:1;transform:none}#dmView[hidden]{display:none}
+.dmHead{display:flex;align-items:center;gap:var(--sp-8);padding:calc(env(safe-area-inset-top) + 8px) var(--sp-12) 10px;border-bottom:1px solid var(--border);background:#11141b}
+.dmBack{width:40px;height:40px;border:0;background:none;color:var(--tx);border-radius:50%;display:grid;place-items:center}
+.dmPair{display:flex}.dmPair .cav+.cav{margin-left:-10px;box-shadow:0 0 0 2px #11141b}
+.dmWho{display:flex;flex-direction:column;min-width:0;margin-left:4px}.dmWho b{font:600 16px/1.2 Inter,system-ui,sans-serif}.dmWho small{color:var(--tx-2);font:400 12px/1.3 Inter,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dmList{flex:1;overflow-y:auto;margin:0;padding:var(--sp-16) var(--sp-12);display:flex;flex-direction:column;gap:6px;overscroll-behavior:contain}
+.dmList .sys{list-style:none;align-self:center;display:flex;align-items:center;gap:8px;max-width:88%;margin:8px 0 14px;color:var(--tx-3);font:400 12px/1.4 Inter,system-ui,sans-serif;text-align:center}
+.msg{list-style:none;max-width:78%;display:flex;flex-direction:column;animation:fdIn var(--t-med) var(--ease-out) both}
+.msg p{margin:0;padding:9px 13px;border-radius:18px;font:400 15px/1.35 Inter,system-ui,sans-serif;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg small{margin:3px 8px 0;color:var(--tx-3);font:400 11px/1 Inter,system-ui,sans-serif}
+.msg.me{align-self:flex-end;align-items:flex-end}.msg.me p{background:var(--acc);color:#0b0d12;border-bottom-right-radius:6px}
+.msg.them{align-self:flex-start}.msg.them p{background:#1c212b;border-bottom-left-radius:6px}
+.dmForm{padding:6px var(--sp-12) calc(env(safe-area-inset-bottom) + 10px);border-top:1px solid var(--border);background:#11141b;display:flex;flex-direction:column;gap:6px}
+.dmNote{color:#ffb38a;font:500 12px/1.3 Inter,system-ui,sans-serif;padding:0 6px}.dmNote:empty{display:none}
+.dmRow{display:flex;align-items:flex-end;gap:8px}
+.dmRow textarea{flex:1;resize:none;max-height:120px;min-height:40px;padding:10px 14px;border-radius:20px;border:1px solid var(--border);background:#1a1e27;color:var(--tx);font:400 15px/1.3 Inter,system-ui,sans-serif;box-sizing:border-box}
+.dmRow textarea:focus-visible{outline:2px solid var(--acc-line);outline-offset:0}
+.dmSend{width:40px;height:40px;border-radius:50%;border:0;background:var(--acc);color:#0b0d12;display:grid;place-items:center;transition:opacity var(--t-med) var(--ease-out),transform var(--t-fast,120ms) var(--ease-out)}
+.dmSend:disabled{opacity:.35}#dmView.cool .dmSend{opacity:.15}.dmSend:not(:disabled):active{transform:scale(.92)}
+/* A friend's creature on the map: a small green ring under it. */
+.ag.friend::after{content:'';position:absolute;left:50%;bottom:9px;width:34px;height:10px;margin-left:-17px;border-radius:50%;border:2px solid #4fd69c;pointer-events:none;opacity:.9}
+@media (prefers-reduced-motion:reduce){#dmView,.msg{transition:none;animation:none}}
