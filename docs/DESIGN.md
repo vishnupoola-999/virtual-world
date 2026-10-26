@@ -152,3 +152,5 @@ Times are IST. Newest entries are at the bottom; keep appending.
 
 ## Ambient near you, meet layout, update prompt (2026-10-26)
 Six local creatures 150-500 m around your agent. Meet partner offset MEET_DX=76px in screen space so pill and bubble stay clear; '•••' only while a reply is pending. New SW shows 'A new version is ready. Tap to refresh.' One Worth-meeting card per person (newest).
+## Accept and chat (2026-10-26)
+Agent chats: Chats (friends, creature avatar, last line or interests, unread) on top, then Requests (sender creature, their note, Decline/Accept), Worth meeting, Log. Accept opens the chat; decline is silent to the sender (stays Request sent). Chat: dark messenger, both creatures in the header, agents' intro centred small grey with the two creatures (not a bubble). Blocked text (400) keeps the draft and shows 'Links and contact details can't be shared here yet.'; 429 shows 'Slow down a little, try again in a minute' and fades Send for a minute. Friends get a small green ring under their creature. Null look falls back to a default creature.

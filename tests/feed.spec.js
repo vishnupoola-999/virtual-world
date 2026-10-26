@@ -251,12 +251,13 @@ test('incoming hi: warm card on top, escaped, dismiss only, counts toward unread
   await expect(inc).toHaveCount(1);
   await expect(inc.locator('.incT')).toHaveText('Priya<b> wants to connect');
   await expect(inc.locator('.incQ')).toContainText('<img src=x');
-  await expect(inc.locator('img')).toHaveCount(0);
-  await expect(inc.locator('button')).toHaveCount(1); await expect(inc.locator('button')).toHaveAttribute('aria-label', 'Dismiss');
-  const order = await ac.locator('.fdSec').allTextContents(); expect(order[0]).toBe('Wants to connect');
+  await expect(inc.locator('.incQ img, .incT img')).toHaveCount(0);
+  // design/accept-chat: a pending request (no status = pending) gets Dismiss, Decline and Accept.
+  await expect(inc.locator('button')).toHaveCount(3); await expect(inc.locator('button').first()).toHaveAttribute('aria-label', 'Dismiss');
+  const order = await ac.locator('.fdSec').allTextContents(); expect(order[0]).toBe('Requests');
   await expect(ac.locator('.wm:not(.inc) .hi')).toHaveText('Say hi');
   if (SHOTS) { await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}/incoming.png` }); }
   expect(await page.evaluate(() => globalThis.__vw.town.checkUnread(globalThis.__fakeUser))).toBe(0);
-  await inc.locator('button').click(); await expect(ac.locator('.inc')).toHaveCount(0);
+  await inc.locator('button.x').click(); await expect(ac.locator('.inc')).toHaveCount(0);
   await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser)); await expect(ac.locator('.inc')).toHaveCount(0);
 });
