@@ -127,7 +127,11 @@ $('liveBtn').onclick=()=>{if(watch!==null){stopLive();return toast('Stopped shar
 addEventListener('pagehide',()=>{if(watch!==null)clearMe();});
 if(new URLSearchParams(location.search).get('room'))setTimeout(()=>openSheet('family'),800);
 // PWA
-if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(e=>console.warn('sw',e));
+if('serviceWorker' in navigator&&location.protocol==='https:'){const hadSW=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(r=>{r.update?.();document.addEventListener('visibilitychange',()=>{if(!document.hidden)r.update?.().catch(()=>{});});}).catch(e=>console.warn('sw',e));
+  // A new version took over (skipWaiting + clients.claim in sw.js): offer one tap to load it, so old JS never lingers in an open tab.
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(!hadSW||window.__vwReloadOffered)return;window.__vwReloadOffered=true;showUpdate();});}
+function showUpdate(){const b=document.createElement('button');b.id='updBar';b.type='button';b.textContent='A new version is ready. Tap to refresh.';b.onclick=()=>location.reload();document.body.append(b);}
 
 // Keep-warm: the Render proxy sleeps when idle (30-60 s cold start). Wake it on app open so the first chat reply is not slow.
 // Not on the agent's path; fire-and-forget.

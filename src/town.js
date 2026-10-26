@@ -70,7 +70,9 @@ const andList=a=>a.length<2?(a[0]||''):a.slice(0,-1).join(', ')+' and '+a[a.leng
 export function noteText(e){if(typeof e.note==='string'&&e.note.trim())return esc(clip(e.note,90));
   const sh=(e.shared||[]).filter(x=>typeof x==='string'&&x.trim()).slice(0,2);if(!sh.length)return '';
   const n=esc(dn(e.withName)||'someone new');return `Met ${n}, you both like ${esc(sh.join(' and '))}.`;}
-export const worthMeeting=f=>(f.mine||[]).filter(e=>e.kind==='meet'&&!e.town&&Array.isArray(e.shared)&&e.shared.length);
+// One card per person, the latest (safety net: the server dedupes too). Keyed by partner id, else display name.
+export const worthMeeting=f=>{const seen=new Set();return byNewest((f.mine||[]).filter(e=>e&&e.kind==='meet'&&!e.town&&Array.isArray(e.shared)&&e.shared.length))
+  .filter(e=>{const k=e.withId||'n:'+String(dn(e.withName)||'').toLowerCase();if(seen.has(k))return false;seen.add(k);return true;});};
 const gist=e=>{const sh=(e.shared||[]).slice(0,3);const l=(e.lines||[]).find(x=>x&&x.text);
   return (sh.length?`Talked about ${esc(andList(sh))}.`:'Said hello and swapped notes.')+(l?` <span class="q">"${esc(clip(l.text,80))}"</span>`:'');};
 const pendingTo=f=>new Set((f.outgoing||[]).filter(o=>o&&o.status==='pending'&&o.toAgentId).map(o=>o.toAgentId));
