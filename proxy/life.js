@@ -480,7 +480,7 @@ export function fromValue(v = {}) {
 }
 
 // Only fields the loop needs are read; memory, ownerName and messages are never fetched.
-const READ_FIELDS = ['name', 'interests', 'bio', 'approx', 'lat', 'lon', 'updatedAt', 'life', 'isTest'];
+const READ_FIELDS = ['name', 'interests', 'bio', 'approx', 'lat', 'lon', 'updatedAt', 'life', 'isTest', 'look'];
 
 export function lifeStore(admin) {
   if (!admin) return null;
@@ -493,6 +493,16 @@ export function lifeStore(admin) {
   };
   const patch = (path, fields, mask, updateTime) => call(`${base}/${path}?${mask.map((m) => `updateMask.fieldPaths=${encodeURIComponent(m)}`).join('&')}&${updateTime ? `currentDocument.updateTime=${encodeURIComponent(updateTime)}` : 'currentDocument.exists=true'}`,
     { method: 'PATCH', body: JSON.stringify({ fields }) });
+  const docsOf = (rows) => (Array.isArray(rows) ? rows : []).filter((r) => r.document).map((r) => ({ id: r.document.name.split('/').pop(),
+    updateTime: r.document.updateTime, ...Object.fromEntries(Object.entries(r.document.fields || {}).map(([k, v]) => [k, fromValue(v)])) }));
+  const getDoc = async (path) => {
+    if (!/^[A-Za-z0-9_/-]{1,200}$/.test(path)) return null;
+    const r = await fetchImpl(`${base}/${path}`, { headers: { Authorization: `Bearer ${await accessToken()}` }, signal: AbortSignal.timeout(8000) });
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error(`firestore ${r.status}`);
+    const d = await r.json();
+    return { id: path.split('/').pop(), updateTime: d.updateTime, ...Object.fromEntries(Object.entries(d.fields || {}).map(([k, v]) => [k, fromValue(v)])) };
+  };
   const recent = async (parent, collectionId, n) => {
     const rows = await call(`${parent}:runQuery`, { method: 'POST', body: JSON.stringify({ structuredQuery: {
       from: [{ collectionId }], orderBy: [{ field: { fieldPath: 'at' }, direction: 'DESCENDING' }], limit: Math.min(Math.max(1, n | 0), 50) } }) });
@@ -589,6 +599,45 @@ export function lifeStore(admin) {
       fields.createdAt = { timestampValue: new Date(createdAt).toISOString() };
       const d = await call(`${base}/connects`, { method: 'POST', body: JSON.stringify({ fields }) });
       return d.name.split('/').pop();
+    },
+    // ---- private chat: threads/{id} + threads/{id}/messages, server-only (firestore.rules denies clients) ----
+    async getConnect(id) { return getDoc(`connects/${id}`); },
+    async updateConnect(id, fields, updateTime) {
+      await patch(`connects/${id}`, Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, toValue(v)])), Object.keys(fields), updateTime);
+    },
+    async getThread(id) { return getDoc(`threads/${id}`); },
+    // Create-only: fails (409) if the thread already exists, so a double accept never seeds twice.
+    async createThread(id, t) {
+      const fields = Object.fromEntries(Object.entries(t).map(([k, v]) => [k, toValue(v)]));
+      await call(`${base}/threads?documentId=${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ fields }) });
+    },
+    async updateThread(id, fields) {
+      const out = {};
+      const mask = [];
+      for (const [k, v] of Object.entries(fields)) {
+        const [top, sub] = k.split('.');
+        if (sub) { out[top] ||= { mapValue: { fields: {} } }; out[top].mapValue.fields[sub] = toValue(v); mask.push(`${top}.\`${sub}\``); }
+        else { out[k] = toValue(v); mask.push(k); }
+      }
+      await patch(`threads/${id}`, out, mask);
+    },
+    async listThreads(uid, n = 50) {
+      const rows = await call(`${base}:runQuery`, { method: 'POST', body: JSON.stringify({ structuredQuery: {
+        from: [{ collectionId: 'threads' }], where: { fieldFilter: { field: { fieldPath: 'members' }, op: 'ARRAY_CONTAINS', value: { stringValue: String(uid) } } }, limit: n } }) });
+      return docsOf(rows);
+    },
+    async addMessage(threadId, m) {
+      const fields = Object.fromEntries(Object.entries(m).map(([k, v]) => [k, toValue(v)]));
+      const d = await call(`${base}/threads/${threadId}/messages`, { method: 'POST', body: JSON.stringify({ fields }) });
+      return d.name.split('/').pop();
+    },
+    // Oldest first, strictly after `after` (ms). Without `after`, the newest n, returned oldest first.
+    async listMessages(threadId, after = 0, n = 50) {
+      const q = { from: [{ collectionId: 'messages' }], limit: n };
+      if (after > 0) { q.where = { fieldFilter: { field: { fieldPath: 'at' }, op: 'GREATER_THAN', value: { integerValue: String(after) } } }; q.orderBy = [{ field: { fieldPath: 'at' }, direction: 'ASCENDING' }]; }
+      else q.orderBy = [{ field: { fieldPath: 'at' }, direction: 'DESCENDING' }];
+      const rows = docsOf(await call(`${base}/threads/${threadId}:runQuery`, { method: 'POST', body: JSON.stringify({ structuredQuery: q }) }));
+      return after > 0 ? rows : rows.reverse();
     },
     async addFriend(uid, friendId, fact) {
       if (!UID_RE.test(uid) || !/^h_[0-9a-f]{20}$/.test(friendId)) return;

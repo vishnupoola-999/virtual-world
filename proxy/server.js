@@ -20,11 +20,11 @@
 // 6 requests/min per IP, 60 chats/hour and 600/day globally, 200 output tokens.
 const FIRESTORE_DB = encodeURIComponent(process.env.FIRESTORE_DATABASE_ID || 'default');
 import http from 'node:http';
-import { createPublicKey, createSign, createVerify, X509Certificate } from 'node:crypto';
+import { createHash, createPublicKey, createSign, createVerify, X509Certificate } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
-import { EMOJI_RE, isTown, stripTown, townByPublicId, townCharacter, offsetFor, nearbyTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
+import { EMOJI_RE, cleanInterests, publicProfile, scrub, isTown, stripTown, townByPublicId, townCharacter, offsetFor, nearbyTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
 import { calendarToolContext, reviewCalendarTurn, sanitizeZone } from '../src/calendarWhen.js';
 
@@ -619,7 +619,7 @@ async function agentByPublicId(ctx, id) {
   const now = Date.now();
   if (!ctx.agentIndex || now - ctx.agentIndex.at > 60_000) {
     const agents = await ctx.lifeStore.listAgents();
-    ctx.agentIndex = { at: now, map: new Map(agents.map((a) => [hashId(a.uid, ctx.lifeSalt), { uid: a.uid, name: a.name }])) };
+    ctx.agentIndex = { at: now, map: new Map(agents.map((a) => [hashId(a.uid, ctx.lifeSalt), { uid: a.uid, name: a.name, interests: a.interests, bio: a.bio, look: a.look }])) };
   }
   return ctx.agentIndex.map.get(id) || null;
 }
@@ -656,6 +656,184 @@ async function handleConnect(req, res, ctx) {
   sendJson(res, 201, { id, createdAt: now });
 }
 
+
+// ---- Private chat after an accepted connect request ----
+// threads/{id}: { members: [uidA, uidB] (sorted, server-only), ids: [h_A, h_B], names: {h_: name}, connectId,
+//   createdAt, lastAt, lastText, lastFromId, unread: {h_: n} }. threads/{id}/messages/{id}: { fromId (h_ or 'system'), text, at }.
+// Clients never touch these (firestore.rules); responses carry only public h_ ids.
+export const CHAT = { maxText: 1000, perMin: 20, perDay: 500, ipBurst: 30, ipWindowMs: 60_000, page: 50, threadsMax: 50 };
+const CONNECT_ID_RE = /^[A-Za-z0-9]{1,64}$/;
+const THREAD_ID_RE = /^t_[0-9a-f]{24}$/;
+
+const CHAT_BLOCK_RE = /(ignore|disregard|forget)\b.{0,30}\b(above|previous|prior|instructions?|rules)|system prompt|\b(password|otp|verify your|send money|dm me|whatsapp|telegram)\b|https?:|www\.|@[\w-]+\.|\b[a-z0-9-]+\.(com|net|org|io|in|me|ly|xyz|app)\b/i;
+
+export function threadIdFor(uidA, uidB, salt) {
+  const [a, b] = [uidA, uidB].sort();
+  return 't_' + createHash('sha256').update(`thread|${salt}|${a}|${b}`).digest('hex').slice(0, 24);
+}
+
+// Chat text: 1..1000 chars, up to 20 lines, emoji allowed; links, control/bidi characters and prompt-injection-looking text rejected.
+export function chatText(raw) {
+  if (typeof raw !== 'string') throw new HttpError(400, 'text required');
+  const t = raw.replace(/\r\n?/g, '\n').trim();
+  if (!t) throw new HttpError(400, 'text required');
+  if ([...t].length > CHAT.maxText) throw new HttpError(400, 'text too long');
+  if (t.split('\n').length > 20) throw new HttpError(400, 'too many lines');
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u0009\u000B-\u001F\u007F\u202A-\u202E\u2066-\u2069]/.test(t)) throw new HttpError(400, 'text not allowed');
+  // Like /connect but tuned for chat: emoji are fine; links, emails, phone numbers, markup, prompt injection and
+  // common scam phrases are rejected (not edited). Everyday words like "bank" or "log in" are allowed.
+  for (const line of t.split('\n')) {
+    const plain = line.replace(new RegExp(EMOJI_RE.source, 'gu'), ' ').replace(/\s+/g, ' ').trim();
+    if (!plain) continue;
+    if (CHAT_BLOCK_RE.test(plain) || scrub(plain) !== plain) throw new HttpError(400, 'text not allowed');
+  }
+  return t;
+}
+
+export function introText(aName, bName, shared) {
+  const tags = cleanInterests(shared).slice(0, 3);
+  const a = scrub(String(aName || '')).slice(0, 40) || 'Agent', b = scrub(String(bName || '')).slice(0, 40) || 'Agent';
+  if (!tags.length) return `${a} and ${b} are now connected. Say hi!`;
+  const list = tags.length === 1 ? tags[0] : `${tags.slice(0, -1).join(', ')} and ${tags[tags.length - 1]}`;
+  return `${a} and ${b} both like ${list}.`;
+}
+
+function cleanLook(look) {
+  if (!look || typeof look !== 'object' || Array.isArray(look)) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(look).slice(0, 12)) {
+    if (/^[a-zA-Z]{1,20}$/.test(k) && (typeof v === 'string' ? v.length <= 24 : typeof v === 'number' && Number.isFinite(v))) out[k] = v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function publicOf(id, a) {
+  const p = publicProfile(a || {});
+  return { id, name: p.name, interests: p.interests, bio: p.bio, look: cleanLook(a?.look) };
+}
+
+function chatStore(ctx) {
+  const s = ctx.lifeStore;
+  if (!ctx.lifeSalt || !s?.getConnect || !s.getThread || !s.listThreads || !s.addMessage) throw new HttpError(503, 'chat not configured');
+  return s;
+}
+
+async function readJson(req) {
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch (e) { if (e instanceof HttpError) throw e; throw new HttpError(400, 'invalid json'); }
+  if (!body || typeof body !== 'object') throw new HttpError(400, 'invalid json');
+  return body;
+}
+
+async function chatUser(req, ctx) {
+  if (!allowHit(ctx.chatIpHits, clientIp(req), CHAT.ipBurst, CHAT.ipWindowMs, Date.now())) throw new HttpError(429, 'rate limited');
+  const u = await requireUser(req, ctx.verifyIdToken);
+  if (u.provider === 'anonymous') throw new HttpError(403, 'sign in required');
+  return u;
+}
+
+async function handleRespond(req, res, ctx) {
+  const { uid } = await chatUser(req, ctx);
+  const s = chatStore(ctx);
+  const body = await readJson(req);
+  const { connectId, action } = body;
+  if (typeof connectId !== 'string' || !CONNECT_ID_RE.test(connectId)) throw new HttpError(400, 'invalid connectId');
+  if (action !== 'accept' && action !== 'decline') throw new HttpError(400, 'invalid action');
+  const c = await s.getConnect(connectId);
+  if (!c || c.toUid !== uid) throw new HttpError(404, 'request not found'); // not the recipient: indistinguishable from missing
+  const want = action === 'accept' ? 'accepted' : 'declined';
+  if (c.status !== 'pending') {
+    if (c.status !== want) throw new HttpError(409, `already ${c.status}`);
+    sendJson(res, 200, { connectId, status: c.status, ...(c.threadId ? { threadId: c.threadId } : {}) });
+    return;
+  }
+  const now = Date.now();
+  if (want === 'declined') {
+    await s.updateConnect(connectId, { status: 'declined', respondedAt: now }, c.updateTime);
+    sendJson(res, 200, { connectId, status: 'declined' });
+    return;
+  }
+  const threadId = threadIdFor(c.fromUid, c.toUid, ctx.lifeSalt);
+  const toId = c.toAgentId, fromId = c.fromAgentId;
+  const me = await agentByPublicId(ctx, toId);
+  const toName = String(me?.name || 'Agent').slice(0, 40);
+  if (!(await s.getThread(threadId))) {
+    const meet = c.meetId ? await s.getDiary(c.fromUid, c.meetId).catch(() => null) : null;
+    const intro = introText(c.fromName, toName, Array.isArray(meet?.shared) ? meet.shared : []);
+    try {
+      await s.createThread(threadId, { members: [c.fromUid, c.toUid].sort(), ids: [fromId, toId], names: { [fromId]: c.fromName || 'Agent', [toId]: toName },
+        connectId, createdAt: now, lastAt: now, lastText: intro, lastFromId: 'system', unread: { [fromId]: 1, [toId]: 0 } });
+      await s.addMessage(threadId, { fromId: 'system', text: intro, at: now });
+    } catch (e) {
+      if (!(await s.getThread(threadId))) throw e; // lost a race to a concurrent accept: the thread exists, carry on
+    }
+  }
+  await s.updateConnect(connectId, { status: 'accepted', respondedAt: now, threadId }, c.updateTime);
+  sendJson(res, 200, { connectId, status: 'accepted', threadId });
+}
+
+async function memberThread(ctx, uid, id) {
+  if (!THREAD_ID_RE.test(id)) throw new HttpError(404, 'thread not found');
+  const t = await ctx.lifeStore.getThread(id);
+  if (!t || !Array.isArray(t.members) || !t.members.includes(uid)) throw new HttpError(404, 'thread not found');
+  return t;
+}
+
+function messageOut(m, myId) {
+  return { id: m.id, from: m.fromId === 'system' ? 'system' : m.fromId === myId ? 'me' : 'them', fromId: m.fromId, text: String(m.text || ''), at: Number(m.at) || 0 };
+}
+
+async function handleThreads(req, res, ctx) {
+  const { uid } = await chatUser(req, ctx);
+  const s = chatStore(ctx);
+  const myId = hashId(uid, ctx.lifeSalt);
+  const rows = (await s.listThreads(uid, CHAT.threadsMax)).sort((a, b) => (Number(b.lastAt) || 0) - (Number(a.lastAt) || 0));
+  const threads = await Promise.all(rows.map(async (t) => {
+    const otherId = (t.ids || []).find((x) => x !== myId) || null;
+    const other = otherId ? await agentByPublicId(ctx, otherId) : null;
+    const withP = publicOf(otherId, other || { name: t.names?.[otherId] });
+    return { id: t.id, with: withP, createdAt: Number(t.createdAt) || 0,
+      last: t.lastAt ? { text: String(t.lastText || '').slice(0, 140), from: t.lastFromId === 'system' ? 'system' : t.lastFromId === myId ? 'me' : 'them', at: Number(t.lastAt) || 0 } : null,
+      unread: Math.max(0, Number(t.unread?.[myId]) || 0) };
+  }));
+  sendJson(res, 200, { myId, threads });
+}
+
+async function handleMessages(req, res, ctx, url, id) {
+  const { uid } = await chatUser(req, ctx);
+  const s = chatStore(ctx);
+  const myId = hashId(uid, ctx.lifeSalt);
+  if (req.method === 'GET') {
+    const t = await memberThread(ctx, uid, id);
+    const after = Math.max(0, Math.floor(Number(url.searchParams.get('after'))) || 0);
+    const msgs = await s.listMessages(id, after, CHAT.page);
+    if (Number(t.unread?.[myId]) > 0) await s.updateThread(id, { [`unread.${myId}`]: 0 }).catch(() => {});
+    sendJson(res, 200, { threadId: id, messages: msgs.map((m) => messageOut(m, myId)), more: msgs.length === CHAT.page });
+    return;
+  }
+  const now = Date.now();
+  if (!allowHit(ctx.chatUidHits, `m|${uid}`, CHAT.perMin, 60_000, now)) throw new HttpError(429, 'slow down');
+  if (!allowHit(ctx.chatUidHits, `d|${uid}`, CHAT.perDay, 86_400_000, now)) throw new HttpError(429, 'daily limit reached');
+  const body = await readJson(req);
+  const text = chatText(body.text);
+  const t = await memberThread(ctx, uid, id);
+  const otherId = (t.ids || []).find((x) => x !== myId);
+  const msgId = await s.addMessage(id, { fromId: myId, text, at: now });
+  await s.updateThread(id, { lastAt: now, lastText: text.slice(0, 140), lastFromId: myId,
+    ...(otherId ? { [`unread.${otherId}`]: Math.min(999, (Number(t.unread?.[otherId]) || 0) + 1) } : {}), [`unread.${myId}`]: 0 });
+  sendJson(res, 201, messageOut({ id: msgId, fromId: myId, text, at: now }, myId));
+}
+
+const statusOf = (c) => (['pending', 'accepted', 'declined'].includes(c.status) ? c.status : 'pending');
+
+// One card per person: keep only the newest meet per withId (diary notes untouched, order preserved).
+export function dedupeMeets(entries) {
+  const newest = new Map();
+  for (const e of entries) if (e.kind === 'meet' && e.withId && (!newest.has(e.withId) || (Number(e.at) || 0) > (Number(newest.get(e.withId).at) || 0))) newest.set(e.withId, e);
+  return entries.filter((e) => e.kind !== 'meet' || !e.withId || newest.get(e.withId) === e);
+}
+
 const byNewest = (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
 
 async function handleFeed(req, res, ctx, url) {
@@ -675,13 +853,15 @@ async function handleFeed(req, res, ctx, url) {
   sendJson(res, 200, {
     // The caller's own publicAgents doc id, so the app can skip drawing its own card twice.
     myId: ctx.lifeSalt ? hashId(uid, ctx.lifeSalt) : null,
-    mine: diary.map((e) => feedEntry(e, fctx)),
+    mine: dedupeMeets(diary).map((e) => feedEntry(e, fctx)),
     // Town characters standing around the caller's agent today (deterministic per user and day).
     nearby: ctx.lifeSalt ? nearbyTown(uid, ctx.lifeSalt, pos, Date.now()) : [],
     // Uids never leave the server: only public agent ids and names.
-    incoming: inc.filter((c) => c.status === 'pending').sort(byNewest).slice(0, CONNECT.feedMax)
-      .map((c) => ({ id: c.id, fromAgentId: c.fromAgentId, fromName: c.fromName, text: c.text, meetId: c.meetId, createdAt: Number(c.createdAt) || 0 })),
-    outgoing: out.sort(byNewest).slice(0, CONNECT.feedMax).map((c) => ({ id: c.id, toAgentId: c.toAgentId, createdAt: Number(c.createdAt) || 0, status: c.status })),
+    incoming: inc.sort(byNewest).slice(0, CONNECT.feedMax)
+      .map((c) => ({ id: c.id, fromAgentId: c.fromAgentId, fromName: c.fromName, text: c.text, meetId: c.meetId, createdAt: Number(c.createdAt) || 0,
+        status: statusOf(c), ...(c.status === 'accepted' && c.threadId ? { threadId: c.threadId } : {}) })),
+    outgoing: out.sort(byNewest).slice(0, CONNECT.feedMax).map((c) => ({ id: c.id, toAgentId: c.toAgentId, createdAt: Number(c.createdAt) || 0,
+      status: statusOf(c), ...(c.status === 'accepted' && c.threadId ? { threadId: c.threadId } : {}) })),
     town: meets.map((m) => ({ id: m.id, aId: m.aId, aName: stripTown(m.aName), bId: m.bId, bName: stripTown(m.bName), shared: Array.isArray(m.shared) ? m.shared : [], at: Number(m.at) || 0 })),
   });
 }
@@ -736,6 +916,8 @@ export function createServer(options = {}) {
     maxCalls: options.maxCalls || maxCallsFromEnv(),
     ticking: false,
     connectIpHits: new Map(),
+    chatIpHits: new Map(),
+    chatUidHits: new Map(),
   };
   return http.createServer(async (req, res) => {
     const originOk = applyCors(req, res);
@@ -761,6 +943,15 @@ export function createServer(options = {}) {
         await handleFeed(req, res, ctx, url);
         return;
       }
+      const tm = url.pathname.match(/^\/threads\/([^/]{1,64})\/messages$/);
+      if (tm && (req.method === 'GET' || req.method === 'POST')) {
+        await handleMessages(req, res, ctx, url, tm[1]);
+        return;
+      }
+      if (req.method === 'GET' && url.pathname === '/threads') {
+        await handleThreads(req, res, ctx);
+        return;
+      }
       if (req.method === 'GET') {
         res.statusCode = 200;
         res.end('ok');
@@ -768,6 +959,10 @@ export function createServer(options = {}) {
       }
       if (req.method === 'POST' && url.pathname === '/connect') {
         await handleConnect(req, res, ctx);
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/connect/respond') {
+        await handleRespond(req, res, ctx);
         return;
       }
       if (req.method === 'POST' && url.pathname === '/tick') {

@@ -425,6 +425,24 @@ describe('rate limit counter rules', { concurrency: false }, () => {
       await assertFails(deleteDoc(doc(d, 'connects', 'c1')));
     }
   });
+
+  test('threads and messages: clients can never read, list, write or delete (proxy only)', async () => {
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), 'threads', 't1'), { members: [ALICE, BOB], ids: ['h_a', 'h_b'] });
+      await setDoc(doc(c.firestore(), 'threads', 't1', 'messages', 'm1'), { fromId: 'h_a', text: 'hi', at: 1 });
+    });
+    const google = testEnv.authenticatedContext(BOB, { firebase: { sign_in_provider: 'google.com' } }).firestore();
+    for (const d of [db(ALICE), db(BOB), google, db(null)]) {
+      await assertFails(getDoc(doc(d, 'threads', 't1')));
+      await assertFails(getDocs(collection(d, 'threads')));
+      await assertFails(setDoc(doc(d, 'threads', 't2'), { members: [ALICE] }));
+      await assertFails(deleteDoc(doc(d, 'threads', 't1')));
+      await assertFails(getDoc(doc(d, 'threads', 't1', 'messages', 'm1')));
+      await assertFails(getDocs(collection(d, 'threads', 't1', 'messages')));
+      await assertFails(setDoc(doc(d, 'threads', 't1', 'messages', 'm2'), { text: 'x' }));
+      await assertFails(deleteDoc(doc(d, 'threads', 't1', 'messages', 'm1')));
+    }
+  });
 });
 
 function omit(data, key) {
