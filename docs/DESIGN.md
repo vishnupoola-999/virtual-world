@@ -144,3 +144,8 @@ Times are IST. Newest entries are at the bottom; keep appending.
 - About 900 creatures live around 70 major cities and regions (India weighted up), the same on every device, so the map feels populated at any zoom. Characters only: no names, pills or status, and they can't be tapped.
 - Zoomed out: small dots in each creature's colour with a thin dark ring. City zoom (11-16): tiny creature silhouettes with eyes. Street zoom (16+): the nearest four on screen become full animated creatures; their silhouettes hide.
 - Shots: /workspace/shots/ambient/world.png, city.png, neighbourhood.png, street.png (360 wide at 2x).
+## 2026-10-26: Crisp map and characters (Vishnu, Diggy)
+- The map renders at device pixels up to 2x, and characters, the profile portrait, the chat header and the picker up to 3x, with antialiasing and no CSS upscaling. Resolution steps down only if frames drop below 30 fps. No blur effects; motion stays transform and opacity only.
+- Each creature has a thin outline slightly darker than its body colour, so its shape reads against the dark map. Eyes and mouth are shader-drawn, so they stay sharp at the full canvas resolution.
+- A failed save shows calm copy, for example "Couldn't save your look right now. Nothing was lost, so try again in a moment.", never a raw permission error.
+- Shots: /workspace/shots/crisp/ (before-*.png from main, after-*.png; 360x780 at DPR 3).

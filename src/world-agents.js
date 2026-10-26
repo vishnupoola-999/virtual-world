@@ -5,7 +5,7 @@
 // on the Chat tab and in the background. Only transform and opacity animate.
 import {dragToClose} from './ui.js';
 import {toLook} from './character-data.js';
-const basePR=()=>Math.min(Math.max(1,globalThis.devicePixelRatio||1),2); // same cap as agent-renderer.js (kept here so three.js stays lazy)
+const basePR=()=>Math.min(Math.max(1,globalThis.devicePixelRatio||1),3); // same cap as agent-renderer.js (kept here so three.js stays lazy)
 const NEAR_Z=14,MAX_LIVE=8,FRAME_MS=15; // ~60 fps; the frame monitor still drops pixel ratio on slow phones
 const REDUCED=matchMedia('(prefers-reduced-motion: reduce)');
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -55,11 +55,11 @@ function create(map){
 
   // ---- the 30 fps loop: nearest 8 on-screen agents animate, others get one static frame
   function kick(){if(!raf&&all.size)raf=requestAnimationFrame(frame);}
-  // Frame-time monitor: if the average frame (rAF to rAF) stays above ~20 ms over 60 frames, drop to pixel ratio 1.5 once.
+  // Frame-time monitor: if the average frame (rAF to rAF) stays above 33 ms (below 30 fps) over 60 frames, step the pixel ratio down (3 -> 2 -> 1.5).
   const mon={n:0,sum:0,prev:0};
   function watch(t){if(mon.prev){mon.sum+=t-mon.prev;mon.n++;}mon.prev=t;
     if(mon.n>=60){const avg=mon.sum/mon.n;mon.n=0;mon.sum=0;window.__vwPerf={...(window.__vwPerf||{}),mapFrameMs:+avg.toFixed(2),mapPR:R?.pixelRatio};
-      if(avg>20&&R&&R.pixelRatio>1.5){R.setPixelRatio(1.5);for(const a of all.values())a.drawnKey=null;}}}
+      if(avg>1000/30&&R&&R.pixelRatio>1.5){R.setPixelRatio(R.pixelRatio>2?2:1.5);for(const a of all.values())a.drawnKey=null;}}}
   function frame(t){raf=0;watch(t);if(paused()||!near()){mon.prev=0;if(prof&&R)drawProfile(0);return;}
     if(!R){loadR();return;} // warm the renderer as soon as an agent exists at street zoom, even off-screen
     const vis=[];const c=map.getCanvas(),w=c.clientWidth,h=c.clientHeight,cx=w/2,cy=h/2;

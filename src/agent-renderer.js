@@ -1,11 +1,11 @@
 // World v2: ONE shared offscreen three.js renderer for every agent on the map (design/world-v2-spec.md §b).
 // Each agent keeps its own small scene; draw() renders it at the marker's CSS size (84×96) times the pixel ratio
-// (min(devicePixelRatio, 2), dropped to 1.5 by the frame-time monitor) and returns the canvas so the caller can
+// (min(devicePixelRatio, 3), stepped down only if the map loop falls below 30 fps) and returns the canvas so the caller can
 // drawImage() it 1:1 into that marker's 2D canvas. One WebGL context besides the map, whatever the agent count.
 import * as THREE from 'three';
 import {createCharacter} from './character.js';
 export const CSS_W=84,CSS_H=96;
-export const basePR=()=>Math.min(Math.max(1,globalThis.devicePixelRatio||1),2);
+export const basePR=()=>Math.min(Math.max(1,globalThis.devicePixelRatio||1),3); // full device pixels (84x96 CSS markers are cheap even at 3x)
 const W=CSS_W,H=CSS_H;
 export function sharedRenderer(){
   const r=new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});

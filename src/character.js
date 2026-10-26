@@ -15,7 +15,10 @@ void main(){vec3 n=normalize(vN);vec3 v=normalize(cameraPosition-vW);float d=dot
  vec3 sh=uC*vec3(.50,.56,.82);vec3 col=mix(sh,uC,smoothstep(-.12,.16,d));col=mix(col,uC*1.07+.035,smoothstep(.58,.74,d));
  col+=vec3(1.,.42,.28)*.10*exp(-pow(d/.22,2.));col+=uC*.10*max(-n.y,0.);
  float rim=pow(1.-max(dot(n,v),0.),3.2);col+=vec3(.72,.84,1.)*rim*.30*smoothstep(-.4,.4,n.y+.2);
- vec3 h=normalize(uL+v);col+=vec3(1.)*.16*smoothstep(.93,.975,dot(n,h));gl_FragColor=vec4(col,1.);
+ vec3 h=normalize(uL+v);col+=vec3(1.)*.16*smoothstep(.93,.975,dot(n,h));
+ // thin, slightly darker outline so the silhouette reads against the dark map (Diggy); width follows the screen via fwidth
+ float e=1.-abs(dot(n,v));float fw=clamp(fwidth(e)*1.6,.02,.2);col=mix(col,uC*vec3(.40,.44,.62),smoothstep(1.-fw*2.2,1.-fw*.6,e)*.85);
+ gl_FragColor=vec4(col,1.);
  #include <colorspace_fragment>
 }`;
 const toonCache=new Map();
