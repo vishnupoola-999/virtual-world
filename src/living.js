@@ -6,7 +6,8 @@
 import {agentsOnMap} from './world-agents.js';
 import {displayName,displayLabel,isTownName} from './names.js';
 import {townLook,toLook} from './character-data.js';
-export const MEET_YAW=Math.PI/6; // ~30 degrees
+export const MEET_YAW=Math.PI/6;
+export const MEET_DX=76; // px centre to centre: ~1.2 creature widths (creatures are ~62px wide in the 84px marker) // ~30 degrees
 const KINDS=new Set(['walking','meeting','working','idle']);
 const FROM_ACTIVITY={move:'walking',meet:'meeting',work:'working'};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -64,12 +65,14 @@ export function setupLiving(map,{hintEl}={}){const agents=agentsOnMap(map);let d
     const pi=partners.get(id)||partners.get('n:'+name),o=pi?.offsetM;
     if(pi?.look&&Number.isInteger(pi.look.colorIndex)&&!st.withLook)st={...st,withLook:townLook(pi.look)}; // creature + accessory from seed and colorIndex
     const off=o&&num(o.east)&&num(o.north)?[me.lon+o.east/(111320*Math.cos(me.lat*Math.PI/180)),me.lat+o.north/110540]:null;
-    const to=st.withLngLat||off||[me.lon-0.00016,me.lat],from=[to[0]-0.00025,to[1]];
+    // Diggy: the partner stands beside yours, about 1.2 creature-widths centre to centre, in screen space (any zoom or pitch),
+    // so it never covers your "You" pill. The /feed offset is only used when there is no own agent position.
+    const to=me?[me.lon,me.lat]:(st.withLngLat||off||[0,0]),from=to;
     // No look from /feed: a deterministic creature from the name (toLook hashes it).
     const look=st.withLook||toLook(null,name);
     if(guest&&guest!==id)dropGuest();
     if(!agents.get(id)){agents.put({id,name,lat:from[1],lon:from[0],look,ownerName:name,other:true,meta:'Neighbour'});agents.get(id)?.el.classList.add('town');}
-    agents.put({id,name,lat:to[1],lon:to[0],look,ownerName:name,other:true,meta:'Neighbour'});guest=id;return agents.get(id);}
+    agents.put({id,name,lat:to[1],lon:to[0],look,ownerName:name,other:true,meta:'Neighbour'});agents.setOffset?.(id,[MEET_DX,0]);guest=id;return agents.get(id);}
   function dropGuest(){if(!guest)return;const id=guest,a=agents.get(id);guest=null;if(!a)return;a.el.classList.add('leave');setTimeout(()=>{if(guest!==id)agents.remove(id);},REDUCE()?0:320);}
   const REDUCE=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
   // Pills and bubbles stay 16px inside the screen edges (CSS translate composes with MapLibre's marker transform).

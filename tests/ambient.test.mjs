@@ -17,3 +17,10 @@ test('spread across every continent with valid creature looks', () => {
   // every city has some, so zooming into any of them finds creatures
   for (const [lng, lat] of CITIES) assert.ok(a.some((x) => Math.abs(x.lng - lng) < 1 && Math.abs(x.lat - lat) < 1), `${lng},${lat}`);
 });
+import { localCreatures } from '../src/ambient.js';
+test('local creatures around your agent: deterministic per cell, 150-500 m away, ids after the world crowd', () => {
+  const a = localCreatures(18.00577, 79.5319), b = localCreatures(18.00577, 79.5319);
+  assert.deepEqual(a, b); assert.equal(a.length, 6);
+  for (const x of a) { const m = Math.hypot((x.lng - 79.5319) * 111320 * Math.cos(18.00577 * Math.PI / 180), (x.lat - 18.00577) * 110540); assert.ok(m > 140 && m < 510, String(m)); }
+  assert.ok(a.every((x) => +x.id.slice(4) >= AMBIENT_TOTAL));
+});

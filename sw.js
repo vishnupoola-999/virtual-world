@@ -19,5 +19,6 @@ function store(c,url,r){const pkg=pkgOf(url);
 function cdn(req){return caches.open(CDN).then(c=>c.match(req.url).then(hit=>hit||fetch(new Request(req.url,{mode:'cors',credentials:'omit'})).then(r=>{if(r.ok&&r.type==='cors')store(c,req.url,r.clone());return r;})));}
 self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(e.request.method!=='GET')return;
   if(u.origin!==location.origin){if(PINNED.test(e.request.url))e.respondWith(cdn(e.request));return;}
-  e.respondWith(fetch(e.request).then(r=>{if(r.ok){const cp=r.clone();caches.open(C).then(c=>c.put(e.request,cp));}return r;})
+  // no-cache: revalidate with the server (ETag) so GitHub Pages' 10-minute HTTP cache can't serve old JS after a deploy.
+  e.respondWith(fetch(e.request,{cache:'no-cache'}).then(r=>{if(r.ok){const cp=r.clone();caches.open(C).then(c=>c.put(e.request,cp));}return r;})
     .catch(()=>caches.match(e.request,{ignoreSearch:true}).then(r=>r||caches.match('index.html'))));});
