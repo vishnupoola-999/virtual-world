@@ -8,7 +8,7 @@ import {setupOnboarding} from './onboarding.js';
 import {setupChat} from './chat.js';
 import {chatHero} from './chat-hero.js';
 import {setupTabs} from './tabs.js';
-import {currentUser,onUser,loadDiary} from './firebase.js';
+import {currentUser,onUser,loadDiary,publishCard} from './firebase.js';
 import {setupLiving,readStatus} from './living.js';
 import {setupAway,markVisit} from './away.js';
 import {setupTown} from './town.js';
@@ -97,7 +97,9 @@ const town=setupTown({agents,living,map,threads,getUser:currentUser,el:$('feedLi
 // Ambient creatures across the world's cities (client-only, deterministic, no names).
 import('./ambient.js').then(m=>{window.__vw.ambient=m.setupAmbient(map,agents);}).catch(e=>console.warn('ambient',e?.message));
 onUser(u=>{if(u&&!u.isAnonymous){town.refreshMap(u);town.checkUnread(u);}else town.clearMap();});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);
-$('railFeed').addEventListener('click',()=>town.loadFeed());
+// Feed open also refreshes your public map card (POST /publish), at most every 10 min.
+const pubOnOpen=()=>{try{const t=+localStorage.getItem('vw-pub-at')||0;if(Date.now()-t<600000)return;localStorage.setItem('vw-pub-at',String(Date.now()));}catch{/* storage blocked */}publishCard();};
+$('railFeed').addEventListener('click',()=>{pubOnOpen();town.loadFeed();});
 // Agent chats (rail): the agent's own log + worth-meeting notes. Opening it clears the unread dot.
 $('railAgent').addEventListener('click',()=>town.loadActivity());
 addEventListener('pagehide',()=>markVisit());document.addEventListener('visibilitychange',()=>{if(document.hidden&&!away.open)markVisit();});
