@@ -553,7 +553,7 @@ describe('POST /connect', () => {
       assert.deepEqual({ ...store.connects[0], createdAt: 0 }, { id: 'c0', fromUid: 'alice', fromAgentId: HA(), fromName: 'Agent alice', toUid: 'bob', toAgentId: HB(),
         meetId: 'd0', text: 'Hi, my agent loved meeting yours', status: 'pending', createdAt: 0 });
       const fb = await feed('bob');
-      assert.deepEqual(Object.keys(fb.incoming[0]).sort(), ['createdAt', 'fromAgentId', 'fromName', 'id', 'meetId', 'text']);
+      assert.deepEqual(Object.keys(fb.incoming[0]).sort(), ['createdAt', 'fromAgentId', 'fromName', 'id', 'meetId', 'status', 'text']);
       assert.equal(fb.incoming[0].fromAgentId, HA());
       const fa = await feed('alice');
       assert.deepEqual(fa.outgoing, [{ id: 'c0', toAgentId: HB(), createdAt: j.createdAt, status: 'pending' }]);
@@ -649,4 +649,20 @@ describe('visible town characters', () => {
       assert.ok(!JSON.stringify(j).includes('town-coder') && !JSON.stringify(j).includes('"alice"'));
     } finally { server.close(); }
   });
+});
+
+test('/tick?async=1 answers 202 at once and finishes the tick in the background', async () => {
+  const { createServer } = await import('../proxy/server.js');
+  const { once } = await import('node:events');
+  const pending = [];
+  let ran = 0;
+  const store = { listAgents: async () => { ran++; return []; }, saveLife: async () => {}, addDiary: async () => {} };
+  const server = createServer({ admin: null, memory: null, rateLimiter: { allow: async () => true }, apiKey: 'k', tickSecret: 'x'.repeat(20), lifeSalt: 's', lifeStore: store, llm: async () => '{}', pending });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    const r = await fetch(`http://127.0.0.1:${server.address().port}/tick?async=1`, { method: 'POST', headers: { 'x-tick-secret': 'x'.repeat(20) } });
+    assert.equal(r.status, 202);
+    await Promise.all(pending);
+    assert.equal(ran, 1);
+  } finally { server.closeAllConnections(); server.close(); }
 });

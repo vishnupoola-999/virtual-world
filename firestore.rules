@@ -102,6 +102,13 @@ service cloud.firestore {
     match /connects/{id} {
       allow read, write: if false;
     }
+    // Private chat threads and their messages after an accepted connect: proxy only, clients never read or write.
+    match /threads/{id} {
+      allow read, write: if false;
+      match /messages/{msg} {
+        allow read, write: if false;
+      }
+    }
     match /{document=**} { allow read, write: if false; }
   }
 }
