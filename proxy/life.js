@@ -601,6 +601,12 @@ export function lifeStore(admin) {
       return d.name.split('/').pop();
     },
     // ---- private chat: threads/{id} + threads/{id}/messages, server-only (firestore.rules denies clients) ----
+    // The caller's own agent, for POST /publish (same fields the tick reads, plus status for the card).
+    async getAgent(uid) {
+      if (!UID_RE.test(uid)) return null;
+      const a = await getDoc(`agents/${uid}`);
+      return a ? { ...a, uid } : null;
+    },
     async getConnect(id) { return getDoc(`connects/${id}`); },
     async updateConnect(id, fields, updateTime) {
       await patch(`connects/${id}`, Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, toValue(v)])), Object.keys(fields), updateTime);

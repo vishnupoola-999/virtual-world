@@ -4,10 +4,12 @@ GitHub's scheduled `life-tick.yml` (every 30 min) is a backup only: GitHub drops
 (on 2026-10-25 only 1 of the last 40 runs was a scheduled one). Use one primary timer below.
 
 ## Option A (free, recommended): cron-job.org
-1. Create a job at https://cron-job.org: URL `https://virtual-world-ai.onrender.com/tick`, method **POST**, every **15 minutes**.
+1. Create a job at https://cron-job.org: URL `https://virtual-world-ai.onrender.com/tick?async=1`, method **POST**, every **15 minutes**.
+   `async=1` makes the proxy answer 202 at once and run the tick in the background (cron-job.org's free timeout is 30 s).
+   Live job: 8719040. A second free job ("vw warm") GETs `/` at :13/:28/:43/:58 so the free Render instance is awake when the tick fires (cold starts were returning Bad Gateway).
 2. Advanced → Headers: add `x-tick-secret` with the same value as Render's `TICK_SECRET` env var.
 3. Request timeout: the maximum allowed. The proxy may be asleep, and a timeout after it has started does not stop the tick.
-4. Save and enable. The response body is the tick summary JSON (`agents`, `due`, `acted`, `meets`, `townMeets`, `published`, ...).
+4. Save and enable. With `async=1` the body is `{"started":true}` and the summary goes to the Render log (`tick {...}`); without it the body is the summary JSON (`agents`, `due`, `acted`, `meets`, `townMeets`, `published`, ...).
 
 ## Option B (paid): Render cron job
 Apply `render.yaml` as a Blueprint in Render. It creates only the `virtual-world-tick` cron (Starter plan) that runs

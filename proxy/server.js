@@ -24,7 +24,7 @@ import { createHash, createPublicKey, createSign, createVerify, X509Certificate 
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
-import { EMOJI_RE, cleanInterests, publicProfile, scrub, isTown, stripTown, townByPublicId, townCharacter, offsetFor, nearbyTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
+import { EMOJI_RE, cleanInterests, publicProfile, publicCard, scrub, isTown, stripTown, townByPublicId, townCharacter, offsetFor, nearbyTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
 import { calendarToolContext, reviewCalendarTurn, sanitizeZone } from '../src/calendarWhen.js';
 
@@ -825,6 +825,34 @@ async function handleMessages(req, res, ctx, url, id) {
   sendJson(res, 201, messageOut({ id: msgId, fromId: myId, text, at: now }, myId));
 }
 
+// ---- POST /publish: write or refresh the caller's own publicAgents card right after they save their agent ----
+// Reads agents/{uid} server-side (the client sends no card data), so a user can only ever publish their own, real data.
+export const PUBLISH = { minGapMs: 10_000, ipBurst: 20, ipWindowMs: 60_000 };
+export async function publishOwn(ctx, uid, now = Date.now()) {
+  const s = ctx.lifeStore;
+  const agent = await s.getAgent(uid);
+  if (!agent || typeof agent.name !== 'string') return null;
+  const status = agent.status && typeof agent.status === 'object' ? agent.status : undefined;
+  const card = publicCard(agent, status, now);
+  if (!Number.isFinite(card.lat) || !Number.isFinite(card.lon)) return null;
+  const id = hashId(uid, ctx.lifeSalt);
+  await s.savePublic(id, card);
+  return id;
+}
+
+async function handlePublish(req, res, ctx) {
+  req.resume();
+  const now = Date.now();
+  if (!allowHit(ctx.publishIpHits, clientIp(req), PUBLISH.ipBurst, PUBLISH.ipWindowMs, now)) throw new HttpError(429, 'rate limited');
+  const { uid, provider } = await requireUser(req, ctx.verifyIdToken);
+  if (provider === 'anonymous') throw new HttpError(403, 'sign in required');
+  if (!ctx.lifeSalt || !ctx.lifeStore?.getAgent || !ctx.lifeStore.savePublic) throw new HttpError(503, 'publish not configured');
+  if (!allowHit(ctx.publishUidHits, uid, 1, PUBLISH.minGapMs, now)) throw new HttpError(429, 'slow down');
+  const id = await publishOwn(ctx, uid, now);
+  if (!id) throw new HttpError(404, 'agent not found');
+  sendJson(res, 200, { id, publishedAt: now });
+}
+
 const statusOf = (c) => (['pending', 'accepted', 'declined'].includes(c.status) ? c.status : 'pending');
 
 // One card per person: keep only the newest meet per withId (diary notes untouched, order preserved).
@@ -837,8 +865,13 @@ export function dedupeMeets(entries) {
 const byNewest = (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
 
 async function handleFeed(req, res, ctx, url) {
-  const { uid } = await requireUser(req, ctx.verifyIdToken);
+  const { uid, provider } = await requireUser(req, ctx.verifyIdToken);
   if (!ctx.lifeStore?.listDiary) throw new HttpError(503, 'feed not configured');
+  // Opening the map also refreshes the caller's own card (at most every 10 min), so existing users appear without a re-save.
+  if (provider !== 'anonymous' && ctx.lifeSalt && ctx.lifeStore.getAgent && ctx.lifeStore.savePublic && allowHit(ctx.publishUidHits, `feed|${uid}`, 1, 600_000, Date.now())) {
+    const job = publishOwn(ctx, uid).catch((e) => console.error('publish failed', String(e.message || e).slice(0, 80)));
+    ctx.pending?.push(job);
+  }
   const n = Math.min(50, Math.max(1, Math.floor(Number(url.searchParams.get('n'))) || 20));
   const [diary, meets] = await Promise.all([
     ctx.lifeStore.listDiary(uid, n),
@@ -879,10 +912,24 @@ async function handleTick(req, res, ctx) {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
     const of = Math.min(16, Math.max(1, Math.floor(Number(url.searchParams.get('of'))) || 1));
     const shard = Math.min(of - 1, Math.max(0, Math.floor(Number(url.searchParams.get('shard'))) || 0));
-    const summary = await runTick({ store: ctx.lifeStore, llm, now: Date.now(), salt: ctx.lifeSalt, maxCalls: ctx.maxCalls, shard, of });
-    sendJson(res, 200, summary);
-  } finally {
+    const run = () => runTick({ store: ctx.lifeStore, llm, now: Date.now(), salt: ctx.lifeSalt, maxCalls: ctx.maxCalls, shard, of });
+    // ?async=1 (cron-job.org, 30 s request timeout): answer 202 at once and finish the tick in the background.
+    if (url.searchParams.get('async') === '1') {
+      sendJson(res, 202, { started: true });
+      const job = run().then((sum) => console.log('tick', JSON.stringify(sum)))
+        .catch((e) => console.error('tick failed', String(e.message || e).slice(0, 120)))
+        .finally(() => { ctx.ticking = false; });
+      ctx.pending?.push(job);
+      return;
+    }
+    try {
+      sendJson(res, 200, await run());
+    } finally {
+      ctx.ticking = false;
+    }
+  } catch (e) {
     ctx.ticking = false;
+    throw e;
   }
 }
 
@@ -918,6 +965,8 @@ export function createServer(options = {}) {
     connectIpHits: new Map(),
     chatIpHits: new Map(),
     chatUidHits: new Map(),
+    publishIpHits: new Map(),
+    publishUidHits: new Map(),
   };
   return http.createServer(async (req, res) => {
     const originOk = applyCors(req, res);
@@ -963,6 +1012,10 @@ export function createServer(options = {}) {
       }
       if (req.method === 'POST' && url.pathname === '/connect/respond') {
         await handleRespond(req, res, ctx);
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/publish') {
+        await handlePublish(req, res, ctx);
         return;
       }
       if (req.method === 'POST' && url.pathname === '/tick') {
