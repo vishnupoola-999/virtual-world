@@ -553,7 +553,7 @@ describe('POST /connect', () => {
       assert.deepEqual({ ...store.connects[0], createdAt: 0 }, { id: 'c0', fromUid: 'alice', fromAgentId: HA(), fromName: 'Agent alice', toUid: 'bob', toAgentId: HB(),
         meetId: 'd0', text: 'Hi, my agent loved meeting yours', status: 'pending', createdAt: 0 });
       const fb = await feed('bob');
-      assert.deepEqual(Object.keys(fb.incoming[0]).sort(), ['createdAt', 'fromAgentId', 'fromName', 'id', 'meetId', 'text']);
+      assert.deepEqual(Object.keys(fb.incoming[0]).sort(), ['createdAt', 'fromAgentId', 'fromName', 'id', 'meetId', 'status', 'text']);
       assert.equal(fb.incoming[0].fromAgentId, HA());
       const fa = await feed('alice');
       assert.deepEqual(fa.outgoing, [{ id: 'c0', toAgentId: HB(), createdAt: j.createdAt, status: 'pending' }]);
