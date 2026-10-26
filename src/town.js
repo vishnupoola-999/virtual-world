@@ -29,10 +29,14 @@ export function clearShift(b,{w,rail}){let x=b.x;
   if(rail&&b.y<rail.y+rail.h+8&&b.y+b.h>rail.y-8&&x+b.w>rail.x-8)x=Math.min(x,rail.x-8-b.w);
   x=Math.min(x,w-EDGE-b.w);x=Math.max(x,EDGE);return x-b.x;}
 const isReal=u=>!!(u&&!u.isAnonymous&&typeof u.getIdToken==='function');
-export async function fetchPublicAgents(user){const t=await user.getIdToken();
-  const r=await fetch(`https://firestore.googleapis.com/v1/projects/${PROJ}/databases/${FS_DB}/documents/publicAgents?pageSize=100`,{headers:{Authorization:'Bearer '+t}});
-  if(!r.ok)throw new Error('publicAgents '+r.status);const j=await r.json();
-  return (j.documents||[]).map(d=>({id:d.name.split('/').pop(),...Object.fromEntries(Object.entries(d.fields||{}).map(([k,v])=>[k,fromRest(v)]))}));}
+// Pages past 100 with nextPageToken (capped at 20 pages = 2000 cards).
+export async function fetchPublicAgents(user,fetchImpl=fetch){const t=await user.getIdToken();const out=[];let tok='';
+  for(let i=0;i<20;i++){
+    const r=await fetchImpl(`https://firestore.googleapis.com/v1/projects/${PROJ}/databases/${FS_DB}/documents/publicAgents?pageSize=100${tok?'&pageToken='+encodeURIComponent(tok):''}`,{headers:{Authorization:'Bearer '+t}});
+    if(!r.ok)throw new Error('publicAgents '+r.status);const j=await r.json();
+    for(const d of j.documents||[])out.push({id:d.name.split('/').pop(),...Object.fromEntries(Object.entries(d.fields||{}).map(([k,v])=>[k,fromRest(v)]))});
+    tok=j.nextPageToken||'';if(!tok)break;}
+  return out;}
 export async function fetchFeed(user){const t=await user.getIdToken();const r=await fetch(FEED_URL,{headers:{Authorization:'Bearer '+t}});
   if(!r.ok)throw new Error('feed '+r.status);const j=await r.json();
   return {myId:typeof j.myId==='string'?j.myId:null,mine:Array.isArray(j.mine)?j.mine:[],town:Array.isArray(j.town)?j.town:[],

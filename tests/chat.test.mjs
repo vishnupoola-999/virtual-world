@@ -160,3 +160,36 @@ describe('helpers', () => {
     assert.match(threadIdFor(ALICE, BOB, SALT), /^t_[0-9a-f]{24}$/);
   });
 });
+
+describe('POST /publish and paged publicAgents', () => {
+  const pubStore = () => {
+    const s = memStore(); s.saved = [];
+    s.getAgent = async (uid) => (uid === BOB ? { uid, name: 'Vishnu', interests: ['tech'], lat: 17.38512, lon: 78.48671, approx: { lat: 17.39, lon: 78.49 }, status: { text: 'Walking', since: 5 } } : uid === EVE ? { uid, name: 'Eve' } : null);
+    s.savePublic = async (id, card) => { s.saved.push([id, card]); };
+    return s;
+  };
+  test('writes only the caller\'s own card from server data; auth, anon, missing and throttle', async () => {
+    const store = pubStore();
+    await withApi(store, async (call) => {
+      assert.equal((await call(null, 'POST', '/publish')).status, 401);
+      assert.equal((await call(BOB, 'POST', '/publish', null, 'anon')).status, 403);
+      const r = await call(BOB, 'POST', '/publish', { id: 'h_ffffffffffffffffffff', name: 'Hacker' });
+      assert.equal(r.status, 200); assert.equal(r.json.id, B); noUids(r.json);
+      assert.equal(store.saved.length, 1);
+      const [id, card] = store.saved[0];
+      assert.equal(id, B); assert.equal(card.name, 'Vishnu'); assert.equal(card.lat, 17.39); assert.equal(card.lon, 78.49);
+      assert.deepEqual(card.status, { text: 'Walking', since: 5 }); noUids(card);
+      assert.equal((await call(BOB, 'POST', '/publish')).status, 429);
+      assert.equal((await call(EVE, 'POST', '/publish')).status, 404); // no position: not published
+      assert.equal((await call(ALICE, 'POST', '/publish')).status, 404);
+    });
+  });
+  test('fetchPublicAgents follows nextPageToken', async () => {
+    const { fetchPublicAgents } = await import('../src/town.js');
+    const urls = [];
+    const pages = [{ documents: [{ name: 'x/publicAgents/h_1', fields: { name: { stringValue: 'A' } } }], nextPageToken: 'p2' }, { documents: [{ name: 'x/publicAgents/h_2', fields: { name: { stringValue: 'B' } } }] }];
+    const out = await fetchPublicAgents({ getIdToken: async () => 't' }, async (u) => { urls.push(u); return { ok: true, json: async () => pages[urls.length - 1] }; });
+    assert.deepEqual(out.map((a) => a.id), ['h_1', 'h_2']);
+    assert.match(urls[1], /pageToken=p2/);
+  });
+});
