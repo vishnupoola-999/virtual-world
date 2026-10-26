@@ -92,6 +92,8 @@ const LIVING_MAP=true;
 const living=LIVING_MAP?setupLiving(map,{hintEl:$('liveHint')}):{showOwn:a=>readStatus(a),readStatus};const away=setupAway({track});window.__vw.living=living;window.__vw.away=away;
 // Other people's public agents on the map + the Feed sheet (signed-in, non-anonymous users only).
 const town=setupTown({agents,living,map,getUser:currentUser,el:$('feedList'),actEl:$('agentChats'),dotEl:$('agentDot')});window.__vw.town=town;
+// Ambient creatures across the world's cities (client-only, deterministic, no names).
+import('./ambient.js').then(m=>{window.__vw.ambient=m.setupAmbient(map,agents);}).catch(e=>console.warn('ambient',e?.message));
 onUser(u=>{if(u&&!u.isAnonymous){town.refreshMap(u);town.checkUnread(u);}else town.clearMap();});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);
 $('railFeed').addEventListener('click',()=>town.loadFeed());
 // Agent chats (rail): the agent's own log + worth-meeting notes. Opening it clears the unread dot.
