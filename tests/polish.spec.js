@@ -97,7 +97,7 @@ test('PR #45 fields (optional): partner offset and colour place the meet partner
   await page.evaluate((m) => globalThis.__vw.living.showOwn({ ...m, status: { ...m.status, withName: 'Arjun', label: 'With Arjun' } }), MEET);
   await page.waitForTimeout(2200);
   const g = await page.evaluate(() => { const a = globalThis.__vw.agents.get('town-coder'); return { lon: a.lon, lat: a.lat, look: a.look }; });
-  expect(g.lat).toBeCloseTo(17.4505, 5); expect((g.lon - 78.3805) * 111320 * Math.cos(17.4505 * Math.PI / 180)).toBeCloseTo(25, 0);
+  expect(g.lat).toBeCloseTo(17.4505, 5); expect(g.lon).toBeCloseTo(78.3805, 5); // fix/ambient-meet-dedupe: partner sits beside you in screen space (MEET_DX), not by /feed metres
   const want = await page.evaluate(async () => (await import('./src/character-data.js')).townLook({ seed: 3, colorIndex: 2 })); expect(g.look).toEqual(want);
   await expect(page.locator('#liveHint')).toContainText('Chatting with Arjun');
 });

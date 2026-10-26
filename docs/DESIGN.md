@@ -149,3 +149,6 @@ Times are IST. Newest entries are at the bottom; keep appending.
 - Each creature has a thin outline slightly darker than its body colour, so its shape reads against the dark map. Eyes and mouth are shader-drawn, so they stay sharp at the full canvas resolution.
 - A failed save shows calm copy, for example "Couldn't save your look right now. Nothing was lost, so try again in a moment.", never a raw permission error.
 - Shots: /workspace/shots/crisp/ (before-*.png from main, after-*.png; 360x780 at DPR 3).
+
+## Ambient near you, meet layout, update prompt (2026-10-26)
+Six local creatures 150-500 m around your agent. Meet partner offset MEET_DX=76px in screen space so pill and bubble stay clear; '•••' only while a reply is pending. New SW shows 'A new version is ready. Tap to refresh.' One Worth-meeting card per person (newest).

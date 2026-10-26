@@ -1,7 +1,9 @@
 /* Living map (others) + Feed sheet. v3 tokens; transform/opacity motion only; no blur. */
 /* world-v2 .ag{position:relative} beat MapLibre's absolute marker rule, so a second agent marker was stacked below the first in normal flow. */
 .maplibregl-marker.ag{position:absolute}
-.ag.other{scale:.85;transform-origin:50% 100%}
+/* Scale the character, not the marker: `scale` on the marker element composes outside MapLibre's transform and pulled every
+   other agent ~15% toward the screen corner (why the meet partner sat up-left on top of your "You" pill). */
+.ag.other canvas{scale:.85;transform-origin:50% 100%}
 .ag.other .pill{opacity:.6}
 /* Characters only (Vishnu): no name or status pill on other people's agents. Drop this rule to bring them back. */
 .ag.other .pill,.ag.other .stat{display:none}
@@ -89,3 +91,6 @@ button:not(:disabled):active,.chip:active{transform:scale(.97);transition:transf
 @media (prefers-reduced-motion:reduce){#sheet,.stag>li,.wmSec .wm,#liveHint.swap>*,.ag.town{animation:none}.vsheet,.cs-sheet,.ag.town.leave,button:active{transition:none}}
 /* Ambient creatures (src/ambient.js): characters only, not tappable, no pill or status. */
 .ag.ambient{pointer-events:none}.ag.ambient .pill,.ag.ambient .stat,.ag.ambient .bubble{display:none}
+/* New version prompt (main.js showUpdate). */
+#updBar{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 96px);transform:translateX(-50%);z-index:60;height:40px;padding:0 16px;border-radius:999px;border:1px solid var(--acc-line,#8b7bff);background:#16181f;color:var(--text,#fff);font:inherit;font-size:13px;animation:updIn .22s ease-out both}
+@keyframes updIn{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
