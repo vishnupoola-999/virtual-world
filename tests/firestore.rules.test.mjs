@@ -149,6 +149,16 @@ describe('agents/{uid} rules', { concurrency: false }, () => {
     })));
   });
 
+  test('switching a saved v1 look to a creature with the real client write (mergeFields) succeeds', async () => {
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({ look: BOY_LOOK })));
+    const d = agent({ look: { creature: 'puff', accessory: 'bow' } });
+    // Plain merge deep-merges the look map into a mixed v1+creature shape, which rules must refuse.
+    await assertFails(setDoc(agentRef(ALICE), d, { merge: true }));
+    await assertSucceeds(setDoc(agentRef(ALICE), d, { mergeFields: Object.keys(d) }));
+    const stored = (await getDoc(agentRef(ALICE))).data().look;
+    assert.deepEqual(stored, { creature: 'puff', accessory: 'bow' });
+  });
+
   test('owner can save creatures v2 looks, and bad creature looks are refused', async () => {
     await assertSucceeds(setDoc(agentRef(ALICE), agent({ look: { creature: 'drip', accessory: 'beanie' } })));
     const stored = await getDoc(agentRef(ALICE));

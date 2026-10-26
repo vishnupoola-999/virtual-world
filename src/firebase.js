@@ -93,8 +93,9 @@ export function cacheAgent(uid,a){try{if(a)localStorage.setItem(CK(uid),JSON.str
 const r2=x=>Math.round(x*100)/100;
 export async function saveAgent(uid,a){const {setDoc,doc,db,serverTimestamp}=await fs();const d={name:a.name,look:a.look,personality:a.personality||'',ownerName:a.ownerName||'',lat:a.lat,lon:a.lon,
   approx:{lat:r2(a.lat),lon:r2(a.lon)},spotApprox:!!a.spotApprox,preciseVisibility:'private',updatedAt:serverTimestamp()};
-  // merge keeps the server-written `memory` field (rules reject any client change to it).
-  await setDoc(doc(db,'agents',uid),d,{merge:true});
+  // mergeFields keeps server-written fields (memory, life...) but REPLACES `look` whole. Plain merge:true deep-merges
+  // maps, so a v1 look + {creature,accessory} became a mixed map that every look rule denies.
+  await setDoc(doc(db,'agents',uid),d,{mergeFields:Object.keys(d)});
   // merge keeps interests/bio already stored. The payload omits them, so keep the cached copy.
   const prev=cachedAgent(uid);if(prev?.interests&&d.interests==null)d.interests=prev.interests;if(typeof prev?.bio==='string'&&d.bio==null)d.bio=prev.bio;
   cacheAgent(uid,d);return d;}
