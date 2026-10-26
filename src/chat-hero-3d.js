@@ -1,5 +1,5 @@
 // Small three.js view of the agent character at the top of the Chat tab (same look as on the map).
-// Crisp: antialias on and pixel ratio min(devicePixelRatio, 2) so the buffer matches the screen; a frame-time monitor drops it
+// Crisp: antialias on and pixel ratio min(devicePixelRatio, 3) so the buffer matches the screen; a frame-time monitor drops it
 // to 1.5 if frames average over ~20 ms. ~30 fps while animating and ~15 fps when idle,
 // fully paused while the World tab is open or the app is in the background.
 import * as THREE from 'three';
@@ -8,9 +8,9 @@ import {toLook} from './character-data.js';
 const REDUCED=matchMedia('(prefers-reduced-motion: reduce)');
 export function chatHero(canvas){let lastAgent=null;const ro=new ResizeObserver(()=>size());
   let r=null,scene,cam,ch,raf=0,last=0,active=false,busyUntil=0,key='',state='idle',stateT=0;const clock=new THREE.Clock();
-  let pr=Math.min(Math.max(1,devicePixelRatio||1),2);const mon={n:0,sum:0,prev:0};
+  let pr=Math.min(Math.max(1,devicePixelRatio||1),3);const mon={n:0,sum:0,prev:0};
   function watch(t){if(mon.prev){mon.sum+=t-mon.prev;mon.n++;}mon.prev=t;if(mon.n<60)return;const avg=mon.sum/mon.n;mon.n=0;mon.sum=0;
-    window.__vwPerf={...(window.__vwPerf||{}),heroFrameMs:+avg.toFixed(2),heroPR:pr};if(avg>20&&pr>1.5){pr=1.5;size();}}
+    window.__vwPerf={...(window.__vwPerf||{}),heroFrameMs:+avg.toFixed(2),heroPR:pr};if(avg>1000/30&&pr>1.5){pr=pr>2?2:1.5;size();}}
   function init(){if(r)return true;
     try{r=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true,powerPreference:'low-power'});}catch(e){console.warn('hero webgl',e?.message);return false;}
     r.setPixelRatio(pr);scene=new THREE.Scene();

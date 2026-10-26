@@ -1,3 +1,4 @@
+import {reportSaveError} from './save-errors.js';
 import {signIn,logOut,onUser,loadAgent,cachedAgent,cacheAgent,saveAgent,authMsg,redirectResult} from './firebase.js';
 import {flyTo} from './map.js';
 import {agentsOnMap} from './world-agents.js';
@@ -25,12 +26,12 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
   document.addEventListener('vw-agent-sheet-leave',()=>{if(!$('agForm').dataset.edit)return;delete $('agForm').dataset.edit;if(agent)av.set(agent);render();});
   $('agEdit').onclick=()=>{$('agForm').dataset.edit=1;$('agName').value=agent.name;lk.load(agent.look,agent.ownerName||user.displayName||agent.name);$('agPers').value=agent.personality||'';render();};
   const go=()=>{if(agent)flyTo(map,agent.lon,agent.lat,19);};$('agGo').onclick=go;
-  $('agMove').onclick=async()=>{msg('Getting your exact location…');try{const p=await getPos();agent=await saveAgent(user.uid,{...agent,ownerName:user.displayName||'',lat:p.coords.latitude,lon:p.coords.longitude,spotApprox:false});av.set(agent);go();msg(`Moved to where you are (±${Math.round(p.coords.accuracy)} m).`);}catch(e){msg('Error: '+(e.code||e.message));}};
+  $('agMove').onclick=async()=>{msg('Getting your exact location…');try{const p=await getPos();agent=await saveAgent(user.uid,{...agent,ownerName:user.displayName||'',lat:p.coords.latitude,lon:p.coords.longitude,spotApprox:false});av.set(agent);go();msg(`Moved to where you are (±${Math.round(p.coords.accuracy)} m).`);}catch(e){msg(e?.code===1||e?.code===2||e?.code===3?'Could not get your location. Check location access and try again.':reportSaveError(e,'your agent'));}};
   $('agForm').onsubmit=async e=>{e.preventDefault();const base={name:$('agName').value.trim().slice(0,40),look:lk.value(),personality:$('agPers').value.trim().slice(0,300),ownerName:(user.displayName||'').slice(0,80)};
     if(!lk.picked())return msg('Tap a character first');if(!base.name)return msg('Give your agent a name');
     try{let lat=agent?.lat,lon=agent?.lon;if(!agent){msg('Asking for your location (only you see the exact spot)…');const p=await getPos();lat=p.coords.latitude;lon=p.coords.longitude;}
       agent=await saveAgent(user.uid,{...base,lat,lon,spotApprox:agent?.spotApprox});delete $('agForm').dataset.edit;av.set(agent);render();go();onAgent(agent);msg('Saved. Only you can see its exact spot.');}
-    catch(e){msg('Error: '+(e.code||e.message));}};
+    catch(e){const t=reportSaveError(e,'your look');msg(t);toast(t,6000);}};
   onUser(async u=>{endMove(false);const seq=++loadSeq;user=u;agent=null;delete $('agForm').dataset.edit;msg('');av.set(null);lk.load(null,u?.displayName||'');render();
     if(u){toast(`Signed in as ${u.displayName||u.email}`);
       // Show the last known agent straight away (no network), then confirm it from Firestore.
@@ -49,7 +50,7 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
     if(!save){if(prev)av.set(prev);return;}const c=map.getCenter();const approxBefore=!!prev.spotApprox;
     const next={...prev,lat:c.lat,lon:c.lng,spotApprox:false};agent=next;av.set(next);av.play?.('walk');setTimeout(()=>av.play?.('idle'),900);
     track('move_agent_done',{approx_before:approxBefore});
-    saveAgent(user.uid,{...next,ownerName:user.displayName||''}).then(d=>{agent=d;toast('Your agent lives here now');}).catch(e=>{toast('Could not move: '+(e.code||e.message),8000);agent=prev;av.set(prev);});}
+    saveAgent(user.uid,{...next,ownerName:user.displayName||''}).then(d=>{agent=d;toast('Your agent lives here now');}).catch(e=>{toast(reportSaveError(e,'the new spot'),8000);agent=prev;av.set(prev);});}
   $('agLift').onclick=()=>startMove('sheet');$('moveOk').onclick=()=>endMove(true);$('moveCancel').onclick=()=>endMove(false);
   // Long-press (500 ms) on your own agent on the World map.
   let lp=0,lpAt=null;const cancelLp=()=>{clearTimeout(lp);lp=0;};

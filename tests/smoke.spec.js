@@ -306,7 +306,7 @@ test('rail dot sits below the Friends icon without overlapping it', async ({ pag
 });
 
 // Crisp characters: buffers are CSS size x pixel ratio (capped at 2) with antialias on, for the map and the chat header.
-test('character canvases render at device pixels, capped at 2x, with antialias', async ({ browser }) => {
+test('character canvases render at full device pixels (3x), map at 2x, with antialias', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 3, serviceWorkers: 'block' });
   const page = await context.newPage();
   await page.goto('/?onb=0');
@@ -324,7 +324,8 @@ test('character canvases render at device pixels, capped at 2x, with antialias',
     const cv = window.__vw.agents.get('me').el.querySelector('canvas');
     return { w: cv.width, h: cv.height, cssW: cv.clientWidth, cssH: cv.clientHeight, info: window.__vw.agents.renderInfo };
   });
-  expect(map.info.pixelRatio).toBe(2);
+  expect(map.info.pixelRatio).toBe(3);
+  expect(await page.evaluate(() => globalThis.__map.getPixelRatio())).toBe(2);
   expect(map.info.antialias).toBe(true);
   expect(map.w).toBe(map.cssW * map.info.pixelRatio);
   expect(map.h).toBe(map.cssH * map.info.pixelRatio);
@@ -342,7 +343,7 @@ test('character canvases render at device pixels, capped at 2x, with antialias',
     const cv = document.getElementById('heroCv');
     return { w: cv.width, cssW: cv.clientWidth, pr: window.__hero.pixelRatio, aa: window.__hero.antialias };
   });
-  expect(hero.pr).toBe(2);
+  expect(hero.pr).toBe(3);
   expect(hero.aa).toBe(true);
   expect(hero.w).toBe(hero.cssW * hero.pr);
   await context.close();

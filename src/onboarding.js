@@ -4,6 +4,7 @@
 // Returning users (signed in with an agent) skip the tour. If that agent has fewer than 3 interests
 // stored in Firestore, the same interests sheet still opens. Skip lasts for this session only.
 // Never blocks on location: city fallback, then Warangal centre.
+import {reportSaveError} from './save-errors.js';
 import {signIn,saveAgent,saveInterests,currentUser,realSavedInterests} from './firebase.js';
 import {ICONS,LABEL,icon} from './interests.js';
 import {sanitize,CREATURES,ACCESSORIES,ACC_LABEL} from './character-data.js';
@@ -118,7 +119,7 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
     track('agent_created',{base,customised:false});
     // Firestore queues the write while offline; don't block the greeting on the server ack.
     const local={...a,approx:{lat:Math.round(a.lat*100)/100,lon:Math.round(a.lon*100)/100},preciseVisibility:'private'};
-    saveAgent(u.uid,a).then(d=>onCreated(d,true)).catch(e=>toast('Could not save your agent: '+(e.code||e.message),8000));
+    saveAgent(u.uid,a).then(d=>onCreated(d,true)).catch(e=>toast(reportSaveError(e,'your agent'),8000));
     onCreated(local,false);agentName=n;interestMode='onboarding';interestAgent=null;show(5);}
 
   // ---- 5. interests: pick 3-5 of 16 chips, optional one-line bio (saved via saveInterests).
@@ -164,7 +165,7 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
     $('intNext').onclick=async()=>{if(sel.size<3)return;const list=[...sel],b=bio.value.replace(/\s+/g,' ').trim().slice(0,80);track('interests_saved',{count:list.length,has_bio:!!b,mode:interestMode});
       const u=currentUser();$('intNext').disabled=true;
       try{if(u){await saveInterests(u.uid,list,b);onInterests({interests:list,bio:b});}}
-      catch(e){toast("Couldn't save your interests: "+(e.code||e.message),6000);ui();return;}
+      catch(e){toast(reportSaveError(e,'your interests'),6000);ui();return;}
       if(interestMode==='onboarding')show(6);else close();};
     ui();}
 
