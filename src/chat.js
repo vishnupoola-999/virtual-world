@@ -416,13 +416,13 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
       // Stop closes the stream (abort) and tells the server, which saves the partial reply.
       streaming = { stop: () => { stopped = true; ctrl.abort(); if (messageId) stopChat(tokenUser, messageId); } };
       sync();
-      let doneReads = '', doneLinks = [];
+      let doneReads = '', doneLinks = [], doneText = null;
       const handlers = {
         signal: ctrl.signal,
         onStart: (id) => { messageId = id; },
         onToken: (t) => { if (!gotToken) { gotToken = true; status('ok'); sub('replying…'); hero.state('talking'); } sb.push(t); },
         onAction: (a) => onAction(a, sb.el),
-        onDone: (e) => { messageId = e.messageId || messageId; doneReads = readOuts(e.toolResults); doneLinks = e.links || []; if (!sb.started && e.text) sb.push(e.text); },
+        onDone: (e) => { messageId = e.messageId || messageId; doneReads = readOuts(e.toolResults); doneLinks = e.links || []; doneText = typeof e.text === 'string' ? e.text : null; if (!sb.started && e.text) sb.push(e.text); },
       };
       const res = opts.contId ? await continueChat(tokenUser, opts.contId, handlers) : await chatApi(tokenUser, body, handlers);
       if (res.stream) {
@@ -436,7 +436,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
           return;
         }
         if (res.error) { fail(res.error); return; }
-        const full = sb.finish();
+        const full = sb.finish(opts.contId ? null : doneText); // a continue's done.text is only the new part
         if (!full.trim()) { fail('failed'); return; }
         const whole = full;
         remember('assistant', whole.slice(0, 2000));

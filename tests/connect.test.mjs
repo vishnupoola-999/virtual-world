@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sseParser, normAction, normApp, listApps, decide, chat, continueChat, connectApp, isMissing, resetDetection } from '../src/connect-api.js';
-import { takeWords, RETRY_LINES } from '../src/stream-ui.js';
+import { takeWords, RETRY_LINES, finalText } from '../src/stream-ui.js';
 import { appsHtml, sheetHtml, cardHtml, stateChip, ago } from '../src/connect.js';
 
 const U = { getIdToken: async () => 'tok' };
@@ -119,4 +119,11 @@ test('normLinks: done.links keeps https urls and mailto fallbacks only', async (
   assert.deepEqual(normLinks([{ label: 'Open in Gmail', url: 'https://mail.google.com/mail/?view=cm', mailto: 'mailto:a@b.c' }, { label: 'bad', url: 'javascript:alert(1)' }, { label: 'bad2', url: 'https://x', mailto: 'javascript:1' }, null]),
     [{ label: 'Open in Gmail', url: 'https://mail.google.com/mail/?view=cm', mailto: 'mailto:a@b.c' }, { label: 'bad2', url: 'https://x', mailto: '' }]);
   assert.deepEqual(normLinks('nope'), []);
+});
+
+test('stream-ui: done.text replaces the streamed text when it differs', () => {
+  assert.equal(finalText('Lunch is at 1pm on Friday.', 'Lunch is at 1pm on Friday, 30 Oct.'), 'Lunch is at 1pm on Friday, 30 Oct.');
+  assert.equal(finalText('Same.', 'Same.'), 'Same.');
+  assert.equal(finalText('Kept.', null), 'Kept.');
+  assert.equal(finalText('Kept.', '  '), 'Kept.');
 });
