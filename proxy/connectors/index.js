@@ -60,6 +60,13 @@ export function firestoreTokenStore(admin, key, db = 'default') {
       if (!NONCE_RE.test(nonce)) throw new Error('bad nonce');
       await write(purl(nonce), encrypt(key, JSON.stringify(rec), `pending:${nonce}`), { expireAt: { timestampValue: new Date(rec.exp).toISOString() } });
     },
+    // Expired pending docs (small batch) for the opportunistic sweep. Returns [{nonce, rec|null}].
+    async listExpiredPending(nowMs, limit = 10) {
+      const q = { structuredQuery: { from: [{ collectionId: 'connectorPending' }], where: { fieldFilter: { field: { fieldPath: 'expireAt' }, op: 'LESS_THAN', value: { timestampValue: new Date(nowMs).toISOString() } } }, limit } };
+      const r = await admin.fetchImpl(`${base}:runQuery`, { method: 'POST', headers: { ...await auth(), 'Content-Type': 'application/json' }, body: JSON.stringify(q), signal: AbortSignal.timeout(5000) });
+      if (!r.ok) { console.warn('connector sweep query failed', r.status); return []; }
+      return (await r.json()).filter((x) => x.document).map((x) => x.document.name.split('/').pop()).filter((n) => NONCE_RE.test(n));
+    },
     // Single use: read, then delete with an updateTime precondition. Only one caller can win the delete.
     async takePending(nonce) {
       if (!NONCE_RE.test(nonce)) return null;
@@ -85,7 +92,29 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
   const pending = new Map(); // actionId -> {uid, name, args, app, kind, title, summary, expiresAt, state, timeZone, result}
   const notConfigured = () => new ConnectHttpError(503, 'not configured');
 
-  async function record(uid) { return (await tokens.get(uid)) || {}; }
+  // Unreadable (wrong key, damaged, read error) reads as {_corrupt:true} -> every provider app shows 'reauth'.
+  async function record(uid) {
+    try { return (await tokens.get(uid)) || {}; } catch (e) { console.warn('connector record read failed', String(e.message).replace(/[^\w ]/g, '').slice(0, 40)); return { _corrupt: true }; }
+  }
+  // A parked grant that will never be confirmed: revoke it at Google before it is forgotten.
+  async function dropParked(p) {
+    if (p?.rt && PROVIDERS[p.provider]) {
+      const status = await PROVIDERS[p.provider].revoke(p.rt, fetchImpl);
+      if (status !== 200) console.warn('connector revoke failed', status);
+    }
+  }
+  // Opportunistic sweep of expired connectorPending docs (Firestore TTL on expireAt is an optional extra).
+  let sweeping = null;
+  async function sweep(limit = 10) {
+    if (!tokens?.listExpiredPending) return 0;
+    let n = 0;
+    for (const nonce of await tokens.listExpiredPending(now(), limit)) {
+      const p = await tokens.takePending(nonce);
+      if (p) { await dropParked(p); n++; }
+    }
+    return n;
+  }
+  const sweepSoon = () => { if (!sweeping) sweeping = sweep().catch(() => 0).finally(() => { sweeping = null; }); };
   const clean = (rec) => (rec._corrupt ? {} : rec);
   function appState(def, rec) {
     if (def.linkOnly) return 'connected';
@@ -97,8 +126,7 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
   }
 
   async function listApps(uid) {
-    let rec = {};
-    if (tokens && key) { try { rec = await record(uid); } catch (e) { console.error('connectors read', String(e.message).slice(0, 80)); } }
+    const rec = tokens && key ? await record(uid) : {};
     return APP_DEFS.map((d) => {
       const state = appState(d, rec);
       const used = rec[d.provider]?.lastUsed?.[d.app];
@@ -114,6 +142,7 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
     const rec = clean(await record(uid));
     // Incremental: ask for this app's scopes; include_granted_scopes keeps the ones already granted.
     const have = (rec[def.provider]?.apps || []).filter((a) => a !== def.app && !rec[def.provider]?.broken);
+    sweepSoon();
     const nonce = newNonce();
     const apps = [...have, def.app];
     await tokens.putPending(nonce, { stage: 'state', uid, provider: def.provider, apps, ret: appId, exp: now() + STATE_TTL_MS });
@@ -128,6 +157,7 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
     if (!ready(provider)) return back('', 'error');
     const st = verifyState(key, query.get('state'), now());
     if (!st || st.provider !== provider || !BY_ID.has(st.ret)) return back('', 'error');
+    sweepSoon();
     try {
       const saved = await tokens.takePending(st.nonce);
       if (!saved || saved.stage !== 'state' || saved.uid !== st.uid || saved.ret !== st.ret || saved.exp < now()) return back(st.ret, 'error');
@@ -152,10 +182,12 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
     if (!def) throw new ConnectHttpError(404, 'unknown app');
     if (!ready(def.provider)) throw notConfigured();
     if (typeof c !== 'string' || !NONCE_RE.test(c)) throw new ConnectHttpError(400, 'bad request');
+    sweepSoon();
     const p = await tokens.takePending(c);
-    if (!p || p.stage !== 'exchanged' || p.ret !== appId || p.provider !== def.provider) throw new ConnectHttpError(410, 'expired');
-    if (p.uid !== uid) throw new ConnectHttpError(403, 'not your connection');
-    if (p.exp < now()) throw new ConnectHttpError(410, 'expired');
+    // Any rejection consumes the parked grant, so revoke it at Google first.
+    if (!p || p.stage !== 'exchanged' || p.ret !== appId || p.provider !== def.provider) { await dropParked(p); throw new ConnectHttpError(410, 'expired'); }
+    if (p.uid !== uid) { await dropParked(p); throw new ConnectHttpError(403, 'not your connection'); }
+    if (p.exp < now()) { await dropParked(p); throw new ConnectHttpError(410, 'expired'); }
     const rec = clean(await record(uid));
     const prev = rec[def.provider] || {};
     const refreshToken = p.rt || (prev.broken ? '' : prev.rt);
@@ -272,7 +304,7 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
     }
   }
 
-  return { configured: () => ready('google'), listApps, startConnect, callback, confirm, disconnect, toolsFor, isTool, handleCall, decide, _pending: pending };
+  return { configured: () => ready('google'), listApps, startConnect, callback, confirm, disconnect, sweep, _sweeping: () => sweeping, toolsFor, isTool, handleCall, decide, _pending: pending };
 }
 
 export function describe(name, args) {

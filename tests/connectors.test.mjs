@@ -80,7 +80,8 @@ function harness() {
   const docs = new Map();
   const pend = new Map();
   const store = { get: async (u) => (docs.has(u) ? structuredClone(docs.get(u)) : null), put: async (u, r) => { docs.set(u, structuredClone(r)); }, del: async (u) => { docs.delete(u); },
-    putPending: async (n, r) => { pend.set(n, structuredClone(r)); }, takePending: async (n) => { const r = pend.get(n); pend.delete(n); return r ? structuredClone(r) : null; } };
+    putPending: async (n, r) => { pend.set(n, structuredClone(r)); }, takePending: async (n) => { const r = pend.get(n); pend.delete(n); return r ? structuredClone(r) : null; },
+    listExpiredPending: async (t0, lim = 10) => [...pend].filter(([, r]) => r.exp < t0).slice(0, lim).map(([n]) => n) };
   const calls = [];
   let t = 1_000_000;
   const all = [SCOPES.drive[0], SCOPES.calendar[0]].join(' ');
@@ -303,4 +304,56 @@ test('wrong key: record reads as reauth, not a 500; ciphertext carries a key id'
   const apps = await c.listApps('u1');
   assert.equal(apps.find((a) => a.id === 'gcal').state, 'reauth');
   assert.equal(apps.find((a) => a.id === 'gdrive').state, 'reauth');
+});
+
+test('GET /apps: unreadable record (wrong key or read error) shows reauth over HTTP', async () => {
+  const env = { GOOGLE_OAUTH_CLIENT_ID: 'cid', GOOGLE_OAUTH_CLIENT_SECRET: 's', CONNECTOR_TOKEN_KEY: KEY.toString('base64') };
+  const store = { get: async () => { throw new Error('bad ciphertext'); }, put: async () => {}, del: async () => {}, putPending: async () => {}, takePending: async () => null };
+  const server = createServer({ verifyIdToken: async () => ({ uid: 'u1', provider: 'google.com' }), connectors: createConnectors({ env, store }), admin: null, memory: null, apiKey: 'k' });
+  await new Promise((r) => server.listen(0, r));
+  try {
+    const r = await fetch(`http://127.0.0.1:${server.address().port}/apps`, { headers: { Authorization: 'Bearer a.b.c' } });
+    assert.equal(r.status, 200);
+    const { apps } = await r.json();
+    assert.equal(apps.find((a) => a.id === 'gcal').state, 'reauth');
+    assert.equal(apps.find((a) => a.id === 'gdrive').state, 'reauth');
+    assert.equal(apps.find((a) => a.id === 'gmail').state, 'connected');
+  } finally { server.close(); }
+});
+
+test('sweep: expired parked grants are revoked at Google, then deleted; live ones kept', async () => {
+  const { c, pend, calls, tick } = harness();
+  const st = new URL((await c.startConnect('u1', 'gcal')).authUrl).searchParams.get('state');
+  await c.callback('google', new URLSearchParams({ state: st, code: 'C' }));
+  await c._sweeping();
+  assert.equal(pend.size, 1);
+  tick(11 * 60_000);
+  await c._sweeping();
+  await c.startConnect('u1', 'gdrive'); // triggers the sweep; adds one live state nonce
+  await c._sweeping();
+  assert.equal(pend.size, 1, 'only the fresh state nonce remains');
+  assert.equal([...pend.values()][0].stage, 'state');
+  assert.ok(calls.some((x) => x.url.includes('/revoke') && x.body.includes('RT1')), 'parked token revoked');
+  tick(11 * 60_000);
+  assert.equal(await c.sweep(), 1);
+  assert.equal(pend.size, 0);
+});
+
+test('confirm 403/410 revokes the parked token at Google before dropping it', async () => {
+  const { c, calls, tick } = harness();
+  const revokes = () => calls.filter((x) => x.url.includes('/revoke')).length;
+  const park = async () => {
+    const st = new URL((await c.startConnect('u1', 'gcal')).authUrl).searchParams.get('state');
+    return new URL(await c.callback('google', new URLSearchParams({ state: st, code: 'C' }))).searchParams.get('nonce');
+  };
+  const a = await park();
+  await assert.rejects(c.confirm('intruder', 'gcal', a), (e) => e.status === 403);
+  assert.equal(revokes(), 1);
+  const b = await park();
+  await assert.rejects(c.confirm('u1', 'gdrive', b), (e) => e.status === 410);
+  assert.equal(revokes(), 2);
+  const d = await park();
+  tick(10 * 60_000 + 1);
+  await assert.rejects(c.confirm('u1', 'gcal', d), (e) => e.status === 410);
+  assert.equal(revokes(), 3);
 });
