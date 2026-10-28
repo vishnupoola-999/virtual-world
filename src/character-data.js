@@ -10,7 +10,8 @@ export const isCreatureLook = (l) => !!l && typeof l === 'object' && isCreature(
 // Optional body colour (design/body-colour): look.color '#rrggbb'; missing or invalid means the creature's own colour.
 export const cleanColor=c=>typeof c==='string'&&/^#[0-9a-f]{6}$/i.test(c)?c.toLowerCase():null;
 export function sanitize(l){const o={creature:isCreature(l?.creature)?l.creature:'blob',accessory:ACCESSORIES.includes(l?.accessory)?l.accessory:'none'};const c=cleanColor(l?.color);if(c)o.color=c;return o;}
-export const BODY_SWATCHES=['#ff6b6b','#ff9f43','#ffd166','#a3e635','#4fd69c','#2ec4b6','#4cc9f0','#5b7cfa','#b388ff','#f472b6'];
+// Diggy: eight hand-picked cute colours first; anything else lives behind More (native picker).
+export const BODY_SWATCHES=['#ff8fab','#ff9e7a','#ffd36e','#9be27a','#5ed6c0','#7cc7ff','#a99bff','#f2f2f7'];
 export const defaultLook = (creature='blob') => sanitize({creature});
 
 const HEX=/^#[0-9a-f]{6}$/i;

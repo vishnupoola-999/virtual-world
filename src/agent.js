@@ -72,10 +72,10 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
 // Existing agents open on their saved look (older human looks are migrated by toLook). Live-previews on the map when editing.
 function lookEditor(onChange){let creature=null,acc='none',color=null;
   const accBox=$('lkAcc');accBox.innerHTML=ACCESSORIES.map(a=>`<button type="button" role="radio" data-acc="${a}" aria-checked="false">${ACC_LABEL[a]}</button>`).join('');
-  // Colour row (design/body-colour): Default (the creature's own colour), ten presets and a native colour picker styled as a swatch.
+  // Colour row (design/body-colour): Default (the creature's own colour), eight hand-picked presets and a More swatch (native colour picker).
   const colBox=$('lkCol');colBox.innerHTML=`<button type="button" role="radio" class="swc def" data-col="" aria-label="Default colour" aria-checked="false"></button>`
     +BODY_SWATCHES.map((c,i)=>`<button type="button" role="radio" class="swc" data-col="${c}" style="--c:${c}" aria-label="Colour ${i+1}" aria-checked="false"></button>`).join('')
-    +`<label class="swc cust" aria-label="Pick any colour"><input type="color" id="lkColPick" value="#5b7cfa"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></label>`;
+    +`<label class="swc cust" aria-label="More colours" title="More colours"><input type="color" id="lkColPick" value="#a99bff" aria-label="More colours"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg></label>`;
   const pick=$('lkColPick');let tt=0;
   const thumbsFor=()=>{if(!shown)return;clearTimeout(tt);tt=setTimeout(()=>import('./cards3d.js').then(m=>{const t=m.cardThumbs(color);for(const b of $('lkBase').querySelectorAll('button')){const img=b.querySelector('img');if(t[b.dataset.creature])img.src=t[b.dataset.creature];}}).catch(()=>{}),160);};
   function paint(){$('lkBase').classList.toggle('chosen',!!creature);

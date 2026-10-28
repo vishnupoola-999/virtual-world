@@ -9,18 +9,18 @@ const shot = async (page, n) => { if (SHOTS) { await page.waitForTimeout(900); a
 const tint = (loc) => loc.evaluate((c) => { const k = globalThis.document.createElement('canvas'); k.width = c.width; k.height = c.height; const x = k.getContext('2d'); x.drawImage(c, 0, 0);
   const d = x.getImageData(0, 0, c.width, c.height).data; let r = 0, g = 0, b = 0, n = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 220 && d[i] + d[i + 1] + d[i + 2] > 180) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; } return n ? [r / n, g / n, b / n] : null; });
 
-test('colour row: Default + 10 presets + picker under Extra; selection ring; look.color in value', async ({ page }) => {
+test('colour row: Default + 8 presets + More + picker under Extra; selection ring; look.color in value', async ({ page }) => {
   page.on('pageerror', (e) => console.log('PAGEERR', e.message));
   await page.goto('/?onb=0', { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => globalThis.__vw?.agent, null, { timeout: 45_000 });
   await page.evaluate(() => { const d = globalThis.document; globalThis.__vw.openSheet('agent'); d.getElementById('agForm').hidden = false; const st = d.createElement('style'); st.textContent = '#agentBox,#agForm{display:block!important}'; d.head.appendChild(st); d.getElementById('agView') && (d.getElementById('agView').hidden = true); });
   await page.locator('#lkBase button[data-creature="blob"]').click();
   await page.locator('#lkAcc button[data-acc="beanie"]').click();
-  const row = page.locator('#lkCol'); await expect(row.locator('.swc')).toHaveCount(12); await expect(row.locator('input[type=color]')).toHaveCount(1);
+  const row = page.locator('#lkCol'); await expect(row.locator('.swc')).toHaveCount(10); await expect(row.locator('input[type=color]')).toHaveCount(1);
   const extraBox = await page.locator('#lkAcc').boundingBox(), colBox = await row.boundingBox(); expect(colBox.y).toBeGreaterThan(extraBox.y + extraBox.height - 1);
   await expect(row.locator('.swc.def')).toHaveAttribute('aria-checked', 'true');
-  await row.locator('.swc[data-col="#f472b6"]').click();
-  await expect(row.locator('.swc[data-col="#f472b6"]')).toHaveClass(/on/); await expect(row.locator('.swc.def')).toHaveAttribute('aria-checked', 'false');
+  await row.locator('.swc[data-col="#ff8fab"]').click();
+  await expect(row.locator('.swc[data-col="#ff8fab"]')).toHaveClass(/on/); await expect(row.locator('.swc.def')).toHaveAttribute('aria-checked', 'false');
   await page.waitForFunction(() => [...globalThis.document.querySelectorAll('#lkBase img')].every((i) => i.src.startsWith('data:')), null, { timeout: 15_000 });
   await page.locator('#lkCol').scrollIntoViewIfNeeded(); await shot(page, '1-sheet-colour-row');
   await row.locator('input[type=color]').evaluate((i) => { i.value = '#00c2a8'; i.dispatchEvent(new globalThis.Event('input', { bubbles: true })); });
