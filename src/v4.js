@@ -43,11 +43,11 @@ export function setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAg
   function status(){const a=getAgent();const off=navigator.onLine===false;const s=$('v4Status');s.classList.toggle('off',off);s.hidden=!a&&!off;
     s.querySelector('span').textContent=off?'Offline · showing last seen':`Agent ${a?.status?.kind==='meeting'?'meeting someone':a?.status?.kind==='resting'?'resting':'exploring'}${a?.area?' · '+a.area:''}`;document.body.classList.toggle('offline',off);}
   addEventListener('online',status);addEventListener('offline',status);setInterval(status,15000);
-  function today(f){const t=todayOf(f),b=$('v4Today');b.hidden=!t||!getAgent();if(!t)return;
+  function today(f){const t=todayOf(f),b=$('v4Today');b.hidden=!t||!getAgent();document.body.classList.toggle('v4TodayOn',!b.hidden);if(!t)return;
     const lk=f.incoming?.find(r=>r.fromName===t.name)?lookOf(agents.get(f.incoming.find(r=>r.fromName===t.name).fromAgentId)?.look,t.name):lookOf(agents.get((f.mine||[]).find(e=>e.withName===t.name)?.withId)?.look,t.name);
     b.innerHTML=`${avatar(lk,'cav face')}<span class="tMain"><b>${esc(t.text)}</b><small>Today in your world · ${t.n} new</small></span>${ICON.chev}`;fillAvatars(b);}
   $('v4Today').onclick=()=>$('tabChats').click();
-  async function refreshHud(u=getUser()){hudU=u;status();if(!u||u.isAnonymous)return;try{await town.checkUnread(u);today(await town.peek(u));}catch{/* feed down: hide */}}
+  async function refreshHud(u=getUser()){if(u)hudU=u;status();if(!u||u.isAnonymous)return;try{await town.checkUnread(u);today(await town.peek(u));}catch{/* feed down: hide */}}
   // ---- arrival: full version once a day, short glide otherwise; a tap skips; reduced motion = fade only
   let arrived=false;
   function arrive({entries}={}){if(arrived)return;arrived=true;const me=agents.get('me');if(!me)return;const ll=[me.lon,me.lat];const q=new URLSearchParams(location.search);const full=ls.get('vw-arrive')!==day()&&(q.get('onb')!=='0'||q.get('arrive')==='1');/* ?onb=0 skips intros (tests) */const line=arrivalLine(entries,lastVisit());markVisit();
@@ -96,9 +96,9 @@ export function setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAg
     $('meAdd').onclick=()=>{closeSheet();$('chatInterests')?.click();};
     for(const b of box.querySelectorAll('.meTools button'))b.onclick=()=>openSheet(b.dataset.go);
     // Privacy & read receipts (GET/POST /me/chat-settings). Hidden when signed out or the endpoint is missing.
-    const u=hudU||getUser(),pr=$('mePriv'),rr=$('meRR');if(u&&!u.isAnonymous)getChatSettings(u).then(j=>{if(typeof j?.readReceipts!=='boolean')return;rr.setAttribute('aria-checked',String(j.readReceipts));pr.hidden=false;pr.previousElementSibling.hidden=false;}).catch(()=>{});
+    const u=getUser()||hudU,pr=$('mePriv'),rr=$('meRR');if(u&&!u.isAnonymous)getChatSettings(u).then(j=>{if(typeof j?.readReceipts!=='boolean')return;rr.setAttribute('aria-checked',String(j.readReceipts));pr.hidden=false;pr.previousElementSibling.hidden=false;}).catch(()=>{});
     pr.previousElementSibling.hidden=true;
     rr.onclick=async()=>{const on=rr.getAttribute('aria-checked')!=='true';rr.setAttribute('aria-checked',String(on));rr.disabled=true;
-      try{const j=await setChatSettings(hudU||getUser(),on);rr.setAttribute('aria-checked',String(j?.readReceipts??on));}catch{rr.setAttribute('aria-checked',String(!on));toast("Couldn't save. Try again.");}rr.disabled=false;};}
+      try{const j=await setChatSettings(getUser()||hudU,on);rr.setAttribute('aria-checked',String(j?.readReceipts??on));}catch{rr.setAttribute('aria-checked',String(!on));toast("Couldn't save. Try again.");}rr.disabled=false;};}
   status();setTimeout(refreshHud,1500);setInterval(()=>{if(!document.hidden)refreshHud();},60000);
-  return {arrive,connected,renderMe,refreshHud,today,status,sel};}
+  return {arrive,connected,renderMe,refreshHud,today,status,sel,forget:()=>{hudU=null;}};}

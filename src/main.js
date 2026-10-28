@@ -98,7 +98,7 @@ const town=setupTown({agents,living,map,threads,getUser:currentUser,el:$('feedLi
 const v4=setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAgent:()=>window.__vw.agent?.agent,getUser:currentUser,goChat});window.__vw.v4=v4;
 // Ambient creatures across the world's cities (client-only, deterministic, no names).
 import('./ambient.js').then(m=>{window.__vw.ambient=m.setupAmbient(map,agents);}).catch(e=>console.warn('ambient',e?.message));
-onUser(u=>{if(u&&!u.isAnonymous){town.refreshMap(u);town.checkUnread(u);v4.refreshHud();}else town.clearMap();});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);
+onUser(u=>{if(u&&!u.isAnonymous){town.refreshMap(u);town.checkUnread(u);v4.refreshHud();}else{town.clearMap();v4.forget();}});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);
 // Feed open also refreshes your public map card (POST /publish), at most every 10 min.
 const pubOnOpen=()=>{try{const t=+localStorage.getItem('vw-pub-at')||0;if(Date.now()-t<600000)return;localStorage.setItem('vw-pub-at',String(Date.now()));}catch{/* storage blocked */}publishCard();};
 $('railFeed').addEventListener('click',()=>{pubOnOpen();town.loadFeed();});

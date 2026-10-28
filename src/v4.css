@@ -145,3 +145,12 @@ body:has(#v4Arrive) #tabs,body:has(#v4Conn) #tabs{visibility:hidden}
 .sw i{position:absolute;left:5px;top:11px;width:22px;height:22px;border-radius:50%;background:#B7BCC8;transition:transform .18s ease}
 .sw[aria-checked="true"]::before{background:#7B7CFF}.sw[aria-checked="true"] i{transform:translateX(20px);background:#fff}
 @media (prefers-reduced-motion:reduce){.sw i{transition:none}}
+/* Diggy review fixes */
+.ag.mine .pill{display:none} /* 1: no "You · name" pill under the hero */
+.maplibregl-ctrl-top-right{top:calc(76px + var(--safe-t,0px))} /* 2: tilt sits under the locate button, clear of map labels */
+.maplibregl-ctrl-top-right .maplibregl-ctrl{margin-right:16px}
+body.v4TodayOn .maplibregl-ctrl-bottom-right,body.v4TodayOn .maplibregl-ctrl-bottom-left{opacity:0;pointer-events:none} /* 2: no scale/info under the say-hi card */
+body.v4 #sheet .body{padding-bottom:calc(var(--tabH) + 16px + env(safe-area-inset-bottom))} /* 3: list bottom padding = tab pill height + 16px (the pill's bottom offset), so the last row clears the pill */
+#v4Me .meTools{margin-bottom:16px} /* 4: 16px between the tools row and the tab pill */
+.dmTyping{display:none!important} /* 5: header "typing…" is the only indicator */
+:root{--tabH:56px}

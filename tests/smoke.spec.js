@@ -110,12 +110,12 @@ test('own character follows live location while sharing', async ({ page, context
   await page.waitForFunction(() => globalThis.__avatarReady, null, { timeout: 45_000 });
   await page.evaluate(() => globalThis.document.getElementById('liveBtn').click());
   await expect(page.locator('#liveBtn')).toContainText('Stop sharing');
-  await expect(page.locator('.agLabel')).toBeVisible();
+  await expect(page.locator('.ag.mine canvas')).toBeVisible(); // v4: no You pill, so check the character itself
   await expect(page.locator('#map .me')).toHaveCount(0);
   const near = await page.evaluate(() => {
-    const r = globalThis.document.querySelector('.agLabel').getBoundingClientRect();
+    const r = globalThis.document.querySelector('.ag.mine canvas').getBoundingClientRect();
     const q = globalThis.__map.project([78.3908, 17.4485]);
-    return Math.abs(r.left + r.width / 2 - q.x) < 40 && q.y - r.bottom < 200 && q.y > r.bottom;
+    return Math.abs(r.left + r.width / 2 - q.x) < 40 && Math.abs(q.y - r.bottom) < 200;
   });
   expect(near).toBe(true);
   // Stopping puts the character back at its saved spot.

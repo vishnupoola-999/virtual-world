@@ -40,7 +40,7 @@ test('others drawn at 85% as characters only, own card skipped, fanned out', asy
   await expect(page.locator('.ag[aria-label="Bs\'s agent"]:not(.mine)')).toHaveCount(0);
   // Vishnu: other people's agents are just the character, no name or status pill. Your own agent keeps its pill.
   await expect(page.locator('.ag.other .pill:visible, .ag.other .stat:visible')).toHaveCount(0);
-  await expect(page.locator('.ag.mine .pill')).toBeVisible();
+  await expect(page.locator('.ag.mine .pill')).toBeHidden() // Diggy fix 1;
   const xs = await page.evaluate(() => ['h_b', 'h_c', 'h_d'].map((id) => globalThis.__vw.agents.get(id).marker.getOffset().x));
   expect(new Set(xs).size).toBeGreaterThan(1);
   await page.waitForFunction(() => globalThis.__avatarReady, null, { timeout: 45_000 }).catch(() => {});

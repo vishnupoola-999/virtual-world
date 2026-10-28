@@ -100,10 +100,15 @@ const CHECK='<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke=
 export const EMPTY_V4='No chats yet. Your agent is out exploring — check the map.';
 export function activityHtml(f,{dismissed=new Set(),inDismissed=new Set(),threads=[],threadsErr=false,lookFor=r=>lookOf(null,r.fromName),lookWith=e=>lookOf(null,e.withName)}={}){
   const hs=hiStatus(f,threads),inc=incomingOf(f,inDismissed);const asking=new Set(inc.map(r=>r.fromAgentId).filter(Boolean));
-  const wm=worthMeeting(f).filter(e=>!dismissed.has(e.id)&&!asking.has(e.withId)&&!threads.some(t=>t.with?.id&&t.with.id===e.withId));
+  // Diggy fix 3: anyone already connected (a thread with them, or an accepted hi) is a Friend, never Worth meeting.
+  const isConn=e=>threads.some(t=>t.with?.id&&t.with.id===e.withId)||hs.get(e.withId)?.kind==='conn';
+  const all=worthMeeting(f).filter(e=>!dismissed.has(e.id)&&!asking.has(e.withId));const wm=all.filter(e=>!isConn(e));
+  const seen=new Set(threads.map(t=>t.with?.id));const extra=[];
+  for(const e of all)if(isConn(e)&&!seen.has(e.withId)){seen.add(e.withId);extra.push({id:hs.get(e.withId).threadId,with:{id:e.withId,name:e.withName,interests:e.shared,look:lookWith(e)},last:null,unread:0});}
+  const friends=threads.concat(extra);
   const parts=[];if(inc.length)parts.push(reqCard(inc,lookFor));
   if(threadsErr)parts.push(`<div class="v4Sec"><div class="errRow" role="alert">Couldn't load chats · <button type="button" class="retryChats">Retry</button></div></div>`);
-  if(threads.length)parts.push(friendsHtml(threads));
+  if(friends.length)parts.push(friendsHtml(friends));
   if(wm.length)parts.push(`<div class="v4Sec wmSec"><div class="capLbl">Worth meeting</div><ul>${wm.map(e=>wmRow(e,hs,lookWith)).join('')}</ul></div>`);
   if(!parts.length)return `<div class="v4Empty">${avatar(null,'cav lg idle')}<p>${esc(EMPTY_V4)}</p></div>`;
   return parts.join('')+`<p class="caught">${CHECK}All caught up</p>`;}

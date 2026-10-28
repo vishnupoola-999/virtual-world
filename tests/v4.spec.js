@@ -77,8 +77,11 @@ test('2 map HUD: status pill, Today card from real events, no name pills except 
   await expect(page.locator('#v4Today')).toBeVisible(); await expect(page.locator('#v4Today')).toContainText('Today in your world · 3 new');
   await expect(page.locator('.ag.other')).toHaveCount(4);
   expect(await page.locator('.ag:not(.mine) .pill').evaluateAll((p) => p.filter((x) => x.offsetParent !== null).length)).toBe(0);
-  await expect(page.locator('.ag.mine .pill')).toContainText('You');
+  await expect(page.locator('.ag.mine .pill')).toBeHidden(); // Diggy fix 1: no You pill under the hero
   await expect(page.locator('#tabs .tab')).toHaveText(['World', 'Chats', 'Me']);
+  // Diggy fix 2: scale bar and info icon hidden under the say-hi card; tilt control up under the locate button.
+  for (const q of ['.maplibregl-ctrl-scale', '.maplibregl-ctrl-attrib']) expect(await page.locator(q).first().evaluate((e) => +globalThis.getComputedStyle(e.closest('.maplibregl-ctrl-bottom-right,.maplibregl-ctrl-bottom-left')).opacity)).toBe(0);
+  expect((await page.locator('.maplibregl-ctrl-top-right').boundingBox()).y).toBeLessThan(140);
   await shot(page, '2-map');
   // Nothing real in the last day: no Today card.
   s.feed = { ...s.feed, mine: s.feed.mine.map((e) => ({ ...e, at: ago(60 * 30) })), incoming: [] };
@@ -89,11 +92,15 @@ test('3 chats sheet: Requests, Friends, Worth meeting (Connected / Hi sent), All
   const s = server(); await boot(page, s); await chats(page);
   const secs = await page.locator('#agentChats > *').evaluateAll((e) => e.map((x) => x.className));
   expect(secs[0]).toContain('v4Sec'); await expect(page.locator('.reqCard')).toContainText('Arjun wants to say hi');
-  await expect(page.locator('.frSec .fr')).toHaveCount(2); await expect(page.locator('.fr.un .udot')).toHaveCount(1); await expect(page.locator('.fr:not(.un) .udot')).toHaveCount(0);
-  await expect(page.locator('.wmRow[data-with="h_b"] .connTag')).toHaveText('Connected · Open chat');
+  await expect(page.locator('.frSec .fr')).toHaveCount(3); await expect(page.locator('.fr.un .udot')).toHaveCount(1); await expect(page.locator('.fr:not(.un) .udot')).toHaveCount(0);
+  // Diggy fix 3: Bs is connected (accepted hi), so Bs is a Friend, not Worth meeting.
+  await expect(page.locator('.wmRow[data-with="h_b"]')).toHaveCount(0); await expect(page.locator('.frSec .fr').filter({ hasText: 'Bs' })).toHaveCount(1);
   await expect(page.locator('.wmRow[data-with="h_m"] .sentTag')).toHaveText('Hi sent');
   await expect(page.locator('.caught')).toHaveText('All caught up');
   expect(await page.locator('#agentChats').evaluate((e) => [...e.querySelectorAll('.capLbl,.reqCard,.caught')].map((x) => x.textContent.trim().split(' ')[0]))).toEqual(['Arjun', 'Friends', 'Worth', 'All']);
+  const sc = page.locator('#agentChats'); await sc.evaluate((e) => { const s2 = e.closest('.sheetBody,#sheet .body') || e.parentElement; for (let n = e; n; n = n.parentElement) if (n.scrollHeight > n.clientHeight + 1) { n.scrollTop = n.scrollHeight; break; } void s2; });
+  await page.waitForTimeout(300);
+  const [cb, tb] = [await page.locator('.caught').boundingBox(), await page.locator('#tabs').boundingBox()]; expect(cb.y + cb.height).toBeLessThanOrEqual(tb.y); // fix 3: not clipped
   await shot(page, '3-chats');
 });
 
@@ -116,9 +123,10 @@ test('4b presence present: typing dots, Seen, metAt line', async ({ page }) => {
   const s = server({ presence: true }); await boot(page, s); await chats(page);
   await page.locator('.fr[data-thread="t_p"] .frBtn').click(); const v = page.locator('#dmView'); await expect(v.locator('.msg')).toHaveCount(3);
   await expect(v.locator('.dmMet')).toContainText('Met 2 days ago'); await expect(v.locator('.dmMet b')).toHaveText('space, music');
-  await expect(v.locator('.dmTyping')).toBeVisible(); await expect(v.locator('.dmLive')).toHaveText('typing…');
+  await expect(v.locator('.dmLive')).toHaveText('typing…'); await expect(v.locator('.dmTyping')).toBeHidden(); // Diggy fix 5: header only
   await expect(v.locator('.rcpt')).toContainText('Seen');
   await expect.poll(() => (s.reads || []).length).toBeGreaterThan(0); // POST /threads/:id/read {upTo}
+  await expect(v.locator('.dmPair img[src]')).toHaveCount(2, { timeout: 15_000 });
   await shot(page, '4-chat');
   await v.locator('.dmBack').click(); await page.evaluate(() => globalThis.__vw.v4.refreshHud(globalThis.__fakeUser)); await page.locator('#tabMe').click();
   const rr = page.locator('#meRR'); await expect(rr).toHaveAttribute('aria-checked', 'true'); await rr.click();
@@ -140,9 +148,11 @@ test('5 request sheet, 6 connect moment, then chat with openers', async ({ page 
 test('7 Me: hero, interests, colour row, This week (real), one primary', async ({ page }) => {
   const s = server({ presence: true }); await boot(page, s); await chats(page);
   await page.evaluate(() => globalThis.__vw.v4.refreshHud(globalThis.__fakeUser));
-  await page.locator('#tabMe').click(); const m = page.locator('#v4Me'); await expect(m.locator('#mePriv')).toBeVisible();
+  await page.locator('#tabMe').click(); const m = page.locator('#v4Me'); await expect(m.locator('#mePriv')).toBeVisible({ timeout: 15_000 });
   await expect(m.locator('.meHero h2')).toHaveText('Vishnu'); await expect(m.locator('.chip:not(.add)')).toHaveCount(4); await expect(m.locator('.chip.add')).toHaveText('+ Add');
   await expect(m.locator('.colRow .swc')).toHaveCount(10); await expect(m.locator('.week')).toContainText('Met 4 agents');
   await expect(m.locator('.primary')).toHaveCount(1); await expect(m.locator('.primary')).toHaveText('Edit my agent');
+  await m.evaluate((e) => { for (let n = e; n; n = n.parentElement) if (n.scrollHeight > n.clientHeight + 1) { n.scrollTop = n.scrollHeight; break; } }); await page.waitForTimeout(300);
+  const [mt, tb] = [await m.locator('.meTools').boundingBox(), await page.locator('#tabs').boundingBox()]; expect(Math.abs(tb.y - (mt.y + mt.height) - 16)).toBeLessThan(1.5); // fix 4: exactly 16px
   await shot(page, '7-me');
 });
