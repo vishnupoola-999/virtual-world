@@ -19,7 +19,7 @@ export function checkText(s){const t=String(s||'');if(!t.trim())return 'empty';i
 // Merge newly polled messages (oldest first), deduped by id.
 export function mergeMsgs(old,add){const m=new Map(old.map(x=>[x.id,x]));for(const x of add||[])if(x&&x.id)m.set(x.id,x);return [...m.values()].sort((a,b)=>(+a.at||0)-(+b.at||0));}
 export const lastAt=list=>list.length?Math.max(...list.map(x=>+x.at||0)):0;
-export function avatar(look,cls='cav'){const l=lookOf(look);return `<span class="${cls}" style="--c:${CREATURE_COLOURS[l.creature]}" data-cr="${l.creature}"><img alt=""></span>`;}
+export function avatar(look,cls='cav'){const l=lookOf(look);return `<span class="${cls}" style="--c:${l.color||CREATURE_COLOURS[l.creature]}" data-cr="${l.creature}"><img alt=""></span>`;}
 export const interestsOf=w=>(Array.isArray(w?.interests)?w.interests:[]).filter(x=>typeof x==='string').slice(0,3);
 const tm=at=>{const d=new Date(+at||0);return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');};
 export function friendsHtml(threads){if(!threads?.length)return '';

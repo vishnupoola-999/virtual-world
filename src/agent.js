@@ -2,7 +2,7 @@ import {reportSaveError} from './save-errors.js';
 import {signIn,logOut,onUser,loadAgent,cachedAgent,cacheAgent,saveAgent,authMsg,redirectResult} from './firebase.js';
 import {flyTo} from './map.js';
 import {agentsOnMap} from './world-agents.js';
-import {toLook,sanitize,ACCESSORIES,ACC_LABEL} from './character-data.js';
+import {toLook,sanitize,ACCESSORIES,ACC_LABEL,BODY_SWATCHES,cleanColor} from './character-data.js';
 import {toast} from './ui.js';
 import {track} from './onboarding.js';
 const $=id=>document.getElementById(id);
@@ -70,18 +70,29 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
 // Creature look editor in the agent sheet. New agents start with nothing picked: the user taps one of six creature cards
 // (thumbnails rendered from character.js, no labels) before Save is enabled, then may add one accessory.
 // Existing agents open on their saved look (older human looks are migrated by toLook). Live-previews on the map when editing.
-function lookEditor(onChange){let creature=null,acc='none';
+function lookEditor(onChange){let creature=null,acc='none',color=null;
   const accBox=$('lkAcc');accBox.innerHTML=ACCESSORIES.map(a=>`<button type="button" role="radio" data-acc="${a}" aria-checked="false">${ACC_LABEL[a]}</button>`).join('');
+  // Colour row (design/body-colour): Default (the creature's own colour), ten presets and a native colour picker styled as a swatch.
+  const colBox=$('lkCol');colBox.innerHTML=`<button type="button" role="radio" class="swc def" data-col="" aria-label="Default colour" aria-checked="false"></button>`
+    +BODY_SWATCHES.map((c,i)=>`<button type="button" role="radio" class="swc" data-col="${c}" style="--c:${c}" aria-label="Colour ${i+1}" aria-checked="false"></button>`).join('')
+    +`<label class="swc cust" aria-label="Pick any colour"><input type="color" id="lkColPick" value="#5b7cfa"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></label>`;
+  const pick=$('lkColPick');let tt=0;
+  const thumbsFor=()=>{if(!shown)return;clearTimeout(tt);tt=setTimeout(()=>import('./cards3d.js').then(m=>{const t=m.cardThumbs(color);for(const b of $('lkBase').querySelectorAll('button')){const img=b.querySelector('img');if(t[b.dataset.creature])img.src=t[b.dataset.creature];}}).catch(()=>{}),160);};
   function paint(){$('lkBase').classList.toggle('chosen',!!creature);
+    for(const b of colBox.querySelectorAll('button')){const on=(b.dataset.col||null)===color;b.classList.toggle('on',on);b.setAttribute('aria-checked',String(on));}
+    const custom=!!color&&!BODY_SWATCHES.includes(color);const cl=colBox.querySelector('.cust');cl.classList.toggle('on',custom);if(custom){cl.style.setProperty('--c',color);pick.value=color;}else cl.style.removeProperty('--c');
     for(const b of $('lkBase').querySelectorAll('button')){const on=b.dataset.creature===creature;b.classList.toggle('on',on);b.setAttribute('aria-checked',String(on));}
     for(const b of accBox.querySelectorAll('button')){const on=b.dataset.acc===acc;b.classList.toggle('on',on);b.setAttribute('aria-checked',String(on));}
     $('lkMore').hidden=!creature;onChange(value());}
   for(const b of $('lkBase').querySelectorAll('button'))b.onclick=()=>{creature=b.dataset.creature;paint();};
   for(const b of accBox.querySelectorAll('button'))b.onclick=()=>{acc=b.dataset.acc;paint();};
-  let shown=false;const showThumbs=()=>{if(shown)return;shown=true;import('./cards3d.js').then(m=>{const t=m.cardThumbs();for(const b of $('lkBase').querySelectorAll('button')){const img=b.querySelector('img');if(t[b.dataset.creature])img.src=t[b.dataset.creature];}}).catch(e=>console.warn('picker thumbs',e?.message));};
+  const setCol=c=>{const n=cleanColor(c);if(n===color)return;color=n;paint();thumbsFor();};
+  for(const b of colBox.querySelectorAll('button'))b.onclick=()=>setCol(b.dataset.col);
+  pick.oninput=()=>setCol(pick.value);
+  let shown=false;const showThumbs=()=>{if(shown)return;shown=true;import('./cards3d.js').then(m=>{const t=m.cardThumbs();for(const b of $('lkBase').querySelectorAll('button')){const img=b.querySelector('img');if(t[b.dataset.creature])img.src=t[b.dataset.creature];}if(color)thumbsFor();}).catch(e=>console.warn('picker thumbs',e?.message));};
   new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))showThumbs();}).observe($('lkBase'));
-  function value(){return creature?sanitize({creature,accessory:acc}):null;}
-  return {value,picked:()=>!!creature,load(look,name){creature=null;acc='none';
-    if(look){const l=toLook(look,name);creature=l.creature;acc=l.accessory;}
-    paint();}};}
+  function value(){return creature?sanitize({creature,accessory:acc,color}):null;}
+  return {value,picked:()=>!!creature,load(look,name){creature=null;acc='none';const was=color;color=null;
+    if(look){const l=toLook(look,name);creature=l.creature;acc=l.accessory;color=l.color||null;}
+    paint();if(was!==color)thumbsFor();}};}
 // three.js (~267 KB gz) is only fetched once there is an agent to draw and the map is zoomed in far enough to see it (perf audit #2).

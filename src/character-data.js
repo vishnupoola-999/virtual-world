@@ -7,7 +7,10 @@ export const ACC_LABEL = {none:'None',glasses:'Glasses',beanie:'Beanie',tuft:'Tu
 export const isCreature = (c) => CREATURES.includes(c);
 export const isCreatureLook = (l) => !!l && typeof l === 'object' && isCreature(l.creature);
 // The only shape ever saved: exactly {creature, accessory}.
-export function sanitize(l){return {creature:isCreature(l?.creature)?l.creature:'blob',accessory:ACCESSORIES.includes(l?.accessory)?l.accessory:'none'};}
+// Optional body colour (design/body-colour): look.color '#rrggbb'; missing or invalid means the creature's own colour.
+export const cleanColor=c=>typeof c==='string'&&/^#[0-9a-f]{6}$/i.test(c)?c.toLowerCase():null;
+export function sanitize(l){const o={creature:isCreature(l?.creature)?l.creature:'blob',accessory:ACCESSORIES.includes(l?.accessory)?l.accessory:'none'};const c=cleanColor(l?.color);if(c)o.color=c;return o;}
+export const BODY_SWATCHES=['#ff6b6b','#ff9f43','#ffd166','#a3e635','#4fd69c','#2ec4b6','#4cc9f0','#5b7cfa','#b388ff','#f472b6'];
 export const defaultLook = (creature='blob') => sanitize({creature});
 
 const HEX=/^#[0-9a-f]{6}$/i;

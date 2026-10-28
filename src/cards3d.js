@@ -3,12 +3,13 @@ import * as THREE from 'three';
 import {createCharacter} from './character.js';
 import {CREATURES} from './character-data.js';
 const cardCam=(aspect)=>{const c=new THREE.PerspectiveCamera(30,aspect,.1,10);c.position.set(0,.55,2.7);c.lookAt(0,.48,0);return c;};
-let thumbs=null;
+const thumbCache=new Map();
 // One-off snapshots of the six creatures for the agent-sheet picker (one renderer, disposed right after).
-export function cardThumbs(){if(thumbs)return thumbs;thumbs={};
+// color (optional '#rrggbb') recolours every body for the colour preview; one cached set per colour.
+export function cardThumbs(color=null){const key=color||'';let thumbs=thumbCache.get(key);if(thumbs)return thumbs;thumbs={};if(thumbCache.size>12)thumbCache.delete(thumbCache.keys().next().value);thumbCache.set(key,thumbs);
   try{const r=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});r.setPixelRatio(Math.min(devicePixelRatio||1,3));r.setSize(96,120);
     const scene=new THREE.Scene(),cam=cardCam(96/120);
-    for(const c of CREATURES){const ch=createCharacter({creature:c,accessory:'none'});ch.group.rotation.y=-.25;scene.add(ch.group);ch.update(0);r.render(scene,cam);thumbs[c]=r.domElement.toDataURL('image/png');scene.remove(ch.group);ch.dispose();}
+    for(const c of CREATURES){const ch=createCharacter({creature:c,accessory:'none',...(color?{color}:{})});ch.group.rotation.y=-.25;scene.add(ch.group);ch.update(0);r.render(scene,cam);thumbs[c]=r.domElement.toDataURL('image/png');scene.remove(ch.group);ch.dispose();}
     r.dispose();r.forceContextLoss?.();}catch(e){console.warn('picker thumbs',e?.message);}
   return thumbs;}
 // One renderer draws every picker card (scissor + viewport per button), ~30 fps while something moves, then stops.

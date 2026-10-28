@@ -60,7 +60,7 @@ const hero0=chatHero($('heroCv'));const hero={...hero0,state(s){hero0.state(s);a
 const chat=setupChat({getAgent:()=>window.__vw.agent?.agent,getUser:currentUser,hero,onNeedAgent:()=>openSheet('agent'),
   onShowMe:a=>{tabs.set('world');if(a)flyTo(map,a.lon,a.lat,19);}});
 tabs=setupTabs({map,hero,onSwitch:t=>{flt.pause(t==='chat');famL0.pause(t==='chat');},canChat:()=>!!window.__vw.agent?.agent&&chat.open(),onChat:()=>{const ok=chat.open();if(ok)closeSheet();return ok;}});
-window.__vw.tabs=tabs;
+window.__vw.tabs=tabs;window.__vw.openSheet=openSheet;
 // Onboarding for new users (?onb=0 skips it, for tests and debugging). Returning users go straight to Chat.
 const noOnb=new URLSearchParams(location.search).get('onb')==='0';
 const goChat=()=>{if(chat.open()){closeSheet();tabs.set('chat');}};
