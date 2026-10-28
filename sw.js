@@ -1,7 +1,7 @@
 // App-shell service worker: network-first for our own files (so new deploys show up), cache fallback when offline.
 // Pinned CDN files (three.js, MapLibre: URLs carry an exact @x.y.z version, so they never change) are cache-first in their
 // own cache, which survives shell version bumps. Nothing else cross-origin (Firebase, the chat proxy, tiles, APIs) is touched.
-const C='vw-shell-v55',CDN='vw-cdn-v1';
+const C='vw-shell-v56',CDN='vw-cdn-v1';
 const PINNED=/^https:\/\/(cdn\.jsdelivr\.net|unpkg\.com)\/npm\/[^/]+@\d+\.\d+\.\d+\/|^https:\/\/unpkg\.com\/[^/]+@\d+\.\d+\.\d+\//;
 const WARM=['https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js'];
 const SHELL=['./','index.html','join.html','manifest.json','favicon.svg','src/style.css','src/ui-v2.css','src/world-v2.css','src/living.css','src/ui-v3.css','src/feed.css','src/threads.css','src/threads.js','src/v4.css','src/connect.css','src/v4.js','src/connect.js','src/connect-api.js','src/stream-ui.js','src/town.js','src/names.js','src/living.js','src/away.js','src/interests.js','src/world-agents.js','src/agent-renderer.js','fonts/inter-latin-wght-400-600.woff2','src/main.js','src/map.js','src/ui.js','src/agent.js','src/firebase.js','src/family.js','src/family-layer.js','src/flights.js','src/chat.js','src/google-tools.js','src/calendarWhen.js','src/ui/confirmAction.js','src/tools-config.js','src/agentTools.js','src/chat-hero.js','src/tabs.js','src/character.js','src/onboarding.js','src/device.js','src/character-data.js','src/save-errors.js','src/pixel-ratio.js','src/ambient.js','src/cards3d.js','src/chat-hero-3d.js','assets/map-style-night.json','icons/icon-192.png'];

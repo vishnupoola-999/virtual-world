@@ -54,6 +54,7 @@ async function boot(page, s, { hist = [] } = {}) {
       return r.fulfill({ json: { state: 'connect', reauth: o ? [other] : [] } }); }
     x = p.match(/^\/actions\/([^/]+)$/); if (x && m === 'POST' && s.apps) { const d = q.postDataJSON().decision; s.decisions.push([x[1], d]);
       const want = s.actions[x[1]] || 'done'; if (want === 'hold') return; // never answers (Working… stays)
+      if (want === '404') return r.fulfill({ status: 404, json: { error: 'not found' } });
       return r.fulfill({ json: d === 'cancel' ? { state: 'cancelled' } : want === 'done' ? { state: 'done', result: { summary: 'Added', at: Date.parse('2026-10-28T13:42:00+05:30') } }
         : want === 'compose' ? { state: 'done', app: 'gmail', result: { summary: 'Ready in Gmail', at: Date.parse('2026-10-28T13:42:00+05:30'), link: 'https://mail.google.com/mail/?view=cm&to=pooja@example.com', mailto: 'mailto:pooja@example.com' } } : { state: want } }); }
     if (p === '/chat' && s.chatJson) return r.fulfill({ json: s.chatJson });
@@ -186,6 +187,27 @@ test('4c Gmail action: Approve gives a Gmail compose link (and mailto), opened o
   await expect(c.locator('.cxOpen')).toHaveText('Open in Gmail'); await expect(c.locator('.cxMailto')).toHaveAttribute('href', 'mailto:pooja@example.com');
   expect(await page.evaluate(() => globalThis.__opened || [])).toEqual([]);
   await c.locator('.cxOpen').click(); await expect.poll(() => page.evaluate(() => globalThis.__opened?.at(-1))).toBe('https://mail.google.com/mail/?view=cm&to=pooja@example.com');
+});
+
+test('4d POST /actions/:id 404 expires only that card; other cards and later actions still work', async ({ page }) => {
+  const exp = Date.now() + 9e5;
+  const s = server({ chatJson: { choices: [{ message: { content: 'Two things to OK.' } }], actions: [
+    { id: 'n1', app: 'gcal', kind: 'write', title: 'Add event to Calendar', summary: 'Planetarium with Pooja\nSun 2 Nov · 11:00–13:00', expiresAt: exp },
+    { id: 'n2', app: 'gcal', kind: 'write', title: 'Add event to Calendar', summary: 'Dosa at Vidyarthi Bhavan', expiresAt: exp }] } });
+  s.actions.n1 = '404'; await boot(page, s, { hist: HIST.slice(0, 2) }); await page.evaluate(() => globalThis.__vw.connect.refresh()); await openChat(page);
+  await say(page, 'Plan Sunday'); const c1 = page.locator('.cxCard[data-action="n1"]'), c2 = page.locator('.cxCard[data-action="n2"]');
+  await expect(page.locator('.cxCard')).toHaveCount(2, { timeout: 15_000 });
+  expect(await page.locator('.cxCard').evaluateAll((e) => e.map((x) => x.dataset.action))).toEqual(['n1', 'n2']); // server order
+  await c1.locator('.cxYes').click();
+  await expect(c1.locator('.meta')).toHaveText('This request expired. Ask again.'); await expect(c1.locator('button')).toHaveCount(0);
+  expect(await c1.locator('.cxT').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(138, 144, 160)'); // title dimmed
+  expect(await c2.locator('.cxT').evaluate((e) => getComputedStyle(e).color)).not.toBe('rgb(138, 144, 160)');
+  await expect(c2.locator('.cxYes')).toHaveText('Approve'); await c2.locator('.cxYes').click(); await expect(c2.locator('.meta')).toHaveText('✓ Added · 13:42');
+  expect(s.decisions).toEqual([['n1', 'approve'], ['n2', 'approve']]);
+  s.chatJson = { choices: [{ message: { content: 'One more.' } }], actions: [{ id: 'n3', app: 'gcal', kind: 'write', title: 'Add event to Calendar', summary: 'x', expiresAt: exp }] };
+  await say(page, 'And dinner'); await expect(page.locator('.cxCard[data-action="n3"] .cxYes')).toHaveText('Approve'); // cards not hidden for the session
+  await page.locator('#chatLog').evaluate((l) => { l.scrollTop += l.querySelector('[data-action="n1"]').getBoundingClientRect().top - l.getBoundingClientRect().top - 90; });
+  await shot(page, 'expired-card');
 });
 
 test('4b expired request: buttons removed, nothing sent', async ({ page }) => {

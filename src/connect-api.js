@@ -76,9 +76,13 @@ export function normAction(a) {
     expiresAt: Number.isFinite(+a.expiresAt) && +a.expiresAt > 0 ? +a.expiresAt : Date.now() + 15 * 60000 };
 }
 // POST /actions/:id {decision}. Only ever called from an Approve/Cancel tap.
+// A 404 means this one action is unknown or gone (expired / server restarted): that card shows expired.
+// It does NOT mark the endpoint missing, so other confirm cards keep working.
 export async function decide(user, id, decision) {
   if (decision !== 'approve' && decision !== 'cancel') throw new Error('bad decision');
-  const j = await call(user, `/actions/${encodeURIComponent(id)}`, { method: 'POST', body: { decision }, key: 'actions' });
+  let j;
+  try { j = await call(user, `/actions/${encodeURIComponent(id)}`, { method: 'POST', body: { decision } }); }
+  catch (e) { if (e.status === 404) return { state: 'expired', result: null }; throw e; }
   return { state: ACTION_STATES.includes(j?.state) ? j.state : 'error', result: j?.result && typeof j.result === 'object' ? { summary: String(j.result.summary || ''), at: +j.result.at || Date.now(),
     link: typeof j.result.link === 'string' && /^https:\/\//.test(j.result.link) ? j.result.link : '', mailto: typeof j.result.mailto === 'string' && /^mailto:/i.test(j.result.mailto) ? j.result.mailto : '' } : null };
 }
