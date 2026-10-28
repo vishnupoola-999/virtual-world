@@ -6,6 +6,7 @@ import {flightsLayer} from './flights.js';
 import {setupAgent} from './agent.js';
 import {setupOnboarding} from './onboarding.js';
 import {setupChat} from './chat.js';
+import {setupConnect} from './connect.js';
 import {chatHero} from './chat-hero.js';
 import {setupTabs} from './tabs.js';
 import {currentUser,onUser,loadDiary,publishCard} from './firebase.js';
@@ -58,7 +59,10 @@ if(new URLSearchParams(location.search).get('flights'))$('swFlights').click();
 // Chat tab is the home screen once you have an agent; the World tab is the map.
 // Your agent's marker mirrors the chat: thinking shows the busy ring, a reply shows the talking bubble.
 const hero0=chatHero($('heroCv'));const hero={...hero0,state(s){hero0.state(s);agents.setState('me',s==='thinking'||s==='sleeping'?'busy':s==='talking'?'talking':'online');if(s==='talking')setTimeout(()=>agents.setState('me','online'),2500);}};let tabs=null,autoChat=false; // v4: the map (with the arrival) is home; your agent's chat opens from Me
-const chat=setupChat({getAgent:()=>window.__vw.agent?.agent,getUser:currentUser,hero,onNeedAgent:()=>openSheet('agent'),
+// Connect apps (connect-v1). Tests set window.__vw.__testUser (a fake token, rejected by the real server).
+const chatUser=()=>currentUser()||window.__vw.__testUser||null;
+const apps=setupConnect({getUser:chatUser});window.__vw.connect=apps;
+const chat=setupChat({getAgent:()=>window.__vw.agent?.agent,getUser:chatUser,hero,connect:apps,onNeedAgent:()=>openSheet('agent'),
   onShowMe:a=>{tabs.set('world');if(a)flyTo(map,a.lon,a.lat,19);}});
 tabs=setupTabs({map,hero,onSwitch:t=>{flt.pause(t==='chat');famL0.pause(t==='chat');},canChat:()=>!!window.__vw.agent?.agent&&chat.open(),onChat:()=>{const ok=chat.open();if(ok)closeSheet();return ok;}});
 window.__vw.tabs=tabs;window.__vw.openSheet=openSheet;
@@ -95,10 +99,10 @@ const living=LIVING_MAP?setupLiving(map,{hintEl:$('liveHint')}):{showOwn:a=>read
 // Other people's public agents on the map + the Feed sheet (signed-in, non-anonymous users only).
 const threads=setupThreads({getUser:currentUser,agents,getMe:()=>window.__vw.agent?.agent});window.__vw.threads=threads;
 const town=setupTown({agents,living,map,threads,getUser:currentUser,el:$('feedList'),actEl:$('agentChats'),dotEl:$('agentDot')});window.__vw.town=town;
-const v4=setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAgent:()=>window.__vw.agent?.agent,getUser:currentUser,goChat});window.__vw.v4=v4;
+const v4=setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAgent:()=>window.__vw.agent?.agent,getUser:currentUser,goChat,connect:apps});window.__vw.v4=v4;
 // Ambient creatures across the world's cities (client-only, deterministic, no names).
 import('./ambient.js').then(m=>{window.__vw.ambient=m.setupAmbient(map,agents);}).catch(e=>console.warn('ambient',e?.message));
-onUser(u=>{if(u&&!u.isAnonymous){town.refreshMap(u);town.checkUnread(u);v4.refreshHud();}else{town.clearMap();v4.forget();}});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);
+onUser(u=>{apps.refresh();if(u&&!u.isAnonymous){town.refreshMap(u);town.checkUnread(u);v4.refreshHud();}else{town.clearMap();v4.forget();}});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);
 // Feed open also refreshes your public map card (POST /publish), at most every 10 min.
 const pubOnOpen=()=>{try{const t=+localStorage.getItem('vw-pub-at')||0;if(Date.now()-t<600000)return;localStorage.setItem('vw-pub-at',String(Date.now()));}catch{/* storage blocked */}publishCard();};
 $('railFeed').addEventListener('click',()=>{pubOnOpen();town.loadFeed();});
@@ -142,3 +146,5 @@ function showUpdate(){const b=document.createElement('button');b.id='updBar';b.t
 // Keep-warm: the Render proxy sleeps when idle (30-60 s cold start). Wake it on app open so the first chat reply is not slow.
 // Not on the agent's path; fire-and-forget.
 fetch('https://virtual-world-ai.onrender.com/',{mode:'no-cors',cache:'no-store'}).catch(()=>{});
+
+{const r=apps.handleReturn();if(r){setTimeout(()=>{$('tabMe')?.click();apps.refresh().then(()=>apps.openSheet(r.id));},0);}}

@@ -178,3 +178,10 @@ Diggy review (2026-10-28): no "You" pill under your own character; the map tilt 
 
 ## Server reactions (2026-10-28)
 Double-tap a bubble to toggle your heart. The heart pops in (scale 0 to 1.2 to 1 over 250ms, transform only; no animation with reduced motion) and settles as an 18px badge on a #16181F chip over the bottom corner on the sender's side. Filled accent (#7B7CFF) when you hearted it, white when only the other person did; the count shows when more than one. The change is optimistic and rolls back if the server refuses (429 shows "Too many hearts"). Counts come from `reactions:{heart,mine}` on each message. If the react endpoint answers 404/405 before any server reaction is seen, hearts stay on this device (`vw-rx`); once the server answers, that old store is deleted. Hearts on older messages refresh when the chat is reopened, since polling only fetches newer messages.
+
+## Connect apps + streaming (2026-10-28)
+Spec: Diggy's connect-v1. Server shapes from Buildy (#62, draft) sit behind src/connect-api.js only; the UI never calls fetch for these directly.
+- Me > Apps: five tiles (Drive, Calendar, Gmail, Notion, Spotify) with state chips; the sheet connects through the server's https consent URL only and returns via `#/me?app=&result=`. The section is hidden when GET /apps is missing, and nothing shows as connected without the server saying so.
+- Confirm cards: one decision per action id, POST /actions/:id {decision}; expiry timer; sign-in expired returns to Needs your OK only after the app reconnects. Never runs without the Approve tap.
+- Streaming: SSE token/action/done/error; words flushed every 30ms (50ms on slow frames), caret, follow within 48px else a Jump to latest chip 16px above the input bar. Stop aborts and posts /stop; "Stopped · Continue" and a cut-off reply with a message id use /continue into the same bubble; failed / rate_limited each have their own line. No stream endpoint => old /chat JSON.
+- Motion: transform and opacity only, reduced-motion respected, no blur.

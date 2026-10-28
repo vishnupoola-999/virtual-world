@@ -1,0 +1,60 @@
+/* Connect apps + streaming replies (design/connect-v1-spec.md). Classes from connect-v1/base.css: .tile .mk .st .card .caret .cap.
+   Dark, no blur, transform/opacity animation only. */
+.cxApps .cxHead{display:flex;justify-content:space-between;align-items:baseline;margin:20px 0 8px}
+.cxApps .cap,#cxSheet .cap,.cxCard .cap{font-size:12px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:#8A90A0}
+.cxApps .meta,#cxSheet .meta,.cxCard .meta{font-size:13px;color:#8A90A0}
+.tile{width:100%;height:48px;display:flex;align-items:center;gap:12px;padding:0 12px;background:#16181F;border:0;border-radius:12px;margin:0 0 4px;color:#F2F4F8;font:500 15px/1 Inter,system-ui,sans-serif;text-align:left;transition:transform 80ms ease}
+.tile:active{transform:scale(.96)}
+.mk{width:32px;height:32px;border-radius:8px;background:#20232C;display:flex;align-items:center;justify-content:center;font:600 13px/1 Inter,system-ui,sans-serif;color:#F2F4F8;flex:0 0 32px}
+.mk.lg{width:48px;height:48px;flex-basis:48px;border-radius:12px;font-size:18px}.mk.sm{width:24px;height:24px;flex-basis:24px;border-radius:6px;font-size:11px}
+.tn{flex:1}
+.st{font-size:13px;font-weight:500}.st.c{color:#fff;background:#20232C;padding:6px 12px;border-radius:14px}.st.ok,.ok{color:#4FD69C}.st.w{color:#8A90A0}.st.e,.e{color:#FF8A6B}
+.st.pulse{animation:cxPulse 1.2s ease-in-out infinite alternate}@keyframes cxPulse{from{opacity:1}to{opacity:.5}}
+.cxFoot{font-size:12px;color:#8A90A0;margin:8px 0 4px;line-height:16px}
+/* App sheet */
+#cxScrim{position:fixed;inset:0;z-index:40;background:rgba(7,8,12,.72);opacity:0;transition:opacity 200ms linear}#cxScrim.on{opacity:1}
+#cxSheet{position:fixed;left:0;right:0;bottom:0;z-index:41;background:#111318;border-radius:24px 24px 0 0;padding:12px 20px calc(28px + env(safe-area-inset-bottom));color:#F2F4F8;transform:translateY(100%);transition:transform 320ms cubic-bezier(.2,.8,.2,1);max-height:92vh;overflow:auto;touch-action:pan-y}
+#cxSheet.on{transform:none}
+#cxSheet .grab{width:36px;height:4px;border-radius:2px;background:#2A2E38;margin:0 auto 16px}
+.cxTop{display:flex;gap:12px;align-items:center;margin-bottom:20px}.cxTop h2{font:600 20px/1.2 Inter,system-ui,sans-serif;margin:0}.cxTop .meta{margin:2px 0 0}
+#cxSheet .cap{margin:16px 0 4px}#cxSheet .cxTop+.cap{margin-top:0}
+.li{display:flex;gap:10px;font-size:14px;color:#C9CEDA;margin:8px 0;line-height:20px}.li b{color:#8A90A0;font-weight:400;flex:0 0 14px;font-size:14px}
+#cxSheet .primary{display:flex;width:100%;height:48px;margin-top:24px;align-items:center;justify-content:center;border-radius:24px;background:#fff;color:#07080C;border:0;font:600 16px/1 Inter,system-ui,sans-serif}
+#cxSheet .primary:disabled{opacity:.6}
+#cxSheet .ghost{display:flex;width:100%;height:48px;margin-top:12px;align-items:center;justify-content:center;border-radius:24px;background:none;border:0;color:#B7BCC8;font:500 15px/1 Inter,system-ui,sans-serif}
+#cxSheet .ghost.danger{color:#FF8A6B}
+.cxNote{font-size:12px;color:#8A90A0;text-align:center;margin:12px 0 0}
+.cxErr{font-size:13px;color:#FF8A6B;margin:20px 0 -12px}
+.cxLast{background:#16181F;border-radius:12px;padding:12px 14px;margin-top:20px}.cxLast b{display:block;font-size:14px;font-weight:500}.cxLast small{display:block;font-size:13px;color:#8A90A0;margin-top:2px}
+.cxConfirm{margin-top:16px}.cxConfirm p{font-size:14px;color:#C9CEDA;margin:0 0 4px;text-align:center}
+.cxRow{display:flex;gap:8px}.cxRow>*{flex:1}
+#cxSheet .cxRow .primary,#cxSheet .cxRow .ghost{margin-top:12px}#cxSheet .cxRow .ghost{background:#20232C;color:#F2F4F8}
+/* Confirm card in the agent chat */
+.cxCard{align-self:flex-start;width:min(296px,calc(100% - 32px));background:#16181F;border:1px solid #20232C;border-radius:16px;padding:12px 14px;margin:6px 0;color:#F2F4F8;opacity:1;transition:opacity 120ms linear}
+.cxCard:not(.in){opacity:0}
+.cxCardHd{display:flex;gap:8px;align-items:center}
+.cxT{display:block;font-size:15px;font-weight:600;margin:10px 0 4px}.cxT.sm{font-weight:500;margin:8px 0 2px}
+.cxSum{font-size:13px;color:#8A90A0;line-height:19px;margin:0}.cxSum.hi{color:#C9CEDA;margin:8px 0}
+.cxCard .cxRow{margin-top:12px}
+.cxCard button{font:600 15px/1 Inter,system-ui,sans-serif;border:0;border-radius:22px;height:44px}
+.cxCard .primary{background:#fff;color:#07080C}.cxCard .ghost{background:#20232C;color:#B7BCC8;font-weight:500}
+.cxCard button:disabled{opacity:.7}
+.cxCard .cxRetry{display:block;background:none;color:#fff;height:36px;padding:0;font-weight:500;margin-top:4px;text-align:left}
+.cxCard .primary.sm{display:block;width:100%;height:40px;font-size:14px;border-radius:20px}
+.cxCard .meta{margin:0}
+/* Streaming reply: bubble per spec (agent bubble #16181F, max 264) */
+#chatLog .msg.bot.cxStream,#chatLog .msg.bot{overflow-anchor:none}
+#chatLog .msg.bot .mbody .agent-text{display:inline-block;background:#16181F;padding:10px 14px;border-radius:18px 18px 18px 6px;max-width:264px;line-height:21px;color:#F2F4F8;font-size:15px}
+#chatLog .msg.bot.cxStream.fail .agent-text{color:#8A90A0;font-size:14px}
+.cxDots{display:inline-flex;gap:5px;padding:4px 2px}.cxDots i{width:8px;height:8px;border-radius:4px;background:#8A90A0;opacity:.3;animation:cxDot 900ms ease-in-out infinite alternate}
+.cxDots i:nth-child(2){animation-delay:150ms}.cxDots i:nth-child(3){animation-delay:300ms}@keyframes cxDot{to{opacity:1}}
+.cxStream .tok{animation:cxTok 120ms linear both}@keyframes cxTok{from{opacity:0}}
+.cxStream .caret{display:inline-block;width:2px;height:16px;background:#F2F4F8;opacity:.7;vertical-align:-3px;margin-left:2px;border-radius:1px;animation:cxCaret 1s steps(1) infinite}
+@keyframes cxCaret{50%{opacity:.3}}
+.cxLine{font-size:12px;color:#8A90A0;margin:6px 0 0 4px}.cxLine.e{color:#FF8A6B}
+.cxLine button{background:none;border:0;padding:0;color:#F2F4F8;font:500 12px/1 Inter,system-ui,sans-serif;min-height:24px}
+.cxJump{position:absolute;left:50%;bottom:88px;z-index:5;height:32px;padding:0 14px;border-radius:16px;background:#fff;color:#07080C;border:0;font:600 13px/1 Inter,system-ui,sans-serif;display:flex;align-items:center;gap:4px;opacity:0;transform:translate(-50%,8px);transition:opacity 160ms linear,transform 160ms ease}
+.cxJump.on{opacity:1;transform:translate(-50%,0)}.cxJump[hidden]{display:none}
+.cxStop{width:40px;height:40px;border-radius:20px;background:#fff;border:0;display:flex;align-items:center;justify-content:center;flex:none}#chatF .cxStop i{display:block;flex:none;width:12px;height:12px;border-radius:2px;background:#07080C}.cxStop[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){.cxStream .tok{animation:none}.cxStream .caret{animation:none}.st.pulse{animation:none}.cxDots i{animation-duration:150ms}#cxSheet,#cxScrim,.cxJump,.cxCard{transition-duration:150ms}}
+#chatLog .msg.user{background:#2B3A66;color:#F2F4F8;border-radius:18px 18px 6px 18px;max-width:250px}
