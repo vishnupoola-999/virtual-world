@@ -8,6 +8,8 @@ import {confirmAction} from './ui/confirmAction.js';
 
 import {toolsApiEnabled} from './tools-config.js';
 import {chat as chatApi, continueChat, stopChat, normAction} from './connect-api.js';
+// Connected-app reads ({name, app, text}): on screen only, never in hist or memory.
+const readOuts = (list) => (Array.isArray(list) ? list : []).map((r) => String(r?.text || '')).filter(Boolean).join('\n');
 import {streamBubble} from './stream-ui.js';
 
 const googleTools = createGoogleTools({ requestAccess: requestGoogleAccess, confirm: confirmAction, apiEnabled: () => toolsApiEnabled(currentUser()) });
@@ -391,12 +393,13 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
       // Stop closes the stream (abort) and tells the server, which saves the partial reply.
       streaming = { stop: () => { stopped = true; ctrl.abort(); if (messageId) stopChat(tokenUser, messageId); } };
       sync();
+      let doneReads = '';
       const handlers = {
         signal: ctrl.signal,
         onStart: (id) => { messageId = id; },
         onToken: (t) => { if (!gotToken) { gotToken = true; status('ok'); sub('replying…'); hero.state('talking'); } sb.push(t); },
         onAction: (a) => onAction(a, sb.el),
-        onDone: (e) => { messageId = e.messageId || messageId; if (!sb.started && e.text) sb.push(e.text); },
+        onDone: (e) => { messageId = e.messageId || messageId; doneReads = readOuts(e.toolResults); if (!sb.started && e.text) sb.push(e.text); },
       };
       const res = opts.contId ? await continueChat(tokenUser, opts.contId, handlers) : await chatApi(tokenUser, body, handlers);
       if (res.stream) {
@@ -415,6 +418,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
         const whole = full;
         remember('assistant', whole.slice(0, 2000));
         actions(sb.el.querySelector('.mbody'), whole);
+        if (doneReads) add('assistant', doneReads, 'ephemeral');
         hero.state('talking');
         showMe();
         save();
@@ -433,7 +437,8 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
       const reviewed = reviewCalendarTurn({ userText: lastUser || '', actions: acts, reply, now: Date.now(), timeZone });
       acts = reviewed.actions;
       reply = reviewed.reply;
-      let ephemeral = '';
+      // Connected-app reads (toolResults) are shown once, never saved.
+      let ephemeral = readOuts(payload.toolResults);
       if (acts.length) {
         // Agent tools: each action goes through google-tools.js, which asks confirmAction() before any write.
         const results = [];
@@ -441,7 +446,9 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
           try { results.push({ name: action?.name, text: await googleTools.run(action) }); }
           catch (err) { results.push({ name: 'error', text: err?.message || TOOL_MESSAGES.failed }); }
         }
-        ({ persist: reply, ephemeral } = composeReply(reply, results));
+        const out = composeReply(reply, results);
+        reply = out.persist;
+        ephemeral = [ephemeral, out.ephemeral].filter(Boolean).join('\n');
       }
       if (!reply && !ephemeral && !connectActs.length) { fail('failed'); return; }
       sb.remove();
