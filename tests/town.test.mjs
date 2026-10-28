@@ -117,3 +117,10 @@ test('activity: incoming cards escaped on top; pending outgoing marks card and l
   assert.doesNotMatch(activityHtml(f, { inDismissed: new Set(['i1']) }), /wants to say hi/);
   assert.match(activityHtml({ mine: [], incoming: f.incoming }), /wants to say hi/);
 });
+
+test('v4: someone already connected (thread with.id) leaves Worth meeting and shows in Friends', () => {
+  const f = { mine: [{ id: 'm1', kind: 'meet', withId: 'h_a', withName: 'Mira', shared: ['music', 'chess'], at: Date.now() - 6e4 }] };
+  assert.match(activityHtml(f), /wmRow/);
+  const a = activityHtml(f, { threads: [{ id: 't1', with: { id: 'h_a', name: 'Mira' }, last: { text: 'hey', from: 'them', at: Date.now() } }] });
+  assert.doesNotMatch(a, /wmRow/); assert.match(a, /Friends/); assert.match(a, /Mira/);
+});

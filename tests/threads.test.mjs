@@ -19,4 +19,8 @@ test('v4: grouping within 5 min, stamps on gaps',()=>{const g=groupMsgs([{id:1,f
 test('v4: openers from shared interests, header line only from real data',()=>{assert.equal(openers(['space']).length,3);assert.match(openers(['space'])[0],/space/);
   assert.equal(metLine({with:{interests:['x']}},['y']),'');assert.match(metLine({with:{interests:['Space','art']}},['space']),/Both like <b>Space<\/b>/);
   assert.match(metLine({metAt:Date.now()-2*86400000,sharedInterests:['music'],with:{}},[]),/Met 2 days ago · Both like <b>music/);});
-test('v4: presence is feature-detected, never invented',()=>{assert.deepEqual(presenceOf({}),{});assert.deepEqual(presenceOf({typing:true,theirReadAt:5}),{typing:true,readAt:5});assert.equal(presenceOf({theirReadAt:5,readReceipts:false}).readAt,undefined);});
+test('v4: presence is feature-detected, never invented',()=>{assert.deepEqual(presenceOf({}),{});assert.deepEqual(presenceOf({typing:true,theirReadAt:5}),{typing:true,readAt:5});assert.equal(presenceOf({theirReadAt:5,readReceipts:false}).readAt,undefined);
+  const now=Date.now();const p=presenceOf({typingUntil:now+5000,receipts:true,seenUpTo:7,messages:[]});assert.equal(p.typing,true);assert.equal(p.readAt,7);
+  assert.equal(presenceOf({typingUntil:0,receipts:true,seenUpTo:null,messages:[]}).typing,false);assert.equal(presenceOf({typingUntil:0,receipts:true,seenUpTo:null,messages:[]}).readAt,undefined);
+  assert.equal(presenceOf({receipts:false,seenUpTo:null,messages:[{from:'me',status:'sent',at:9}]}).readAt,undefined);
+  assert.equal(presenceOf({receipts:true,seenUpTo:null,messages:[{from:'me',status:'seen',at:9},{from:'them',status:'seen',at:99}]}).readAt,9);});

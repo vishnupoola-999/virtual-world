@@ -1,6 +1,7 @@
 // Redesign v4 (design/redesign-v4-spec.md): arrival, map HUD (status pill + Today card), World/Chats/Me tab pill,
 // request sheet, connect moment and the Me sheet. Only real data is shown: no typing/Seen/counts are ever invented.
-import {avatar,fillAvatars,lookOf,interestsOf} from './threads.js';
+import {getChatSettings,setChatSettings,avatar,fillAvatars,lookOf,interestsOf} from './threads.js';
+import {toast} from './ui.js';
 import {BODY_SWATCHES,cleanColor,toLook} from './character-data.js';
 import {lastVisit,markVisit} from './away.js';
 const $=id=>document.getElementById(id);
@@ -46,7 +47,7 @@ export function setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAg
     const lk=f.incoming?.find(r=>r.fromName===t.name)?lookOf(agents.get(f.incoming.find(r=>r.fromName===t.name).fromAgentId)?.look,t.name):lookOf(agents.get((f.mine||[]).find(e=>e.withName===t.name)?.withId)?.look,t.name);
     b.innerHTML=`${avatar(lk,'cav face')}<span class="tMain"><b>${esc(t.text)}</b><small>Today in your world · ${t.n} new</small></span>${ICON.chev}`;fillAvatars(b);}
   $('v4Today').onclick=()=>$('tabChats').click();
-  async function refreshHud(u=getUser()){status();if(!u||u.isAnonymous)return;try{await town.checkUnread(u);today(await town.peek(u));}catch{/* feed down: hide */}}
+  async function refreshHud(u=getUser()){hudU=u;status();if(!u||u.isAnonymous)return;try{await town.checkUnread(u);today(await town.peek(u));}catch{/* feed down: hide */}}
   // ---- arrival: full version once a day, short glide otherwise; a tap skips; reduced motion = fade only
   let arrived=false;
   function arrive({entries}={}){if(arrived)return;arrived=true;const me=agents.get('me');if(!me)return;const ll=[me.lon,me.lat];const q=new URLSearchParams(location.search);const full=ls.get('vw-arrive')!==day()&&(q.get('onb')!=='0'||q.get('arrive')==='1');/* ?onb=0 skips intros (tests) */const line=arrivalLine(entries,lastVisit());markVisit();
@@ -78,6 +79,7 @@ export function setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAg
     const close=()=>{o.classList.add('out');setTimeout(()=>o.remove(),REDUCE()?150:240);};
     o.querySelector('.primary').onclick=()=>{buzz(10);close();closeSheet();threads.openThread(threadId);};o.querySelector('.ghost').onclick=()=>{close();town.loadActivity();};}
   // ---- Me sheet: hero creature + name, interests, colour row, This week (real), one primary
+  let hudU=null;
   function renderMe(){const a=getAgent(),box=$('v4Me');if(!box)return;if(!a){box.innerHTML=`<button type="button" class="primary" id="meSignIn">Create your agent</button>`;$('meSignIn').onclick=()=>{openSheet('agent');};return;}
     const l=toLook(a.look,a.name),since=atMs(a.createdAt),ints=interestsOf({interests:a.interests}).concat((a.interests||[]).slice(3)).slice(0,6),wk=weekOf(town.feed,threads.threads);
     box.innerHTML=`<div class="meHero">${avatar(l,'cav lg',0)}<div><h2>${esc(a.name||'My agent')}</h2><small>Your agent${since?` · exploring since ${new Date(since).toLocaleDateString(undefined,{day:'numeric',month:'short'})}`:''}</small></div></div>`
@@ -85,12 +87,18 @@ export function setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAg
       +`<div class="capLbl">Colour</div><div class="colRow" id="meCol" role="radiogroup" aria-label="Body colour"><button type="button" role="radio" class="swc def" data-col="" aria-label="Default colour"></button>${BODY_SWATCHES.map((c,i)=>`<button type="button" role="radio" class="swc" data-col="${c}" style="--c:${c}" aria-label="Colour ${i+1}"></button>`).join('')}<label class="swc cust" aria-label="More colours"><input type="color" value="${l.color||'#a99bff'}" aria-label="More colours"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></svg></label></div>`
       +(wk?`<div class="week"><b>This week</b><small>${esc(wk)}</small></div>`:'')
       +`<button type="button" class="primary" id="meEdit">Edit my agent</button><button type="button" class="ghost" id="meTalk">Talk to ${esc(a.name||'my agent')}</button>`
+      +`<div class="capLbl">Privacy</div><div class="privRow" id="mePriv" hidden><div><b>Read receipts</b><small>When off, neither of you sees Seen.</small></div><button type="button" role="switch" class="sw" id="meRR" aria-checked="true" aria-label="Read receipts"><i></i></button></div>`
       +`<div class="meTools"><button type="button" data-go="family">Family</button><button type="button" data-go="layers">Layers</button><button type="button" data-go="search">Search</button><button type="button" data-go="account">Account</button></div>`;
     fillAvatars(box);const row=$('meCol');const paint=()=>{const c=toLook(getAgent()?.look).color||null;for(const b of row.querySelectorAll('.swc[data-col]'))b.classList.toggle('on',(b.dataset.col||null)===c),b.setAttribute('aria-checked',String((b.dataset.col||null)===c));const cu=row.querySelector('.cust');const custom=!!c&&!BODY_SWATCHES.includes(c);cu.classList.toggle('on',custom);if(custom)cu.style.setProperty('--c',c);};paint();
     const setC=async c=>{await window.__vw.agent.setColor(cleanColor(c));paint();const img=box.querySelector('.meHero img');img.removeAttribute('src');img.parentElement.dataset.look=JSON.stringify(toLook(getAgent().look));fillAvatars(box);};
     for(const b of row.querySelectorAll('button.swc'))b.onclick=()=>setC(b.dataset.col);let tt=0;row.querySelector('input').oninput=e=>{clearTimeout(tt);const v=e.target.value;tt=setTimeout(()=>setC(v),160);};
     $('meEdit').onclick=()=>{openSheet('agent');$('agEdit')?.click();};$('meTalk').onclick=()=>{closeSheet();goChat();};
     $('meAdd').onclick=()=>{closeSheet();$('chatInterests')?.click();};
-    for(const b of box.querySelectorAll('.meTools button'))b.onclick=()=>openSheet(b.dataset.go);}
+    for(const b of box.querySelectorAll('.meTools button'))b.onclick=()=>openSheet(b.dataset.go);
+    // Privacy & read receipts (GET/POST /me/chat-settings). Hidden when signed out or the endpoint is missing.
+    const u=hudU||getUser(),pr=$('mePriv'),rr=$('meRR');if(u&&!u.isAnonymous)getChatSettings(u).then(j=>{if(typeof j?.readReceipts!=='boolean')return;rr.setAttribute('aria-checked',String(j.readReceipts));pr.hidden=false;pr.previousElementSibling.hidden=false;}).catch(()=>{});
+    pr.previousElementSibling.hidden=true;
+    rr.onclick=async()=>{const on=rr.getAttribute('aria-checked')!=='true';rr.setAttribute('aria-checked',String(on));rr.disabled=true;
+      try{const j=await setChatSettings(hudU||getUser(),on);rr.setAttribute('aria-checked',String(j?.readReceipts??on));}catch{rr.setAttribute('aria-checked',String(!on));toast("Couldn't save. Try again.");}rr.disabled=false;};}
   status();setTimeout(refreshHud,1500);setInterval(()=>{if(!document.hidden)refreshHud();},60000);
   return {arrive,connected,renderMe,refreshHud,today,status,sel};}

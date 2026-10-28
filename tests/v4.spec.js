@@ -41,10 +41,12 @@ async function boot(page, s, { arrive = false } = {}) {
       c.status = 'accepted'; c.threadId = 't_a'; s.threads.unshift({ id: 't_a', with: { id: 'h_a', name: 'Arjun', interests: ['space', 'cricket', 'robotics'], look: { creature: 'mallow', accessory: 'headphones' } }, createdAt: Date.now(), last: { text: 'Vishnu and Arjun both like space.', from: 'system', at: Date.now() }, unread: 0 });
       return r.fulfill({ json: { status: 'accepted', threadId: 't_a' } }); }
     if (p === '/threads') return r.fulfill({ json: { myId: 'h_me', threads: s.threads } });
-    const tm = p.match(/^\/threads\/([^/]+)\/typing$/); if (tm) { s.typing.push(tm[1]); return r.fulfill({ status: s.presence ? 204 : 404, body: '' }); }
+    const tm = p.match(/^\/threads\/([^/]+)\/typing$/); if (tm) { s.typing.push(tm[1]); return s.presence ? r.fulfill({ json: { typingUntil: Date.now() + 5000 } }) : r.fulfill({ status: 404, json: {} }); }
+    const rm = p.match(/^\/threads\/([^/]+)\/read$/); if (rm) { (s.reads ||= []).push(q.postDataJSON().upTo); return s.presence ? r.fulfill({ json: { readUpTo: q.postDataJSON().upTo } }) : r.fulfill({ status: 404, json: {} }); }
+    if (p === '/me/chat-settings') { if (!s.presence) return r.fulfill({ status: 404, json: {} }); if (m === 'POST') s.rr = q.postDataJSON().readReceipts; return r.fulfill({ json: { readReceipts: s.rr ?? true } }); }
     const mm = p.match(/^\/threads\/([^/]+)\/messages$/);
     if (mm && m === 'GET') { s.polls++; const after = +u.searchParams.get('after') || 0;
-      return r.fulfill({ json: { threadId: mm[1], messages: (s.msgs[mm[1]] || []).filter((x) => x.at > after), more: false, ...(s.presence ? { typing: true, theirReadAt: Date.now() } : {}) } }); }
+      return r.fulfill({ json: { threadId: mm[1], messages: (s.msgs[mm[1]] || []).filter((x) => x.at > after), more: false, ...(s.presence ? { typingUntil: Date.now() + 5000, receipts: s.rr ?? true, seenUpTo: (s.rr ?? true) ? Date.now() : null } : {}) } }); }
     if (mm && m === 'POST') { const { text } = q.postDataJSON(); s.posts.push(text); if (s.next) { const n = s.next; s.next = null; return r.fulfill({ status: n, json: { error: n === 400 ? 'text not allowed' : 'slow' } }); }
       (s.msgs[mm[1]] ||= []).push({ id: 'p' + s.posts.length, from: 'me', text, at: Date.now() }); return r.fulfill({ status: 201, json: { ok: true } }); }
     return r.fulfill({ status: 404, json: { error: 'nope' } });
@@ -116,7 +118,11 @@ test('4b presence present: typing dots, Seen, metAt line', async ({ page }) => {
   await expect(v.locator('.dmMet')).toContainText('Met 2 days ago'); await expect(v.locator('.dmMet b')).toHaveText('space, music');
   await expect(v.locator('.dmTyping')).toBeVisible(); await expect(v.locator('.dmLive')).toHaveText('typing…');
   await expect(v.locator('.rcpt')).toContainText('Seen');
+  await expect.poll(() => (s.reads || []).length).toBeGreaterThan(0); // POST /threads/:id/read {upTo}
   await shot(page, '4-chat');
+  await v.locator('.dmBack').click(); await page.evaluate(() => globalThis.__vw.v4.refreshHud(globalThis.__fakeUser)); await page.locator('#tabMe').click();
+  const rr = page.locator('#meRR'); await expect(rr).toHaveAttribute('aria-checked', 'true'); await rr.click();
+  await expect(rr).toHaveAttribute('aria-checked', 'false'); expect(s.rr).toBe(false);
 });
 
 test('5 request sheet, 6 connect moment, then chat with openers', async ({ page }) => {
@@ -132,8 +138,9 @@ test('5 request sheet, 6 connect moment, then chat with openers', async ({ page 
 });
 
 test('7 Me: hero, interests, colour row, This week (real), one primary', async ({ page }) => {
-  const s = server(); await boot(page, s); await chats(page);
-  await page.locator('#tabMe').click(); const m = page.locator('#v4Me');
+  const s = server({ presence: true }); await boot(page, s); await chats(page);
+  await page.evaluate(() => globalThis.__vw.v4.refreshHud(globalThis.__fakeUser));
+  await page.locator('#tabMe').click(); const m = page.locator('#v4Me'); await expect(m.locator('#mePriv')).toBeVisible();
   await expect(m.locator('.meHero h2')).toHaveText('Vishnu'); await expect(m.locator('.chip:not(.add)')).toHaveCount(4); await expect(m.locator('.chip.add')).toHaveText('+ Add');
   await expect(m.locator('.colRow .swc')).toHaveCount(10); await expect(m.locator('.week')).toContainText('Met 4 agents');
   await expect(m.locator('.primary')).toHaveCount(1); await expect(m.locator('.primary')).toHaveText('Edit my agent');

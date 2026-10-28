@@ -10,9 +10,18 @@ async function call(user,path,{method='GET',body}={}){const t=await user.getIdTo
 export const respondConnect=(u,connectId,action)=>call(u,'/connect/respond',{method:'POST',body:{connectId,action}});
 export const fetchThreads=u=>call(u,'/threads').then(j=>({myId:j.myId||null,threads:Array.isArray(j.threads)?j.threads.filter(t=>t&&t.id):[]}));
 export const fetchMessages=(u,id,after)=>call(u,`/threads/${encodeURIComponent(id)}/messages`+(after?`?after=${after}`:'')).then(j=>({messages:Array.isArray(j.messages)?j.messages:[],more:!!j.more,...presenceOf(j)}));
-// Feature-detected presence (Buildy, pending): typing and the other person's read position. Absent fields: nothing is shown.
-export function presenceOf(j){const o={};if(typeof j?.typing==='boolean')o.typing=j.typing;else if(Number.isFinite(+j?.typingAt)&&j.typingAt!==null)o.typing=Date.now()-(+j.typingAt)<3000;
-  const r=j?.theirReadAt??j?.readAt?.them;if(Number.isFinite(+r)&&r!==null)o.readAt=+r;if(j?.readReceipts===false)o.readAt=undefined;return o;}
+// Presence (Chat API v4, #57): typingUntil, receipts, seenUpTo, messages[].status. Older fields stay as feature-detected fallbacks;
+// absent fields show nothing. receipts:false hides Seen (receipts are mutual).
+export function presenceOf(j){const o={};const tu=+j?.typingUntil;
+  if(j&&'typingUntil' in j&&Number.isFinite(tu)){o.typingUntil=tu;o.typing=tu>Date.now();}
+  else if(typeof j?.typing==='boolean')o.typing=j.typing;else if(Number.isFinite(+j?.typingAt)&&j?.typingAt!==null)o.typing=Date.now()-(+j.typingAt)<3000;
+  if(j?.receipts===false||j?.readReceipts===false){o.receipts=false;o.readAt=undefined;return o;}
+  let r=j?.seenUpTo??j?.theirReadAt??j?.readAt?.them;r=r===null||r===undefined?NaN:+r;
+  for(const m of Array.isArray(j?.messages)?j.messages:[])if(m?.from==='me'&&m.status==='seen'&&+m.at>(Number.isFinite(r)?r:-1))r=+m.at;
+  if(Number.isFinite(r))o.readAt=r;if(j?.receipts===true)o.receipts=true;return o;}
+export const markRead=(u,id,upTo)=>call(u,`/threads/${encodeURIComponent(id)}/read`,{method:'POST',body:{upTo}});
+export const getChatSettings=(u)=>call(u,'/me/chat-settings');
+export const setChatSettings=(u,readReceipts)=>call(u,'/me/chat-settings',{method:'POST',body:{readReceipts:!!readReceipts}});
 export const sendTyping=(u,id)=>call(u,`/threads/${encodeURIComponent(id)}/typing`,{method:'POST',body:{}});
 export const postMessage=(u,id,text)=>call(u,`/threads/${encodeURIComponent(id)}/messages`,{method:'POST',body:{text}});
 // A null or old look falls back to a deterministic default creature from the name.
@@ -64,7 +73,7 @@ const BACK='<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="
 const UP='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
 const buzz=p=>{try{navigator.vibrate?.(p);}catch{/* no haptics */}};
 const RX_KEY='vw-rx';const rxStore=()=>{try{return new Set(JSON.parse(localStorage.getItem(RX_KEY)||'[]'));}catch{return new Set();}};
-export function setupThreads({getUser,agents,getMe=()=>null,deps={}}){const F={fetchThreads,fetchMessages,postMessage,respondConnect,sendTyping,...deps};
+export function setupThreads({getUser,agents,getMe=()=>null,deps={}}){const F={fetchThreads,fetchMessages,postMessage,respondConnect,sendTyping,markRead,...deps};
   let u0=null;const U=()=>{const g=getUser();return g&&!g.isAnonymous?g:(u0||g);};
   let list=[],myLook=null,open=null,timer=0,msgs=[],cool=0,pres={},typT=0,lastTyp=0,typingOk=true;const friends=new Set(),local=new Map(),rx=rxStore();
   const v=document.createElement('section');v.id='dmView';v.hidden=true;v.setAttribute('role','dialog');v.setAttribute('aria-label','Chat');
@@ -83,25 +92,26 @@ export function setupThreads({getUser,agents,getMe=()=>null,deps={}}){const F={f
     for(const m of local.values())m.fresh=false;fillAvatars(ul);
     const chat=list.some(m=>m.from!=='system');ops.hidden=chat||!list.length;if(!ops.hidden&&!ops.childElementCount){const sh=sharedOf(t,getMe()?.interests);ops.innerHTML=openers(sh).map(o=>`<button type="button" class="opener">${esc(o)}</button>`).join('');}
     ul.scrollTop=ul.scrollHeight;}
-  function showTyping(on){typ.hidden=!on;clearTimeout(typT);if(on)typT=setTimeout(()=>{typ.hidden=true;},3000);$('.dmLive').textContent=on?'typing…':'';}
+  function showTyping(on,until){typ.hidden=!on;clearTimeout(typT);const off=()=>{typ.hidden=true;$('.dmLive').textContent='';};if(on)typT=setTimeout(off,until>Date.now()?Math.min(until-Date.now(),6000):3000);$('.dmLive').textContent=on?'typing…':'';}
   async function poll(){clearTimeout(timer);if(!open)return;const id=open.id;
     try{const r=await F.fetchMessages(U(),id,lastAt(msgs)||undefined);if(open?.id!==id)return;const n=msgs.length;msgs=mergeMsgs(msgs,r.messages);
       for(const [k,lm] of local)if(lm.state==='sent'&&msgs.some(m=>m.from==='me'&&m.text===lm.text&&(+m.at||0)>=lm.at-60000))local.delete(k);
-      const pr=pres;pres={...pres,...(r.readAt!==undefined?{readAt:r.readAt}:{})};if('typing' in r)showTyping(r.typing);
+      const pr=pres;pres=r.receipts===false?{receipts:false}:{...pres,...(r.readAt!==undefined?{readAt:r.readAt}:{})};if('typing' in r)showTyping(r.typing,r.typingUntil);
+      const lt=msgs.reduce((a,m)=>m.from!=='me'&&+m.at>a?+m.at:a,0);if(readOk&&lt>readUp&&!document.hidden&&Date.now()-lastRead>1000){readUp=lt;lastRead=Date.now();F.markRead(U(),id,lt).catch(x=>{if(x?.status===404||x?.status===405)readOk=false;else readUp=0;});}
       if(msgs.length!==n||pr.readAt!==pres.readAt)draw();}catch(e){console.warn('messages',e?.message);}
     if(open?.id===id)timer=setTimeout(poll,document.hidden?POLL_HIDDEN_MS:POLL_MS);}
   async function openThread(id,known){let t=known||list.find(x=>x.id===id);if(!t){try{await load();}catch{/* offline */}t=list.find(x=>x.id===id)||{id,with:{}};}
-    open=t;msgs=[];local.clear();pres={};if(Number.isFinite(+t.theirReadAt))pres.readAt=+t.theirReadAt;ops.innerHTML='';showTyping(false);const w=t.with||{};
+    open=t;msgs=[];local.clear();pres={};readUp=0;if(Number.isFinite(+t.theirReadAt))pres.readAt=+t.theirReadAt;ops.innerHTML='';showTyping(false);const w=t.with||{};
     $('.dmPair').innerHTML=avatar(meLook(),'cav hd',1)+avatar(lookOf(w.look,w.name),'cav hd',-1);fillAvatars($('.dmPair'));
     $('.dmWho b').textContent=w.name||'Friend';const ml=metLine(t,getMe()?.interests);$('.dmMet').innerHTML=ml;$('.dmMet').hidden=!ml;
     ta.placeholder='Message '+(w.name||'');note.textContent='';ul.innerHTML='';v.hidden=false;document.body.classList.add('dmOpen');
     requestAnimationFrame(()=>v.classList.add('on'));sync();await poll();if(!msgs.length)draw();return t;}
   function close(){open=null;clearTimeout(timer);showTyping(false);v.classList.remove('on');v.hidden=true;document.body.classList.remove('dmOpen');onClose?.();}
-  let onClose=null;
+  let onClose=null,readOk=true,readUp=0,lastRead=0;
   function sync(){const e=checkText(ta.value),c=Date.now()<cool;sb.disabled=!!e||c;v.classList.toggle('cool',c);v.classList.toggle('has',!e);}
   ta.addEventListener('input',()=>{if(note.dataset.k==='blocked'){note.textContent='';note.dataset.k='';}const e=checkText(ta.value);if(e&&e!=='empty'){note.textContent=e;note.dataset.k='len';}else if(note.dataset.k==='len'){note.textContent='';note.dataset.k='';}sync();
     ta.style.height='';ta.style.height=Math.min(ta.scrollHeight,120)+'px';
-    // Typing events (Buildy, pending): at most one every 2.5 s; a 404 turns them off for the session.
+    // Typing events (POST /threads/:id/typing, server allows one per 2 s): at most one every 2.5 s; 404/405 turns them off for the session.
     if(open&&typingOk&&ta.value&&Date.now()-lastTyp>2500){lastTyp=Date.now();F.sendTyping(U(),open.id).catch(x=>{if(x?.status===404||x?.status===405)typingOk=false;});}});
   ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!matchMedia('(pointer:coarse)').matches){e.preventDefault();$('.dmForm').requestSubmit();}});
   async function send(text,lm){const id=open.id;try{await F.postMessage(U(),id,text);if(open?.id!==id)return;lm.state='sent';lm.fresh=false;draw();poll();return true;}
