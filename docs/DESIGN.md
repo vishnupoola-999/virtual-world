@@ -230,3 +230,6 @@ Expired cards dim their title to #8A90A0.
 ## Link rows (2026-10-28)
 Link-outs from done.links render as rows under the reply, spanning the chat width from the bubble's left edge: 48px, #16181F, 12px radius, 8px apart; 24px app letter tile, 15px/500 white label (ellipsis), #8A90A0 arrow at the right. The mailto fallback is a 40px ghost row (no background, 14px/500 white) under the Gmail row, its text aligned with the label. Only https and mailto links render; nothing opens without a tap. No blur, press feedback is a transform.
 Only the link rows span the chat width; the reply bubble above them keeps the normal bubble width.
+
+## Agent motion (2026-10-28)
+Agents walk with an ease-in-out from wherever they are drawn, at a steady pace (600 ms to 4 s), and face where they are going. Their heading is fixed in the world: turning the map lets you walk around them and see their back and sides. Turns ease over about 300 ms the short way round. Reduced motion still snaps. No new DOM animation.
