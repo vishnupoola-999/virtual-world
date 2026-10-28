@@ -510,7 +510,42 @@ async function flights(url, fetchImpl) {
   return body;
 }
 
-async function handleChat(req, res, ctx) {
+// SSE helpers for POST /chat/stream. Event format is documented in docs/DESIGN.md ("Streaming chat").
+function sse(res, event, data) {
+  if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+// Reads Gemini's alt=sse stream, forwards visible text as `delta` events, and returns one merged payload
+// shaped like a generateContent response so the normal reply checks run on the full reply.
+export async function relayStream(res, upstream) {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no', Connection: 'keep-alive' });
+  sse(res, 'start', {});
+  const parts = [];
+  let finishReason, promptFeedback, buf = '';
+  const decoder = new TextDecoder();
+  const take = (line) => {
+    if (!line.startsWith('data:')) return;
+    let j;
+    try { j = JSON.parse(line.slice(5).trim()); } catch { return; }
+    if (j.promptFeedback) promptFeedback = j.promptFeedback;
+    const c = j.candidates?.[0];
+    if (c?.finishReason) finishReason = c.finishReason;
+    for (const part of c?.content?.parts || []) {
+      parts.push(part);
+      if (!part.thought && typeof part.text === 'string' && part.text) sse(res, 'delta', { text: part.text });
+    }
+  };
+  for await (const chunk of upstream.body) {
+    buf += decoder.decode(chunk, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) { take(buf.slice(0, i).replace(/\r$/, '')); buf = buf.slice(i + 1); }
+  }
+  take(buf.trim());
+  // parseModelReply joins the text parts into one reply.
+  return { candidates: [{ finishReason, content: { parts } }], promptFeedback };
+}
+
+async function handleChat(req, res, ctx, stream = false) {
   const declared = Number(req.headers['content-length']);
   if (Number.isFinite(declared) && declared > LIMITS.body) throw new HttpError(413, 'too big');
   const now = Date.now();
@@ -551,7 +586,7 @@ async function handleChat(req, res, ctx) {
     model = candidate;
     try {
       upstream = await ctx.fetchImpl(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? 'streamGenerateContent?alt=sse' : 'generateContent'}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'x-goog-api-key': ctx.apiKey },
@@ -568,6 +603,7 @@ async function handleChat(req, res, ctx) {
       console.error('gemini fetch failed', model);
       throw new HttpError(502, 'upstream unavailable');
     }
+    if (stream && upstream.ok) break;
     try {
       payload = await upstream.json();
     } catch {
@@ -580,6 +616,16 @@ async function handleChat(req, res, ctx) {
   }
   if (!upstream.ok) throw new HttpError(502, 'upstream unavailable');
   if (ctx.chatModel !== model) ctx.chatModel = model; // remember the first model that worked
+  if (stream) {
+    try {
+      payload = await relayStream(res, upstream);
+    } catch {
+      console.error('gemini stream broke', model);
+      sse(res, 'error', { error: 'upstream unavailable' });
+      res.end();
+      return;
+    }
+  }
   // Proposed tool calls are returned as pending actions only; nothing is executed here.
   // Past-tense messages never become an add, and a missing day or time is a question.
   // The client's zone (body.timeZone) is the clock; the model does not get to invent one.
@@ -597,9 +643,19 @@ async function handleChat(req, res, ctx) {
   }
   if (!text && !(actions && actions.length)) {
     console.error('gemini empty reply', model, payload.candidates?.[0]?.finishReason || payload.promptFeedback?.blockReason || 'none');
-    throw new HttpError(502, 'empty reply');
+    if (!stream) throw new HttpError(502, 'empty reply');
+    sse(res, 'error', { error: 'empty reply' });
+    res.end();
+    return;
   }
-  sendJson(res, 200, { choices: [{ message: { role: 'assistant', content: text } }], ...(prepared.tools ? { actions } : {}) });
+  if (stream) {
+    // `done.text` is the final reply (trimmed on MAX_TOKENS, reviewed for calendar turns). The client replaces the
+    // streamed bubble with it.
+    sse(res, 'done', { text, cut: finish === 'MAX_TOKENS', ...(prepared.tools ? { actions } : {}) });
+    res.end();
+  } else {
+    sendJson(res, 200, { choices: [{ message: { role: 'assistant', content: text } }], ...(prepared.tools ? { actions } : {}) });
+  }
   if (ctx.memory && text) {
     const turn = (ctx.turns.get(uid) || 0) + 1;
     ctx.turns.set(uid, turn);
@@ -1231,6 +1287,13 @@ export function createServer(options = {}) {
       }
       if (req.method === 'POST' && url.pathname === '/tick') {
         await handleTick(req, res, ctx);
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/chat/stream') {
+        if (!originOk) throw new HttpError(403, 'origin not allowed');
+        const started = Date.now();
+        await handleChat(req, res, ctx, true);
+        console.log('chat stream ok', res.statusCode, Date.now() - started, 'ms');
         return;
       }
       if (req.method !== 'POST' || url.pathname !== '/chat') {

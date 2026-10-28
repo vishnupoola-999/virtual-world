@@ -187,3 +187,18 @@ Spec: Diggy's connect-v1. Server shapes from Buildy (#62, draft) sit behind src/
 - Motion: transform and opacity only, reduced-motion respected, no blur.
 - Review pass (2026-10-28, #64): agent chat is full-height like a person chat (no tab pill, Back in the header); last item clears the input by 12px; retry lines are 14px with 44px targets; Jump chip 12px above the input (it overlays scrolled content by nature). Built to SWE's "Connect apps API" in #63: Gmail is always on with no sign-in and only opens a Gmail compose (or mailto) after Approve; a return with `c` is confirmed via POST /apps/:id/confirm before the tile says Connected (410/403 = "Couldn't connect"); revoking one Google app shows the other as Sign in again.
 - Final pass (2026-10-28, #64): Jump to latest sits at the right edge over a static fade behind the input bar (no blur, opacity only), shown only while scrolled up; card Try again matches Continue / Tap to retry (14px/500 white, 44px).
+
+## Streaming chat (POST /chat/stream)
+
+This is the same request as `POST /chat`: the same Firebase `Authorization: Bearer <idToken>` header, the same JSON body (`agent`, `messages`, optional `tools`/`timeZone`) and the same rate limits. `POST /chat` stays as it is and is the fallback.
+
+Errors before streaming starts (401, 403, 413, 429, 400, 502 upstream) come back as plain JSON `{ "error": "..." }` with that status code, exactly like `/chat`. Otherwise the response is `200` with `Content-Type: text/event-stream`. Each event is `event: <name>\ndata: <json>\n\n`:
+
+| event | data | meaning |
+|---|---|---|
+| `start` | `{}` | The model is answering. Turn the typing dots into an empty reply bubble. |
+| `delta` | `{ "text": "..." }` | The next piece of visible text. Append it to the bubble (fade the words in). Thinking text is never sent. |
+| `done` | `{ "text": "...", "cut": false, "actions"?: [...] }` | Final reply. **Replace** the bubble with `text`, because it may differ from the deltas: it is trimmed with a "say go on" note when `cut` is true, and reviewed on calendar (`tools`) turns. `actions` is only present when `tools: true` and matches `/chat`'s `actions`. |
+| `error` | `{ "error": "empty reply" \| "upstream unavailable" }` | The stream failed after starting. Drop the partial bubble and show the usual retry state. |
+
+Exactly one of `done` or `error` ends the stream. The server updates the agent's memory from the full reply after `done`, the same way `/chat` does. EventSource can't POST, so read the stream with `fetch()` plus `response.body.getReader()`. If the request fails or the endpoint returns 404, fall back to `/chat`.
