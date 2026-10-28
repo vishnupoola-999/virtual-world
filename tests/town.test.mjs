@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fanOut, cardStatus, clip, feedHtml, activityHtml, noteText, worthMeeting, byNewest, setupTown, connectError, hiDraft, sendConnect, CONNECT_URL, HI_MAX, EMPTY, clearShift, FAN_PX } from '../src/town.js';
+import { fanOut, cardStatus, clip, feedHtml, activityHtml, logHtml, noteText, worthMeeting, byNewest, setupTown, connectError, hiDraft, sendConnect, CONNECT_URL, HI_MAX, EMPTY, clearShift, FAN_PX } from '../src/town.js';
 
 test('clip caps at 40 chars with ellipsis', () => { assert.equal(clip('a'.repeat(50)).length, 40); assert.equal(clip('short'), 'short'); });
 test('cardStatus handles string, object and junk', () => {
@@ -32,8 +32,8 @@ test('Activity shows only my agent (no duplicates), chips, escaping', () => {
   const f = { mine: [{ kind: 'meet', withName: '<b>Zed', shared: ['chess'], lines: [{ speaker: 'Bs', text: 'hi' }], at: Date.now() }], town: [{ aName: 'A', bName: 'B', shared: [], at: Date.now() }] };
   const h = feedHtml(f), a = activityHtml(f);
   assert.doesNotMatch(h, /Around town|A and B met/);
-  assert.match(a, /&lt;b&gt;Zed/); assert.match(a, /Worth meeting/); assert.match(a, /Say hi/); assert.doesNotMatch(a, /A and B met|Around town/); assert.match(a, /aria-expanded="false"/);
-  assert.match(activityHtml({ mine: [] }), new RegExp(EMPTY.replace('.', '\\.')));
+  assert.match(a, /&lt;b&gt;Zed/); assert.match(a, /Worth meeting/); assert.match(a, /Say hi/); assert.doesNotMatch(a, /A and B met|Around town/);
+  assert.match(activityHtml({ mine: [] }), /No chats yet/); void EMPTY;
 });
 test('refreshMap skips myId, ignores anonymous users, survives errors', async () => {
   const put = []; const removed = [];
@@ -80,7 +80,7 @@ test('Agent chats log is newest first by timestamp', () => {
   const now = Date.now(), m = (n) => now - n * 60000;
   const list = [{ id: 'a', at: m(12) }, { id: 'b', at: m(120) }, { id: 'c', at: m(40) }, { id: 'd', at: new Date(m(50)).toISOString() }, { id: 'e', at: m(1) }];
   assert.deepEqual(byNewest(list).map((e) => e.id), ['e', 'a', 'c', 'd', 'b']);
-  const h = activityHtml({ mine: [{ kind: 'meet', id: '1', withName: 'Old', at: m(90) }, { kind: 'meet', id: '2', withName: 'New', at: m(5) }] });
+  const h = logHtml({ mine: [{ kind: 'meet', id: '1', withName: 'Old', at: m(90) }, { kind: 'meet', id: '2', withName: 'New', at: m(5) }] });
   assert.ok(h.indexOf('Met New') < h.indexOf('Met Old'));
 });
 
@@ -111,9 +111,16 @@ test('activity: incoming cards escaped on top; pending outgoing marks card and l
   const f = { mine: [{ kind: 'meet', id: 'm', withId: 'h_a', withName: 'Mira', shared: ['art'], at: Date.now() }],
     incoming: [{ id: 'i1', fromName: '<Priya>', text: '<script>x</script>', createdAt: Date.now() }], outgoing: [{ id: 'o', toAgentId: 'h_a', status: 'pending' }] };
   const h = activityHtml(f);
-  assert.ok(h.indexOf('wants to connect') < h.indexOf('Worth meeting'));
-  assert.match(h, /&lt;Priya&gt;<\/b> wants to connect/); assert.doesNotMatch(h, /<script>/);
-  assert.match(h, /Request sent/); assert.doesNotMatch(h, /class="hi"/); assert.match(h, /Hi sent · pending/);
-  assert.doesNotMatch(activityHtml(f, { inDismissed: new Set(['i1']) }), /wants to connect/);
-  assert.match(activityHtml({ mine: [], incoming: f.incoming }), /wants to connect/);
+  assert.ok(h.indexOf('wants to say hi') < h.indexOf('Worth meeting'));
+  assert.match(h, /&lt;Priya&gt; wants to say hi/); assert.doesNotMatch(h, /<script>/);
+  assert.doesNotMatch(h, /class="hi"/); assert.match(h, />Hi sent</); assert.match(logHtml(f), />Hi sent</);
+  assert.doesNotMatch(activityHtml(f, { inDismissed: new Set(['i1']) }), /wants to say hi/);
+  assert.match(activityHtml({ mine: [], incoming: f.incoming }), /wants to say hi/);
+});
+
+test('v4: someone already connected (thread with.id) leaves Worth meeting and shows in Friends', () => {
+  const f = { mine: [{ id: 'm1', kind: 'meet', withId: 'h_a', withName: 'Mira', shared: ['music', 'chess'], at: Date.now() - 6e4 }] };
+  assert.match(activityHtml(f), /wmRow/);
+  const a = activityHtml(f, { threads: [{ id: 't1', with: { id: 'h_a', name: 'Mira' }, last: { text: 'hey', from: 'them', at: Date.now() } }] });
+  assert.doesNotMatch(a, /wmRow/); assert.match(a, /Friends/); assert.match(a, /Mira/);
 });

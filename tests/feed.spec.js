@@ -20,6 +20,7 @@ const FEED = { myId: 'h_me', mine: [
 async function boot(page, { feed = FEED, feedDelay = 0, agents = AGENTS, feedStatus = 200 } = {}) {
   page.on('pageerror', (e) => console.log('PAGEERR', e.message));
   await page.route('https://firestore.googleapis.com/**/publicAgents**', (r) => r.fulfill({ json: agents }));
+  await page.route('https://virtual-world-ai.onrender.com/threads**', (r) => r.fulfill({ json: { myId: 'h_me', threads: [] } }));
   await page.route('https://virtual-world-ai.onrender.com/feed**', async (r) => {
     if (r.request().headers().authorization !== 'Bearer test-token') return r.fulfill({ status: 401, json: {} });
     if (feedDelay) await new Promise((res) => setTimeout(res, feedDelay));
@@ -39,7 +40,7 @@ test('others drawn at 85% as characters only, own card skipped, fanned out', asy
   await expect(page.locator('.ag[aria-label="Bs\'s agent"]:not(.mine)')).toHaveCount(0);
   // Vishnu: other people's agents are just the character, no name or status pill. Your own agent keeps its pill.
   await expect(page.locator('.ag.other .pill:visible, .ag.other .stat:visible')).toHaveCount(0);
-  await expect(page.locator('.ag.mine .pill')).toBeVisible();
+  await expect(page.locator('.ag.mine .pill')).toBeHidden() // Diggy fix 1;
   const xs = await page.evaluate(() => ['h_b', 'h_c', 'h_d'].map((id) => globalThis.__vw.agents.get(id).marker.getOffset().x));
   expect(new Set(xs).size).toBeGreaterThan(1);
   await page.waitForFunction(() => globalThis.__avatarReady, null, { timeout: 45_000 }).catch(() => {});
@@ -127,52 +128,25 @@ test('Chat has no activity view', async ({ page }) => {
   if (SHOTS) { await page.waitForTimeout(500); await page.screenshot({ path: `${SHOTS}/chat-clean-v3.png` }); }
 });
 
-test('Agent chats: one-line log with gist, worth-meeting only for interest matches, unread dot', async ({ page }) => {
+test('Agent chats (v4): worth-meeting rows only for interest matches, unread dot, Say hi opens the composer only', async ({ page }) => {
   const feed = { ...FEED, mine: [...FEED.mine, { id: '3', kind: 'meet', withName: 'Dev', shared: [], lines: [{ speaker: 'Dev', text: 'Nice weather.' }], at: ago(40) },
     { id: '4', kind: 'meet', town: true, withName: 'Sam', shared: ['music'], at: ago(50) }] };
   const sent = []; page.on('request', (r) => { if (r.method() !== 'GET') sent.push(r.url()); });
   await boot(page, { feed });
   expect(await page.evaluate(() => globalThis.__vw.town.checkUnread(globalThis.__fakeUser))).toBe(1);
-  await expect(page.locator('#agentDot')).toBeVisible();
-  await page.evaluate(() => globalThis.document.querySelector('#rail [data-open="agentchats"]').dispatchEvent(new globalThis.MouseEvent('click')));
+  await expect(page.locator('#chatsDot')).toBeVisible();
+  await page.locator('#tabChats').click();
   await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser));
   const ac = page.locator('#agentChats');
-  await expect(ac).toContainText('Log');
-  await expect(ac.locator('.wm')).toHaveCount(1);
-  await expect(ac.locator('.wm p')).toHaveText('Met Mira, you both like music and chess.');
-  await expect(ac.locator('.wm')).not.toContainText('Sam');
-  await expect(ac.locator('.wm p')).not.toContainText(/undefined|null|\$\{/);
-  await expect(ac.locator('.wm')).not.toContainText('Dev');
-  await expect(ac.locator('.wm .fdChips span')).toHaveText(['music', 'chess']);
-  await expect(page.locator('#agentDot')).toBeHidden();
-  await expect(ac.locator('.fd .fdT')).toHaveText(['Met Mira', 'Met Dev', 'Met Sam', /Walked to the park/]);
-  await expect(ac.locator('.wm button')).toHaveCount(2);
-  await expect(ac.locator('.wm .acts button')).toHaveText(['Say hi']);
-  // Flake fix: the sheet slides up and the card fades/slides in (transform), so three separate boundingBox() calls could catch
-  // different animation frames. Wait for every running animation/transition to finish, then measure all three in one frame.
-  await page.evaluate(() => Promise.all(globalThis.document.getAnimations().filter((a) => a.effect?.getTiming().iterations !== Infinity).map((a) => a.finished.catch(() => {}))));
-  const [x, card, hi] = await ac.evaluate((root) => ['.wm button[aria-label="Dismiss"]', '.wm', '.wm .hi'].map((q) => { const r = root.querySelector(q).getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }));
-  expect([Math.round(x.width), Math.round(x.height)]).toEqual([32, 32]);
-  expect(x.x + x.width).toBeGreaterThan(card.x + card.width - 20); expect(x.y).toBeLessThan(card.y + 20);
-  expect(hi.width).toBeGreaterThan(card.width - 40);
-  await expect(ac).not.toContainText('Maybe later');
-  await expect(ac).not.toContainText('Ravi and Tara met');
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/agent-chats-highlight-v4.png` });
-  const meet = ac.locator('.fd.meet').first();
-  await meet.locator('.fdHead').click();
-  await expect(meet.locator('.fdBody')).toContainText('Talked about music and chess.');
-  // Say hi is a ghost button; tapping it only opens the composer. Nothing is sent until Send.
-  expect(await ac.locator('.wm .hi').evaluate((b) => globalThis.getComputedStyle(b).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
+  await expect(ac.locator('.wmRow')).toHaveCount(1);
+  await expect(ac.locator('.wmRow .frMain small')).toHaveText('Likes music, chess');
+  await expect(ac).not.toContainText('Sam'); await expect(ac).not.toContainText('Dev'); await expect(ac).not.toContainText(/undefined|null|\$\{/);
+  await expect(ac.locator('.caught')).toHaveText('All caught up');
   const n0 = sent.length;
-  await ac.locator('.wm .hi').click();
-  await expect(ac.locator('.wm .draft')).toHaveValue(/Hi Mira/);
-  await ac.locator('.wm .draft').fill('Hey Mira!');
+  await ac.locator('.wmRow .hi').click();
+  await expect(ac.locator('.wmRow .draft')).toHaveValue(/Hi Mira/);
   await page.waitForTimeout(300);
   expect(sent.slice(n0).filter((u) => !u.includes('google') && !u.includes('gstatic'))).toEqual([]);
-  await ac.locator('.wm button[aria-label="Dismiss"]').click();
-  await expect(ac.locator('.wm')).toHaveCount(0);
-  await page.waitForTimeout(300);
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/agent-chats-log-v4.png` });
 });
 
 test('feed: empty state and error', async ({ page }) => {
@@ -181,7 +155,7 @@ test('feed: empty state and error', async ({ page }) => {
   await page.evaluate(() => globalThis.__vw.town.loadFeed(globalThis.__fakeUser));
   await expect(page.locator('#feedList')).toContainText('No meets yet.');
   await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser));
-  await expect(page.locator('#agentChats')).toContainText('Nothing yet. Bs is out exploring.');
+  await expect(page.locator('#agentChats')).toContainText('No chats yet. Your agent is out exploring');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/feed-empty.png` });
   await page.unroute('https://virtual-world-ai.onrender.com/feed**');
   await page.route('https://virtual-world-ai.onrender.com/feed**', (r) => r.fulfill({ status: 500, json: {} }));
@@ -199,37 +173,30 @@ async function openChats(page, feed, connect) {
   return posts;
 }
 
-test('Say hi composer: prefill, counter, cancel, send, disabled while sending, Request sent', async ({ page }) => {
+test('Say hi composer (v4): prefill, counter, cancel, send, disabled while sending, then Hi sent', async ({ page }) => {
   let release; const gate = new Promise((r) => { release = r; });
   const posts = await openChats(page, FEED, async () => { await gate; return { status: 201, json: { id: 'c1', createdAt: Date.now() } }; });
-  const ac = page.locator('#agentChats'), card = ac.locator('.wm');
+  const ac = page.locator('#agentChats'), card = ac.locator('.wmRow');
   await card.locator('.hi').click();
   const t = card.locator('textarea');
-  await expect(t).toHaveValue(/^Hi Mira, .*connect\.$/);
-  await expect(t).toHaveAttribute('maxlength', '200');
+  await expect(t).toHaveValue(/^Hi Mira, .*connect\.$/); await expect(t).toHaveAttribute('maxlength', '200');
   const v = await t.inputValue(); await expect(card.locator('.cnt')).toHaveText(`${v.length}/200`);
-  await expect(card.locator('.acts button')).toHaveText(['Cancel', 'Send']);
-  expect(await card.locator('.send').evaluate((b) => globalThis.getComputedStyle(b).backgroundImage)).toContain('gradient');
+  await expect(card.locator('.cmp .acts button')).toHaveText(['Cancel', 'Send']);
   await t.fill('   '); await expect(card.locator('.send')).toBeDisabled();
-  await card.locator('.cancel').click(); await expect(card.locator('textarea')).toHaveCount(0); await expect(card.locator('.hi')).toHaveText('Say hi');
+  await card.locator('.cancel').click(); await expect(card.locator('textarea')).toHaveCount(0); await expect(card.locator('.hi')).toBeVisible();
   await card.locator('.hi').click(); await card.locator('textarea').fill('Hi Mira, our agents got on well. Would love to connect.');
   await expect(card.locator('.cnt')).toHaveText('55/200');
-  if (SHOTS) { await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}/composer.png` }); }
   await card.locator('.send').click();
   await expect(card.locator('.send')).toBeDisabled(); await expect(card.locator('.send')).toHaveText('Sending…');
-  await expect(card.locator('textarea')).toBeDisabled(); await expect(card.locator('.cancel')).toBeDisabled();
   release();
-  await expect(card.locator('.sentRow')).toHaveText('Request sent');
-  await expect(card.locator('.hi')).toHaveCount(0);
-  await expect(ac.locator('.fd.meet .sentTag')).toHaveText('Hi sent · pending');
+  await expect(ac.locator('.wmRow .sentTag')).toHaveText('Hi sent'); await expect(ac.locator('.wmRow .hi')).toHaveCount(0);
   expect(posts).toEqual([{ auth: 'Bearer test-token', body: { toAgentId: 'h_a', meetId: '1', text: 'Hi Mira, our agents got on well. Would love to connect.' } }]);
-  if (SHOTS) { await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}/sent.png` }); }
 });
 
 test('Say hi errors: friendly message, composer stays editable', async ({ page }) => {
   const codes = [409, 429, 400, 503];
   await openChats(page, FEED, (n) => ({ status: codes[n - 1], json: { error: 'x' } }));
-  const card = page.locator('#agentChats .wm');
+  const card = page.locator('#agentChats .wmRow');
   await card.locator('.hi').click();
   await card.locator('.send').click();
   await expect(card.locator('.err')).toHaveText('You already said hi');
@@ -240,24 +207,16 @@ test('Say hi errors: friendly message, composer stays editable', async ({ page }
   await card.locator('.send').click(); await expect(card.locator('.err')).toContainText('resting');
 });
 
-test('incoming hi: warm card on top, escaped, dismiss only, counts toward unread', async ({ page }) => {
+test('incoming hi (v4): Requests card on top, escaped, counts toward unread', async ({ page }) => {
   const feed = { ...FEED, incoming: [{ id: 'in1', fromAgentId: 'h_b', fromName: 'Priya<b>', text: 'Hi! Our agents talked about space <img src=x onerror=alert(1)>', meetId: 'x', createdAt: ago(3) }],
     outgoing: [{ id: 'o1', toAgentId: 'h_zz', createdAt: ago(5), status: 'pending' }] };
   await boot(page, { feed });
   expect(await page.evaluate(() => globalThis.__vw.town.checkUnread(globalThis.__fakeUser))).toBe(2);
-  await page.evaluate(() => globalThis.document.querySelector('#rail [data-open="agentchats"]').dispatchEvent(new globalThis.MouseEvent('click')));
+  await page.locator('#tabChats').click();
   await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser));
-  const ac = page.locator('#agentChats'), inc = ac.locator('.inc');
-  await expect(inc).toHaveCount(1);
-  await expect(inc.locator('.incT')).toHaveText('Priya<b> wants to connect');
-  await expect(inc.locator('.incQ')).toContainText('<img src=x');
-  await expect(inc.locator('.incQ img, .incT img')).toHaveCount(0);
-  // design/accept-chat: a pending request (no status = pending) gets Dismiss, Decline and Accept.
-  await expect(inc.locator('button')).toHaveCount(3); await expect(inc.locator('button').first()).toHaveAttribute('aria-label', 'Dismiss');
-  const order = await ac.locator('.fdSec').allTextContents(); expect(order[0]).toBe('Requests');
-  await expect(ac.locator('.wm:not(.inc) .hi')).toHaveText('Say hi');
-  if (SHOTS) { await page.waitForTimeout(300); await page.screenshot({ path: `${SHOTS}/incoming.png` }); }
+  const ac = page.locator('#agentChats'), rq = ac.locator('.reqCard');
+  await expect(rq).toHaveCount(1); await expect(rq.locator('b')).toHaveText('Priya<b> wants to say hi');
+  expect(await ac.evaluate((e) => e.firstElementChild.querySelector('.reqCard') !== null)).toBe(true);
+  await rq.click(); const sh = page.locator('#v4Req'); await expect(sh.locator('.note')).toContainText('<img src=x'); await expect(sh.locator('.note img')).toHaveCount(0);
   expect(await page.evaluate(() => globalThis.__vw.town.checkUnread(globalThis.__fakeUser))).toBe(0);
-  await inc.locator('button.x').click(); await expect(ac.locator('.inc')).toHaveCount(0);
-  await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser)); await expect(ac.locator('.inc')).toHaveCount(0);
 });

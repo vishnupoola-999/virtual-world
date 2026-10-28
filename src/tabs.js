@@ -7,4 +7,4 @@ export function setupTabs({map,hero,onChat,canChat=()=>false,onSwitch=()=>{}}){l
     onSwitch(t);if(chat){hero.start();}else{hero.stop();map.resize();map.triggerRepaint();}}
   $('tabChat').onclick=()=>{if(onChat())set('chat');};$('tabWorld').onclick=()=>set('world');
   // Open on Chat whenever there is an agent to talk to (signed in with an agent, or a preview), else World.
-  set(canChat()?'chat':'world');return {set,get current(){return cur;}};}
+  set('world');void canChat;return {set,get current(){return cur;}};}
