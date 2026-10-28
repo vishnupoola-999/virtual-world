@@ -56,11 +56,11 @@ test('page loads with no console errors', async ({ page }) => {
   // The rest checks the app shell with onboarding off.
   await page.goto('/?onb=0', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#onb')).toBeHidden();
-  await expect(page.locator('#topbar .search')).toContainText('Search places');
-  await expect(page.locator('#acctBtn')).toBeVisible();
+  // v4: no top bar or rail; the tab pill is World · Chats · Me, and Account lives in Me.
+  await expect(page.locator('#tabs .tab')).toHaveText(['World', 'Chats', 'Me']);
   await expect(page.locator('#map')).toBeVisible();
   await expect(page.locator('#map canvas')).toBeVisible();
-  await page.locator('#acctBtn').click();
+  await page.evaluate(() => globalThis.__vw.openSheet('account'));
   await expect(page.locator('#signInBtn')).toBeVisible();
 
   // style.load sets the globe projection. Waiting for it catches a map that
@@ -76,10 +76,10 @@ test('page loads with no console errors', async ({ page }) => {
   await page.locator('#sheetClose').click();
   await expect(page.locator('#sheet')).toBeHidden();
   await expect(page.locator('#tabs')).toBeVisible();
-  await page.locator('#tabChat').click();
-  await expect(page.locator('#toast')).toContainText(/sign in/i);
+  // v4: Chats opens the chats sheet; signed out it never opens the transcript.
+  await page.locator('#tabChats').click();
+  await expect(page.locator('#sheet')).toBeVisible();
   await expect(page.locator('#chatView')).toBeHidden();
-  await expect(page.locator('#tabWorld')).toHaveAttribute('aria-selected', 'true');
 
   const format = (entry) => (entry.url ? `${entry.text} (${entry.url})` : entry.text);
   const ignored = errors.filter(isBlockedExternal);
@@ -278,9 +278,9 @@ test('UI v3 tokens on buttons, chips and type, and no backdrop-filter', async ({
     };
   });
   expect(r.font).toMatch(/^"?Inter"?,/);
-  expect(r.primary).toEqual(['48px', 'rgb(255, 255, 255)', 'rgb(0, 0, 0)', '15px', '600', '999px']);
-  expect(r.secondary).toEqual(['48px', 'rgb(22, 24, 31)', 'rgba(255, 255, 255, 0.1)']);
-  expect(r.ghost).toBe('rgba(255, 255, 255, 0.6)');
+  expect(r.primary).toEqual(['48px', 'rgb(255, 255, 255)', 'rgb(7, 8, 12)', '16px', '600', '24px']); // v4 primary
+  expect(r.secondary).toEqual(['48px', 'rgb(17, 19, 24)', 'rgb(32, 35, 44)']); // v4 surface
+  expect(r.ghost).toBe('rgb(183, 188, 200)');
   expect(r.icon).toEqual(['40px', '40px', '50%']);
   expect(r.chip).toEqual(['36px', 'rgb(22, 24, 31)']);
   expect(r.chipOn).toEqual(['rgba(123, 124, 255, 0.14)', 'rgb(123, 124, 255)']);
@@ -289,7 +289,7 @@ test('UI v3 tokens on buttons, chips and type, and no backdrop-filter', async ({
 });
 
 // Rail: the Friends' agents count is a 6px dot below the two-person icon and never covers it.
-test('rail dot sits below the Friends icon without overlapping it', async ({ page }) => {
+test.skip('rail dot sits below the Friends icon without overlapping it (v4 removed the rail)', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   await page.goto('/?onb=0');
   await page.waitForFunction(() => window.__vw?.tabs);
@@ -306,7 +306,7 @@ test('rail dot sits below the Friends icon without overlapping it', async ({ pag
 });
 
 // Crisp characters: buffers are CSS size x pixel ratio (capped at 2) with antialias on, for the map and the chat header.
-test('character canvases render at full device pixels (3x), map at 2x, with antialias', async ({ browser }) => {
+test('character canvases render at DPR capped at 2 (v4), map at 2x, with antialias', async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 360, height: 740 }, deviceScaleFactor: 3, serviceWorkers: 'block' });
   const page = await context.newPage();
   await page.goto('/?onb=0');
@@ -324,7 +324,7 @@ test('character canvases render at full device pixels (3x), map at 2x, with anti
     const cv = window.__vw.agents.get('me').el.querySelector('canvas');
     return { w: cv.width, h: cv.height, cssW: cv.clientWidth, cssH: cv.clientHeight, info: window.__vw.agents.renderInfo };
   });
-  expect(map.info.pixelRatio).toBe(3);
+  expect(map.info.pixelRatio).toBe(2);
   expect(await page.evaluate(() => globalThis.__map.getPixelRatio())).toBe(2);
   expect(map.info.antialias).toBe(true);
   expect(map.w).toBe(map.cssW * map.info.pixelRatio);
@@ -343,7 +343,7 @@ test('character canvases render at full device pixels (3x), map at 2x, with anti
     const cv = document.getElementById('heroCv');
     return { w: cv.width, cssW: cv.clientWidth, pr: window.__hero.pixelRatio, aa: window.__hero.antialias };
   });
-  expect(hero.pr).toBe(3);
+  expect(hero.pr).toBe(2); // v4 DPR cap
   expect(hero.aa).toBe(true);
   expect(hero.w).toBe(hero.cssW * hero.pr);
   await context.close();

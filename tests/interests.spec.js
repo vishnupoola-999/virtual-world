@@ -209,6 +209,7 @@ test.describe('saved interests prompt', () => {
   });
 
   test('Edit interests opens the same sheet prefilled from profile and settings', async ({ page, context }) => {
+    await page.addInitScript(() => localStorage.setItem('vw-arrive', new Date().toDateString())); // v4 arrival already seen today
     const state = accountState({ interests: ['music', 'art', 'books'], bio: 'CSE 2nd year' });
     await installAccount(context, state);
     await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -229,6 +230,7 @@ test.describe('saved interests prompt', () => {
     await expect(page.locator('#onb')).toBeHidden();
     expect(state.saves).toEqual([]);
 
+    await page.evaluate(() => globalThis.__vw.tabs.set('chat')); // v4: agent chat is reached from Me
     await page.locator('#chatMore').click();
     await page.locator('#chatInterests').click();
     await expect(page.locator('#intGrid')).toBeVisible();

@@ -5,7 +5,7 @@
 // on the Chat tab and in the background. Only transform and opacity animate.
 import {dragToClose} from './ui.js';
 import {toLook} from './character-data.js';
-const basePR=()=>Math.min(Math.max(1,globalThis.devicePixelRatio||1),3); // same cap as agent-renderer.js (kept here so three.js stays lazy)
+const basePR=()=>Math.min(Math.max(1,globalThis.devicePixelRatio||1),2); // same cap as agent-renderer.js (kept here so three.js stays lazy)
 const NEAR_Z=14,MAX_LIVE=8,FRAME_MS=15; // ~60 fps; the frame monitor still drops pixel ratio on slow phones
 const REDUCED=matchMedia('(prefers-reduced-motion: reduce)');
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -138,4 +138,4 @@ function create(map){
     // Your own agent, used by agent.js in place of the old full-screen 3D layer.
     mine:{set(a){if(!a){remove('me');return;}put({id:'me',mine:true,name:a.name||'My agent',lat:a.lat,lon:a.lon,look:a.look,ownerName:a.ownerName,meta:a.meta,status:a.status});},
       play(n){const a=all.get('me');if(!a)return;if(n==='walk'){a.state='walking';paint(a);setTimeout(()=>{if(a.state==='walking'){a.state='online';paint(a);}},900);}
-        else if(n==='talk')setState('me','talking');else if(n==='idle')setState('me','online');kick();}}};}
+        else if(n==='wave'){a.anim='wave';a.waveUntil=performance.now()+900;}else if(n==='talk')setState('me','talking');else if(n==='idle')setState('me','online');kick();}}};}

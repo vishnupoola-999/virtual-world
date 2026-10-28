@@ -65,6 +65,9 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
     adopt(a,quiet){const keepI=agent?.interests,keepB=agent?.bio;agent={...a};if(agent.interests==null&&keepI)agent.interests=keepI;if(agent.bio==null&&typeof keepB==='string')agent.bio=keepB;av.set(agent);render();if(!quiet)onAgent(a);},
     // Interests/bio saved from the sheet. Keeps the rest of the loaded agent and the local cache in sync.
     setProfile(p){if(!agent||!user||!p)return;agent={...agent,interests:Array.isArray(p.interests)?p.interests:agent.interests,bio:typeof p.bio==='string'?p.bio:(agent.bio||'')};cacheAgent(user.uid,agent);},
+    // v4 Me sheet colour row: recolour now, save in the background (save errors surface through the usual handler).
+    async setColor(c){if(!agent)return;const look=sanitize({...toLook(agent.look,agent.name),color:c});agent={...agent,look};av.set(agent);
+      if(user&&!user.isAnonymous){try{agent=await saveAgent(user.uid,{...agent,look});}catch(e){toast(reportSaveError(e,'your look'),6000);}}return agent;},
     _preview(a){agent=a;av.set(a);render();onAgent(a);}};}
 
 // Creature look editor in the agent sheet. New agents start with nothing picked: the user taps one of six creature cards

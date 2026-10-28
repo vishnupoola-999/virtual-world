@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import {createCharacter} from './character.js';
 export const CSS_W=84,CSS_H=96;
-export const basePR=()=>Math.min(Math.max(1,globalThis.devicePixelRatio||1),3); // full device pixels (84x96 CSS markers are cheap even at 3x)
+export const basePR=()=>Math.min(Math.max(1,globalThis.devicePixelRatio||1),2); // v4: DPR capped at 2 for cheap phones
 const W=CSS_W,H=CSS_H;
 export function sharedRenderer(){
   const r=new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'low-power'});
