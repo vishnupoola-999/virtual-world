@@ -24,3 +24,18 @@ test('v4: presence is feature-detected, never invented',()=>{assert.deepEqual(pr
   assert.equal(presenceOf({typingUntil:0,receipts:true,seenUpTo:null,messages:[]}).typing,false);assert.equal(presenceOf({typingUntil:0,receipts:true,seenUpTo:null,messages:[]}).readAt,undefined);
   assert.equal(presenceOf({receipts:false,seenUpTo:null,messages:[{from:'me',status:'sent',at:9}]}).readAt,undefined);
   assert.equal(presenceOf({receipts:true,seenUpTo:null,messages:[{from:'me',status:'seen',at:9},{from:'them',status:'seen',at:99}]}).readAt,9);});
+
+import {normRx,toggleRx,rxHtml,rxStore} from '../src/threads.js';
+test('reactions (#59): normalise server shape, toggle mine, badge markup', () => {
+  assert.equal(normRx(null), null); assert.equal(normRx({ heart: 0, mine: false }), null); assert.equal(normRx('x'), null);
+  assert.deepEqual(normRx({ heart: '3', mine: true }), { heart: 3, mine: true }); assert.deepEqual(normRx({ heart: 0, mine: true }), { heart: 1, mine: true });
+  assert.deepEqual(toggleRx(null), { heart: 1, mine: true }); assert.deepEqual(toggleRx({ heart: 1, mine: false }), { heart: 2, mine: true });
+  assert.deepEqual(toggleRx({ heart: 2, mine: true }), { heart: 1, mine: false });
+  assert.equal(rxHtml(null), ''); assert.match(rxHtml({ heart: 1, mine: true }), /class="rx mine"/); assert.doesNotMatch(rxHtml({ heart: 1, mine: false }), /mine|<b>/);
+  assert.match(rxHtml({ heart: 2, mine: false }, true), /class="rx pop n".*<b>2<\/b>/);
+});
+test('reactions: old local store is read defensively', () => {
+  const ls = globalThis.localStorage; const store = {}; globalThis.localStorage = { getItem: (k) => store[k] ?? null, setItem: (k, v) => { store[k] = v; }, removeItem: (k) => { delete store[k]; } };
+  try { store['vw-rx'] = '{bad'; assert.equal(rxStore().size, 0); store['vw-rx'] = '{"a":1}'; assert.equal(rxStore().size, 0); store['vw-rx'] = '["t|1",2]'; assert.deepEqual([...rxStore()], ['t|1']); }
+  finally { globalThis.localStorage = ls; }
+});

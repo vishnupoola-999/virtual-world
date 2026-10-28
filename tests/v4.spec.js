@@ -11,8 +11,8 @@ const AGENTS = { documents: [doc('h_me', { name: 'Vishnu', lat: 17.45, lon: 78.3
   doc('h_a', { name: 'Arjun', lat: 17.4499, lon: 78.3797, look: { creature: 'mallow', accessory: 'headphones' } }),
   doc('h_b', { name: 'Bs', lat: 17.4511, lon: 78.3798, look: { creature: 'pebble', accessory: 'none' } }),
   doc('h_m', { name: 'Meera', lat: 17.4498, lon: 78.3813, look: { creature: 'puff', accessory: 'bow' } })] };
-function server({ presence = false } = {}) {
-  const s = { polls: 0, posts: [], next: null, typing: [],
+function server({ presence = false, reactions = false } = {}) {
+  const s = { polls: 0, posts: [], next: null, typing: [], reactions, rx: {}, reacts: [], rxFail: 0,
     feed: { myId: 'h_me', mine: [
       { id: 'm1', kind: 'meet', withId: 'h_b', withName: 'Bs', shared: ['tech', 'space'], note: 'Bs builds rockets too.', at: ago(90) },
       { id: 'm2', kind: 'meet', withId: 'h_m', withName: 'Meera', shared: ['music', 'sketching'], at: ago(60 * 26) },
@@ -44,9 +44,14 @@ async function boot(page, s, { arrive = false } = {}) {
     const tm = p.match(/^\/threads\/([^/]+)\/typing$/); if (tm) { s.typing.push(tm[1]); return s.presence ? r.fulfill({ json: { typingUntil: Date.now() + 5000 } }) : r.fulfill({ status: 404, json: {} }); }
     const rm = p.match(/^\/threads\/([^/]+)\/read$/); if (rm) { (s.reads ||= []).push(q.postDataJSON().upTo); return s.presence ? r.fulfill({ json: { readUpTo: q.postDataJSON().upTo } }) : r.fulfill({ status: 404, json: {} }); }
     if (p === '/me/chat-settings') { if (!s.presence) return r.fulfill({ status: 404, json: {} }); if (m === 'POST') s.rr = q.postDataJSON().readReceipts; return r.fulfill({ json: { readReceipts: s.rr ?? true } }); }
+    const xm = p.match(/^\/threads\/([^/]+)\/messages\/([^/]+)\/react$/);
+    if (xm) { if (!s.reactions) return r.fulfill({ status: 404, json: { error: 'nope' } }); const b = q.postDataJSON(); s.reacts.push({ mid: xm[2], ...b });
+      if (s.rxFail) return r.fulfill({ status: s.rxFail, json: { error: 'x' } }); const e = (s.rx[xm[2]] ||= { others: 0, mine: false }); e.mine = !!b.on;
+      return r.fulfill({ json: { id: xm[2], reactions: { heart: e.others + (e.mine ? 1 : 0), mine: e.mine } } }); }
+    const withRx = (x) => { if (!s.reactions) return x; const e = s.rx[x.id] || { others: 0, mine: false }; return { ...x, reactions: { heart: e.others + (e.mine ? 1 : 0), mine: e.mine } }; };
     const mm = p.match(/^\/threads\/([^/]+)\/messages$/);
     if (mm && m === 'GET') { s.polls++; const after = +u.searchParams.get('after') || 0;
-      return r.fulfill({ json: { threadId: mm[1], messages: (s.msgs[mm[1]] || []).filter((x) => x.at > after), more: false, ...(s.presence ? { typingUntil: Date.now() + 5000, receipts: s.rr ?? true, seenUpTo: (s.rr ?? true) ? Date.now() : null } : {}) } }); }
+      return r.fulfill({ json: { threadId: mm[1], messages: (s.msgs[mm[1]] || []).filter((x) => x.at > after).map(withRx), more: false, ...(s.presence ? { typingUntil: Date.now() + 5000, receipts: s.rr ?? true, seenUpTo: (s.rr ?? true) ? Date.now() : null } : {}) } }); }
     if (mm && m === 'POST') { const { text } = q.postDataJSON(); s.posts.push(text); if (s.next) { const n = s.next; s.next = null; return r.fulfill({ status: n, json: { error: n === 400 ? 'text not allowed' : 'slow' } }); }
       (s.msgs[mm[1]] ||= []).push({ id: 'p' + s.posts.length, from: 'me', text, at: Date.now() }); return r.fulfill({ status: 201, json: { ok: true } }); }
     return r.fulfill({ status: 404, json: { error: 'nope' } });
@@ -112,7 +117,8 @@ test('4 private chat: header creatures + met line, grouped bubbles, rise in, Sen
   expect(await v.locator('.msg.them').evaluateAll((m) => m.map((x) => x.classList.contains('first')))).toEqual([true, false]);
   await v.locator('textarea').fill('Sunday works!'); await v.locator('.dmSend').click();
   await expect(v.locator('.msg.me').last()).toContainText('Sunday works!');
-  await v.locator('.msg.them').first().dblclick(); await expect(v.locator('.msg.them').first().locator('.rx')).toHaveCount(1);
+  await v.locator('.msg.them').first().dblclick(); await expect(v.locator('.msg.them').first().locator('.rx')).toHaveCount(1); // no /react endpoint (404): local-only fallback
+  expect(await page.evaluate(() => globalThis.localStorage.getItem('vw-rx'))).toContain('t_p|b');
   s.next = 400; await v.locator('textarea').fill('call 98480 12345'); await v.locator('.dmSend').click();
   await expect(v.locator('.dmNote')).toHaveText("Links and contact details can't be shared here yet."); await expect(v.locator('textarea')).toHaveValue('call 98480 12345');
   await v.locator('textarea').fill('');
@@ -155,4 +161,48 @@ test('7 Me: hero, interests, colour row, This week (real), one primary', async (
   await m.evaluate((e) => { for (let n = e; n; n = n.parentElement) if (n.scrollHeight > n.clientHeight + 1) { n.scrollTop = n.scrollHeight; break; } }); await page.waitForTimeout(300);
   const [mt, tb] = [await m.locator('.meTools').boundingBox(), await page.locator('#tabs').boundingBox()]; expect(Math.abs(tb.y - (mt.y + mt.height) - 16)).toBeLessThan(1.5); // fix 4: exactly 16px
   await shot(page, '7-me');
+});
+
+// Server-side reactions (#59). Diggy: 18px badge on the sender's bottom corner, #16181F chip, accent when mine, white when only theirs.
+const RX_SHOTS = globalThis.process?.env.RX_SHOTS;
+const rxShot = async (page, n) => { if (RX_SHOTS) { await page.waitForTimeout(500); await page.screenshot({ path: `${RX_SHOTS}/${n}.png` }); } };
+async function openPooja(page, s) { await boot(page, s); await chats(page); await page.locator('.fr[data-thread="t_p"] .frBtn').click();
+  const v = page.locator('#dmView'); await expect(v.locator('.msg')).toHaveCount(3); await expect(v.locator('.dmPair img[src]')).toHaveCount(2, { timeout: 15_000 }); return v; }
+const rxOf = (v, id) => v.locator(`.msg[data-id="${id}"] .rx`);
+
+test('reactions: server hearts, optimistic toggle, sender-side badge, accent only when mine', async ({ page }) => {
+  const s = server({ reactions: true }); s.rx.d = { others: 1, mine: false }; // Pooja hearted my message
+  await page.addInitScript(() => localStorage.setItem('vw-rx', JSON.stringify(['t_p|c', 'junk', 7]))); // old local-only data
+  const v = await openPooja(page, s);
+  await expect(rxOf(v, 'd')).toHaveCount(1); await expect(rxOf(v, 'd')).not.toHaveClass(/mine/); await expect(rxOf(v, 'c')).toHaveCount(0); // server wins over old cache
+  expect(await page.evaluate(() => globalThis.localStorage.getItem('vw-rx'))).toBeNull(); // old store removed once the server answers
+  const st = await rxOf(v, 'd').evaluate((e) => { const c = globalThis.getComputedStyle(e), r = e.getBoundingClientRect(), p = e.parentElement.getBoundingClientRect(); return { bg: c.backgroundColor, color: c.color, h: r.height, right: Math.abs(r.right - p.right) < 8, below: r.bottom > p.bottom }; });
+  expect(st).toEqual({ bg: 'rgb(22, 24, 31)', color: 'rgb(255, 255, 255)', h: 18, right: true, below: true });
+  await rxShot(page, '2-my-bubble');
+  // Double-tap theirs: filled accent right away (before the server answers), on their (left) corner.
+  let release; s.gate = new Promise((r) => { release = r; });
+  await page.route('**/threads/t_p/messages/b/react', async (r) => { await s.gate; return r.fallback(); });
+  await v.locator('.msg[data-id="b"] p').dblclick();
+  await expect(rxOf(v, 'b')).toHaveClass(/mine/); expect(await rxOf(v, 'b').evaluate((e) => globalThis.getComputedStyle(e).color)).toBe('rgb(123, 124, 255)');
+  expect(await rxOf(v, 'b').evaluate((e) => e.offsetLeft)).toBeLessThanOrEqual(0); // their bubble: left corner (offsetLeft ignores the pop scale)
+  expect(await rxOf(v, 'b').evaluate((e) => e.getAnimations().map((a) => a.animationName))).toEqual(['v4Heart']);
+  release(); await expect.poll(() => s.reacts.length).toBe(1); expect(s.reacts[0]).toEqual({ mid: 'b', emoji: 'heart', on: true });
+  await page.waitForTimeout(400); await rxShot(page, '1-both-sides');
+  // Mine too on my bubble: count from the server.
+  await v.locator('.msg[data-id="d"] p').dblclick(); await expect(rxOf(v, 'd').locator('b')).toHaveText('2'); await expect(rxOf(v, 'd')).toHaveClass(/mine/);
+  await v.locator('.msg[data-id="d"] p').dblclick(); await expect(rxOf(v, 'd')).not.toHaveClass(/mine/); await expect(rxOf(v, 'd').locator('b')).toHaveCount(0);
+  // Double-tap again removes mine.
+  await v.locator('.msg[data-id="b"] p').dblclick(); await expect(rxOf(v, 'b')).toHaveCount(0); expect(s.reacts.at(-1)).toEqual({ mid: 'b', emoji: 'heart', on: false });
+  expect(await page.evaluate(() => globalThis.localStorage.getItem('vw-rx'))).toBeNull();
+});
+
+test('reactions: roll back on failure, 429 copy, their-bubble shot', async ({ page }) => {
+  const s = server({ reactions: true }); const v = await openPooja(page, s);
+  s.rxFail = 500; await v.locator('.msg[data-id="b"] p').dblclick();
+  await expect(v.locator('.dmNote')).toHaveText("Couldn't react. Try again."); await expect(rxOf(v, 'b')).toHaveCount(0);
+  s.rxFail = 429; await v.locator('.msg[data-id="c"] p').dblclick();
+  await expect(v.locator('.dmNote')).toContainText('Too many hearts'); await expect(rxOf(v, 'c')).toHaveCount(0);
+  s.rxFail = 0; await v.locator('.msg[data-id="b"] p').dblclick(); await expect(rxOf(v, 'b')).toHaveClass(/mine/);
+  await expect.poll(() => s.rx.b?.mine).toBe(true); await expect(v.locator('.dmNote')).toHaveText('');
+  await page.waitForTimeout(400); await rxShot(page, '3-their-bubble');
 });

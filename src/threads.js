@@ -46,13 +46,18 @@ export const GROUP_MS=300000;
 export function groupMsgs(list){const out=[];let prev=null;for(const m of list){const gap=!prev||(+m.at||0)-(+prev.at||0)>GROUP_MS;const same=prev&&!gap&&prev.from===m.from&&m.from!=='system';
   out.push({m,stamp:gap&&!!prev,first:!same});prev=m;}return out;}
 const TICK='<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>';
-export const HEART='<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="#ff5a7a" d="M12 21s-7.5-4.6-9.6-9.3C.9 8.2 3.1 4.5 6.7 4.5c2.1 0 3.6 1.2 5.3 3.1 1.7-1.9 3.2-3.1 5.3-3.1 3.6 0 5.8 3.7 4.3 7.2C19.5 16.4 12 21 12 21z"/></svg>';
+export const HEART='<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M12 21s-7.5-4.6-9.6-9.3C.9 8.2 3.1 4.5 6.7 4.5c2.1 0 3.6 1.2 5.3 3.1 1.7-1.9 3.2-3.1 5.3-3.1 3.6 0 5.8 3.7 4.3 7.2C19.5 16.4 12 21 12 21z"/></svg>';
 const dayStamp=at=>{const d=new Date(+at||0),t=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');return new Date().toDateString()===d.toDateString()?t:d.toLocaleDateString(undefined,{weekday:'short'})+' '+t;};
-export function msgHtml(m,meLook,themLook,{first=true,stamp=false,react=false}={}){
+// Reactions (#59): {heart: count, mine: bool} from the server. Diggy: 18px badge on the sender's bottom corner, accent when mine, white otherwise.
+export const normRx=r=>{if(!r||typeof r!=='object')return null;const heart=Math.max(0,Math.floor(+r.heart||0)),mine=r.mine===true;return heart||mine?{heart:Math.max(heart,mine?1:0),mine}:null;};
+export const toggleRx=r=>{const c=normRx(r)||{heart:0,mine:false};return c.mine?{heart:Math.max(0,c.heart-1),mine:false}:{heart:c.heart+1,mine:true};};
+export function rxHtml(r,pop=false){const c=normRx(r);if(!c)return '';const n=c.heart>1?`<b>${c.heart}</b>`:'';
+  return `<span class="rx${c.mine?' mine':''}${pop?' pop':''}${n?' n':''}" role="img" aria-label="${c.heart} heart${c.heart===1?'':'s'}${c.mine?', including yours':''}">${HEART}${n}</span>`;}
+export function msgHtml(m,meLook,themLook,{first=true,stamp=false,react=null,pop=false}={}){if(react===true)react={heart:1,mine:true};
   const ts=stamp?`<li class="stamp">${dayStamp(m.at)}</li>`:'';
   if(m.from==='system')return ts+`<li class="sys" data-id="${esc(m.id)}"><span>${esc(m.text)}</span></li>`;
   const st=m.from==='me'&&m.state?(m.state==='failed'?`<small class="mst fail" role="alert">Not sent · <button type="button" class="retry">Retry</button></small>`:m.state==='sending'?`<small class="mst">Sending</small>`:''):'';
-  return ts+`<li class="msg ${m.from==='me'?'me':'them'}${first?' first':''}${m.state==='sending'?' sending':''}${m.fresh?' rise':''}" data-id="${esc(m.id)}"><p>${esc(m.text)}${react?`<span class="rx">${HEART}</span>`:''}</p>${st}</li>`;}
+  return ts+`<li class="msg ${m.from==='me'?'me':'them'}${first?' first':''}${m.state==='sending'?' sending':''}${m.fresh?' rise':''}" data-id="${esc(m.id)}"><p>${esc(m.text)}${rxHtml(react,pop)}</p>${st}</li>`;}
 export const tickHtml=TICK;
 // Openers for a first chat, from shared interests (or a friendly generic set).
 export function openers(shared){const s=(shared||[]).filter(Boolean);const T=[x=>`Seen anything good about ${x} lately?`,x=>`What got you into ${x}?`,x=>`Any ${x} plans this week?`];
@@ -72,10 +77,16 @@ export function fillAvatars(root){const els=[...(root?.querySelectorAll?.('.cav 
 const BACK='<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
 const UP='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>';
 const buzz=p=>{try{navigator.vibrate?.(p);}catch{/* no haptics */}};
-const RX_KEY='vw-rx';const rxStore=()=>{try{return new Set(JSON.parse(localStorage.getItem(RX_KEY)||'[]'));}catch{return new Set();}};
-export function setupThreads({getUser,agents,getMe=()=>null,deps={}}){const F={fetchThreads,fetchMessages,postMessage,respondConnect,sendTyping,markRead,...deps};
+// Old local-only hearts (v4, before #59). Read defensively (any junk = empty); dropped once the server answers with reactions.
+const RX_KEY='vw-rx';export const rxStore=()=>{try{const v=JSON.parse(localStorage.getItem(RX_KEY)||'[]');return new Set(Array.isArray(v)?v.filter(x=>typeof x==='string'):[]);}catch{return new Set();}};
+const dropRxStore=()=>{try{localStorage.removeItem(RX_KEY);}catch{/* storage blocked */}};
+export const reactMsg=(u,id,mid,on)=>call(u,`/threads/${encodeURIComponent(id)}/messages/${encodeURIComponent(mid)}/react`,{method:'POST',body:{emoji:'heart',on:!!on}});
+export function setupThreads({getUser,agents,getMe=()=>null,deps={}}){const F={fetchThreads,fetchMessages,postMessage,respondConnect,sendTyping,markRead,reactMsg,...deps};
   let u0=null;const U=()=>{const g=getUser();return g&&!g.isAnonymous?g:(u0||g);};
-  let list=[],myLook=null,open=null,timer=0,msgs=[],cool=0,pres={},typT=0,lastTyp=0,typingOk=true;const friends=new Set(),local=new Map(),rx=rxStore();
+  let list=[],myLook=null,open=null,timer=0,msgs=[],cool=0,pres={},typT=0,lastTyp=0,typingOk=true;const friends=new Set(),local=new Map();let rx=rxStore(),rxMode='?';const rxOver=new Map(),rxPop=new Set();
+  // rxMode: '?' unknown, 'server' once any message carries reactions or a react call succeeds, 'local' after a 404/405 with no server reactions seen.
+  const serverOn=()=>{if(rxMode==='server')return;rxMode='server';if(rx.size){rx=new Set();}dropRxStore();};
+  const rxFor=(tid,m)=>{const k=tid+'|'+m.id;if(rxOver.has(k))return rxOver.get(k);if(rxMode==='local')return rx.has(k)?{heart:1,mine:true}:null;return m.reactions||null;};
   const v=document.createElement('section');v.id='dmView';v.hidden=true;v.setAttribute('role','dialog');v.setAttribute('aria-label','Chat');
   v.innerHTML=`<header class="dmHead"><button type="button" class="dmBack" aria-label="Back">${BACK}</button><span class="dmPair"></span><span class="dmWho"><b></b><small class="dmLive"></small></span><p class="dmMet"></p></header><ul class="dmList" aria-live="polite"></ul><div class="dmTyping" hidden aria-label="typing"><i></i><i></i><i></i></div><div class="dmOpeners" hidden></div><form class="dmForm"><small class="dmNote" role="status"></small><div class="dmRow"><textarea rows="1" maxlength="${TEXT_MAX}" aria-label="Message" placeholder="Message"></textarea><button type="submit" class="dmSend" aria-label="Send">${UP}</button></div></form>`;
   document.body.appendChild(v);const $=s=>v.querySelector(s),ta=$('textarea'),note=$('.dmNote'),sb=$('.dmSend'),ul=$('.dmList'),typ=$('.dmTyping'),ops=$('.dmOpeners');
@@ -87,14 +98,14 @@ export function setupThreads({getUser,agents,getMe=()=>null,deps={}}){const F={f
     // Seen: only with a real read position from the backend (hidden when either side turned receipts off).
     let seenId=null;if(Number.isFinite(pres.readAt)){for(const m of list)if(m.from==='me'&&!m.state&&(+m.at||0)<=pres.readAt)seenId=m.id;}
     const lastMine=[...list].reverse().find(m=>m.from==='me');
-    ul.innerHTML=g.map(({m,first,stamp})=>msgHtml(m,ml,tl,{first,stamp,react:rx.has(t.id+'|'+m.id)})
+    ul.innerHTML=g.map(({m,first,stamp})=>msgHtml(m,ml,tl,{first,stamp,react:rxFor(t.id,m),pop:rxPop.delete(t.id+'|'+m.id)})
       +(m.id===seenId?`<li class="rcpt">Seen ${avatar(tl,'cav xs',-1)}</li>`:m===lastMine&&!m.state&&seenId===null?`<li class="rcpt">${tickHtml} Sent</li>`:'')).join('');
     for(const m of local.values())m.fresh=false;fillAvatars(ul);
     const chat=list.some(m=>m.from!=='system');ops.hidden=chat||!list.length;if(!ops.hidden&&!ops.childElementCount){const sh=sharedOf(t,getMe()?.interests);ops.innerHTML=openers(sh).map(o=>`<button type="button" class="opener">${esc(o)}</button>`).join('');}
     ul.scrollTop=ul.scrollHeight;}
   function showTyping(on,until){typ.hidden=!on;clearTimeout(typT);const off=()=>{typ.hidden=true;$('.dmLive').textContent='';};if(on)typT=setTimeout(off,until>Date.now()?Math.min(until-Date.now(),6000):3000);$('.dmLive').textContent=on?'typing…':'';}
   async function poll(){clearTimeout(timer);if(!open)return;const id=open.id;
-    try{const r=await F.fetchMessages(U(),id,lastAt(msgs)||undefined);if(open?.id!==id)return;const n=msgs.length;msgs=mergeMsgs(msgs,r.messages);
+    try{const r=await F.fetchMessages(U(),id,lastAt(msgs)||undefined);if(open?.id!==id)return;const n=msgs.length;msgs=mergeMsgs(msgs,r.messages);if(r.messages.some(x=>x&&x.reactions&&typeof x.reactions==='object'))serverOn();
       for(const [k,lm] of local)if(lm.state==='sent'&&msgs.some(m=>m.from==='me'&&m.text===lm.text&&(+m.at||0)>=lm.at-60000))local.delete(k);
       const pr=pres;pres=r.receipts===false?{receipts:false}:{...pres,...(r.readAt!==undefined?{readAt:r.readAt}:{})};if('typing' in r)showTyping(r.typing,r.typingUntil);
       const lt=msgs.reduce((a,m)=>m.from!=='me'&&+m.at>a?+m.at:a,0);if(readOk&&lt>readUp&&!document.hidden&&Date.now()-lastRead>1000){readUp=lt;lastRead=Date.now();F.markRead(U(),id,lt).catch(x=>{if(x?.status===404||x?.status===405)readOk=false;else readUp=0;});}
@@ -122,9 +133,17 @@ export function setupThreads({getUser,agents,getMe=()=>null,deps={}}){const F={f
   $('.dmForm').addEventListener('submit',e=>{e.preventDefault();if(!open||sb.disabled)return;const text=ta.value;buzz(10);
     const lm={id:'local-'+Date.now(),from:'me',text,at:Date.now(),state:'sending',fresh:true};local.set(lm.id,lm);ta.value='';ta.style.height='';note.textContent='';note.dataset.k='';sync();draw();send(text,lm);});
   ul.addEventListener('click',e=>{const r=e.target.closest('.retry');if(!r)return;const lm=local.get(r.closest('.msg').dataset.id);if(!lm)return;lm.state='sending';draw();send(lm.text,lm);});
-  // Double-tap a bubble: heart reaction (kept on this device until the backend stores reactions).
-  ul.addEventListener('dblclick',e=>{const b=e.target.closest('.msg');if(!b||!open||b.dataset.id.startsWith('local-'))return;const k=open.id+'|'+b.dataset.id;rx.has(k)?rx.delete(k):rx.add(k);try{localStorage.setItem(RX_KEY,JSON.stringify([...rx].slice(-500)));}catch{/* storage blocked */}buzz(10);draw();
-    if(rx.has(k))ul.querySelector(`.msg[data-id="${CSS.escape(b.dataset.id)}"] .rx`)?.classList.add('pop');});
+  // Double-tap a bubble: toggle my heart. Optimistic; rolled back if the server says no. 404/405 before any server reaction = local-only.
+  ul.addEventListener('dblclick',async e=>{const b=e.target.closest('.msg');if(!b||!open||b.dataset.id.startsWith('local-'))return;const tid=open.id,mid=b.dataset.id,k=tid+'|'+mid;
+    const m=msgs.find(x=>x.id===mid)||{id:mid};const before=rxFor(tid,m),next=toggleRx(before);buzz(10);
+    if(rxMode==='local'){next.mine?rx.add(k):rx.delete(k);try{localStorage.setItem(RX_KEY,JSON.stringify([...rx].slice(-500)));}catch{/* storage blocked */}if(next.mine)rxPop.add(k);draw();return;}
+    rxOver.set(k,next);if(next.mine)rxPop.add(k);draw();
+    try{const r=await F.reactMsg(U(),tid,mid,next.mine);serverOn();if(/react|hearts/.test(note.textContent))note.textContent='';const got=normRx(r?.reactions)||{heart:0,mine:false};m.reactions=got;const i=msgs.findIndex(x=>x.id===mid);if(i>=0)msgs[i]={...msgs[i],reactions:got};
+      if(rxOver.get(k)===next)rxOver.delete(k);}
+    catch(x){if(rxOver.get(k)===next)rxOver.delete(k);
+      if((x?.status===404||x?.status===405)&&rxMode==='?'){rxMode='local';if(next.mine){rx.add(k);try{localStorage.setItem(RX_KEY,JSON.stringify([...rx].slice(-500)));}catch{/* storage blocked */}}}
+      else note.textContent=x?.status===429?'Too many hearts. Try again in a minute.':"Couldn't react. Try again.";}
+    if(open?.id===tid)draw();});
   ops.addEventListener('click',e=>{const b=e.target.closest('.opener');if(!b)return;ta.value=b.textContent;ta.dispatchEvent(new Event('input'));ta.focus();});
   $('.dmBack').addEventListener('click',close);addEventListener('keydown',e=>{if(e.key==='Escape'&&open)close();});
   document.addEventListener('visibilitychange',()=>{if(open&&!document.hidden)poll();});
