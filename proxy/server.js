@@ -661,7 +661,7 @@ async function handleConnect(req, res, ctx) {
 // threads/{id}: { members: [uidA, uidB] (sorted, server-only), ids: [h_A, h_B], names: {h_: name}, connectId,
 //   createdAt, lastAt, lastText, lastFromId, unread: {h_: n} }. threads/{id}/messages/{id}: { fromId (h_ or 'system'), text, at }.
 // Clients never touch these (firestore.rules); responses carry only public h_ ids.
-export const CHAT = { typingMs: 5000, typingGapMs: 2000, readGapMs: 1000, maxText: 1000, perMin: 20, perDay: 500, ipBurst: 30, ipWindowMs: 60_000, page: 50, threadsMax: 50 };
+export const CHAT = { typingMs: 5000, typingGapMs: 2000, readGapMs: 1000, maxText: 1000, perMin: 20, perDay: 500, ipBurst: 30, ipWindowMs: 60_000, reactPerMin: 60, page: 50, threadsMax: 50 };
 const CONNECT_ID_RE = /^[A-Za-z0-9]{1,64}$/;
 const THREAD_ID_RE = /^t_[0-9a-f]{24}$/;
 
@@ -782,6 +782,8 @@ async function handleRespond(req, res, ctx) {
   sendJson(res, 200, { connectId, status: 'accepted', threadId });
 }
 
+const MSG_ID_RE = /^[A-Za-z0-9]{1,40}$/;
+
 async function memberThread(ctx, uid, id) {
   if (!THREAD_ID_RE.test(id)) throw new HttpError(404, 'thread not found');
   const t = await ctx.lifeStore.getThread(id);
@@ -789,8 +791,13 @@ async function memberThread(ctx, uid, id) {
   return t;
 }
 
+function reactionsOut(m, myId) {
+  const h = m.hearts && typeof m.hearts === 'object' ? m.hearts : {};
+  return { heart: Object.values(h).filter((v) => v === true).length, mine: h[myId] === true };
+}
+
 function messageOut(m, myId) {
-  return { id: m.id, from: m.fromId === 'system' ? 'system' : m.fromId === myId ? 'me' : 'them', fromId: m.fromId, text: String(m.text || ''), at: Number(m.at) || 0 };
+  return { id: m.id, reactions: reactionsOut(m, myId), from: m.fromId === 'system' ? 'system' : m.fromId === myId ? 'me' : 'them', fromId: m.fromId, text: String(m.text || ''), at: Number(m.at) || 0 };
 }
 
 async function handleThreads(req, res, ctx) {
@@ -843,6 +850,27 @@ async function handleMessages(req, res, ctx, url, id) {
     ...(otherId ? { [`unread.${otherId}`]: Math.min(999, (Number(t.unread?.[otherId]) || 0) + 1) } : {}), [`unread.${myId}`]: 0,
     [`typing.${myId}`]: 0, [`read.${myId}`]: now });
   sendJson(res, 201, { ...messageOut({ id: msgId, fromId: myId, text, at: now }, myId), status: 'sent' });
+}
+
+// POST /threads/:id/messages/:mid/react {emoji:'heart', on:bool}: members only (404 otherwise), one heart per person per message.
+async function handleReact(req, res, ctx, id, mid) {
+  const { uid } = await chatUser(req, ctx);
+  const s = chatStore(ctx);
+  if (!s.getMessage || !s.setHeart) throw new HttpError(503, 'reactions not configured');
+  const body = await readJson(req);
+  if (body.emoji !== 'heart') throw new HttpError(400, 'unsupported emoji');
+  if (typeof body.on !== 'boolean') throw new HttpError(400, 'on must be boolean');
+  const t = await memberThread(ctx, uid, id);
+  if (!MSG_ID_RE.test(mid)) throw new HttpError(404, 'message not found');
+  const now = Date.now();
+  if (!allowHit(ctx.chatUidHits, `x|${uid}`, CHAT.reactPerMin, 60_000, now)) throw new HttpError(429, 'slow down');
+  const m = await s.getMessage(t.id || id, mid);
+  if (!m) throw new HttpError(404, 'message not found');
+  const myId = hashId(uid, ctx.lifeSalt);
+  await s.setHeart(t.id || id, mid, myId, body.on);
+  const hearts = { ...(m.hearts || {}) };
+  if (body.on) hearts[myId] = true; else delete hearts[myId];
+  sendJson(res, 200, { id: mid, reactions: reactionsOut({ hearts }, myId) });
 }
 
 // Read receipts are mutual: if either person turned them off, neither sees "Seen". Default on.
@@ -1099,6 +1127,11 @@ export function createServer(options = {}) {
       const tm = url.pathname.match(/^\/threads\/([^/]{1,64})\/messages$/);
       if (tm && (req.method === 'GET' || req.method === 'POST')) {
         await handleMessages(req, res, ctx, url, tm[1]);
+        return;
+      }
+      const tr = url.pathname.match(/^\/threads\/([^/]{1,64})\/messages\/([^/]{1,64})\/react$/);
+      if (tr && req.method === 'POST') {
+        await handleReact(req, res, ctx, tr[1], tr[2]);
         return;
       }
       const tx = url.pathname.match(/^\/threads\/([^/]{1,64})\/(typing|read)$/);

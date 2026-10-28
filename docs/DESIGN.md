@@ -163,6 +163,7 @@ All endpoints need a non-anonymous Firebase ID token; non-members get 404. Uids 
 - `POST /threads/:id/typing` → `{ typingUntil }` (now+5 s). Max once per 2 s per thread (429). Call while the user types; hide the dots when `typingUntil` passes.
 - `POST /threads/:id/read {upTo: ms}` → `{ readUpTo }`. Monotonic, clamped to now; also zeroes your unread. Max once per second per thread.
 - `GET /me/chat-settings` → `{ readReceipts }` (default true). `POST /me/chat-settings {readReceipts: bool}` → same. Receipts are mutual: if either person turns them off, both get `receipts:false, seenUpTo:null` and own messages stay `sent`.
+- `POST /threads/:id/messages/:mid/react {emoji:'heart', on: bool}` → `{ id, reactions: { heart, mine } }`. Members only (404 otherwise, also for unknown message), 400 for other emoji / non-boolean `on`, max 60 per minute per person (429). Idempotent: one heart per person per message. Every message in `GET /threads/:id/messages` (and the POST reply) carries `reactions: { heart: count, mine: bool }`. Stored as `threads/{id}/messages/{mid}.hearts.{h_}: true`, server-only under the existing threads rule, so no rules deploy.
 Storage: `threads/{id}.typing.{h_}`, `threads/{id}.read.{h_}`, `chatPrefs/{uid}` — all server-only (existing threads rule + catch-all deny), so no rules deploy needed.
 
 ## Body colour (2026-10-28)

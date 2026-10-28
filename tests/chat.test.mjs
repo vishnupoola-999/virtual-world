@@ -36,6 +36,8 @@ function memStore() {
     updateThread: async (id, f) => { const t = threads.get(id); for (const [k, v] of Object.entries(f)) { const [a, b] = k.split('.'); if (b) (t[a] ||= {})[b] = v; else t[k] = v; } },
     listThreads: async (uid) => [...threads.values()].filter((t) => t.members.includes(uid)).map((t) => structuredClone(t)),
     addMessage: async (tid, m) => { const id = `m${++n}`; (msgs.get(tid) || msgs.set(tid, []).get(tid)).push({ id, ...m }); return id; },
+    getMessage: async (tid, mid) => structuredClone((msgs.get(tid) || []).find((m) => m.id === mid) || null),
+    setHeart: async (tid, mid, who, on) => { const m = msgs.get(tid).find((x) => x.id === mid); m.hearts ||= {}; if (on) m.hearts[who] = true; else delete m.hearts[who]; },
     listMessages: async (tid, after = 0, lim = 50) => (msgs.get(tid) || []).filter((m) => m.at > after).slice(0, lim),
   };
   return s;
@@ -292,4 +294,39 @@ describe('POST /publish and paged publicAgents', () => {
 test('creatureLookOut validates shape and colour', () => {
   assert.deepEqual(creatureLookOut({ creature: 'blob', accessory: 'none', color: '#00ffaa' }), { creature: 'blob', accessory: 'none', color: '#00ffaa' });
   for (const bad of [{ creature: 'blob', accessory: 'none', color: '#00FFAA' }, { color: '#fff', emoji: 'x' }, { creature: 'x', accessory: 'none' }, null]) assert.equal(creatureLookOut(bad), null);
+});
+
+describe('chat reactions', () => {
+  test('heart: members only, validated, idempotent per person, counts in GET', async () => {
+    const store = memStore();
+    await withApi(store, async (call) => {
+      const tid = (await call(BOB, 'POST', '/connect/respond', { connectId: 'c1', action: 'accept' })).json.threadId;
+      const mid = (await call(ALICE, 'POST', `/threads/${tid}/messages`, { text: 'hi' })).json.id;
+      const p = `/threads/${tid}/messages/${mid}/react`;
+      assert.equal((await call(null, 'POST', p, { emoji: 'heart', on: true })).status, 401);
+      assert.equal((await call(EVE, 'POST', p, { emoji: 'heart', on: true })).status, 404);
+      assert.equal((await call(BOB, 'POST', p, { emoji: 'fire', on: true })).status, 400);
+      assert.equal((await call(BOB, 'POST', p, { emoji: 'heart', on: 'yes' })).status, 400);
+      assert.equal((await call(BOB, 'POST', `/threads/${tid}/messages/nope/react`, { emoji: 'heart', on: true })).status, 404);
+      const r = await call(BOB, 'POST', p, { emoji: 'heart', on: true });
+      assert.equal(r.status, 200); assert.deepEqual(r.json.reactions, { heart: 1, mine: true });
+      await call(BOB, 'POST', p, { emoji: 'heart', on: true });
+      await call(ALICE, 'POST', p, { emoji: 'heart', on: true });
+      const g = (u) => call(u, 'GET', `/threads/${tid}/messages`).then((x) => x.json.messages.find((m) => m.id === mid).reactions);
+      assert.deepEqual(await g(BOB), { heart: 2, mine: true });
+      assert.deepEqual((await call(ALICE, 'POST', p, { emoji: 'heart', on: false })).json.reactions, { heart: 1, mine: false });
+      assert.deepEqual(await g(ALICE), { heart: 1, mine: false });
+      noUids(store.msgs.get(tid));
+    });
+  });
+  test('heart is rate limited', async () => {
+    const store = memStore();
+    await withApi(store, async (call) => {
+      const tid = (await call(BOB, 'POST', '/connect/respond', { connectId: 'c1', action: 'accept' })).json.threadId;
+      const mid = (await call(ALICE, 'POST', `/threads/${tid}/messages`, { text: 'hi' })).json.id;
+      let last;
+      for (let i = 0; i < 61; i++) last = await call(BOB, 'POST', `/threads/${tid}/messages/${mid}/react`, { emoji: 'heart', on: i % 2 === 0 });
+      assert.equal(last.status, 429);
+    });
+  });
 });

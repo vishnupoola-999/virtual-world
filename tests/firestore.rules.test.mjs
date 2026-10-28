@@ -15,6 +15,7 @@ import {
   setDoc,
   setLogLevel,
   Timestamp,
+  updateDoc,
 } from 'firebase/firestore';
 
 setLogLevel('silent');
@@ -448,6 +449,7 @@ describe('rate limit counter rules', { concurrency: false }, () => {
       await assertFails(getDoc(doc(d, 'threads', 't1', 'messages', 'm1')));
       await assertFails(getDocs(collection(d, 'threads', 't1', 'messages')));
       await assertFails(setDoc(doc(d, 'threads', 't1', 'messages', 'm2'), { text: 'x' }));
+      await assertFails(updateDoc(doc(d, 'threads', 't1', 'messages', 'm1'), { 'hearts.h_a': true }));
       await assertFails(deleteDoc(doc(d, 'threads', 't1', 'messages', 'm1')));
     }
   });
