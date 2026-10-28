@@ -117,8 +117,8 @@ test('#63 apps: server states map (connect/reauth/soon), Gmail always on, accoun
 
 test('normLinks: done.links keeps https urls and mailto fallbacks only', async () => {
   const { normLinks } = await import('../src/connect-api.js');
-  assert.deepEqual(normLinks([{ label: 'Open in Gmail', url: 'https://mail.google.com/mail/?view=cm', mailto: 'mailto:a@b.c' }, { label: 'bad', url: 'javascript:alert(1)' }, { label: 'bad2', url: 'https://x', mailto: 'javascript:1' }, null]),
-    [{ label: 'Open in Gmail', url: 'https://mail.google.com/mail/?view=cm', mailto: 'mailto:a@b.c' }, { label: 'bad2', url: 'https://x', mailto: '' }]);
+  assert.deepEqual(normLinks([{ app: 'gmail', name: 'Gmail', label: 'Open in Gmail', url: 'https://mail.google.com/mail/?view=cm', mailto: 'mailto:a@b.c' }, { label: 'bad', url: 'javascript:alert(1)' }, { label: 'bad2', url: 'https://x', mailto: 'javascript:1' }, null]),
+    [{ app: 'gmail', name: 'Gmail', label: 'Open in Gmail', url: 'https://mail.google.com/mail/?view=cm', mailto: 'mailto:a@b.c' }, { app: '', name: '', label: 'bad2', url: 'https://x', mailto: '' }]);
   assert.deepEqual(normLinks('nope'), []);
 });
 
