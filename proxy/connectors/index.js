@@ -6,9 +6,10 @@ import { decrypt, encrypt, parseKey, signState, verifyState } from './crypto.js'
 
 // Public app ids (Diggy's spec) -> provider + provider-local app.
 export const APP_DEFS = [
-  { id: 'gdrive', name: 'Google Drive', provider: 'google', app: 'drive', scopes: { read: ['File names and contents of files you pick'], do: ['Find and summarise files'], never: ['Deletes or shares files'] } },
+  { id: 'gdrive', name: 'Google Drive', provider: 'google', app: 'drive', scopes: { read: ['Only files you open with Virtual World or it created'], do: ['Find those files'], never: ['Sees the rest of your Drive, deletes or shares files'] } },
   { id: 'gcal', name: 'Google Calendar', provider: 'google', app: 'calendar', scopes: { read: ['Event titles, times, places', 'Who\'s invited'], do: ['Suggest free times', 'Add events, only after you tap Approve'], never: ['Deletes events or shares your calendar'] } },
-  { id: 'gmail', name: 'Gmail', provider: 'google', app: 'gmail', scopes: { read: ['Nothing in your inbox. Drafts only'], do: ['Write drafts, only after you tap Approve'], never: ['Sends, deletes mail or changes settings'] } },
+  // Gmail needs no sign-in: the agent prepares a compose link and you send it yourself from Gmail.
+  { id: 'gmail', name: 'Gmail', provider: null, linkOnly: true, scopes: { read: ['Nothing. No access to your mail'], do: ['Open a prefilled email in Gmail after you tap Approve'], never: ['Reads, sends or deletes mail'] } },
   { id: 'notion', name: 'Notion', provider: null, scopes: { read: ['Pages you share with it'], do: ['Create and edit pages, only after you tap Approve'], never: ['Deletes pages'] } },
   { id: 'spotify', name: 'Spotify', provider: null, scopes: { read: ['What you\'re playing and your playlists'], do: ['Play, pause, add to playlist, only after you tap Approve'], never: ['Changes your plan or account'] } },
 ];
@@ -58,6 +59,7 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
 
   async function record(uid) { return (await tokens.get(uid)) || {}; }
   function appState(def, rec) {
+    if (def.linkOnly) return 'connected';
     if (!ready(def.provider)) return 'soon';
     const p = rec[def.provider];
     if (!p || !(p.apps || []).includes(def.app)) return 'connect';
@@ -77,6 +79,7 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
   async function startConnect(uid, appId) {
     const def = BY_ID.get(appId);
     if (!def) throw new ConnectHttpError(404, 'unknown app');
+    if (def.linkOnly) throw new ConnectHttpError(400, 'no sign-in needed');
     if (!ready(def.provider)) throw notConfigured();
     const rec = await record(uid);
     // Incremental: ask for this app's scopes; include_granted_scopes keeps the ones already granted.
@@ -115,6 +118,7 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
   async function disconnect(uid, appId) {
     const def = BY_ID.get(appId);
     if (!def) throw new ConnectHttpError(404, 'unknown app');
+    if (def.linkOnly) throw new ConnectHttpError(400, 'nothing to disconnect');
     if (!ready(def.provider)) throw notConfigured();
     const rec = await record(uid);
     const p = rec[def.provider];
@@ -134,16 +138,17 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
   // ---- chat integration -------------------------------------------------------------------
   // Tool declarations for the apps this user has connected (empty when none / not configured).
   async function toolsFor(uid) {
-    if (!ready('google')) return { declarations: [], apps: [] };
-    let rec;
-    try { rec = await record(uid); } catch { return { declarations: [], apps: [] }; }
+    const link = Object.values(google.TOOLS).filter((t) => t.link).map((t) => t.declaration);
+    if (!ready('google')) return { declarations: link, apps: ['gmail'] };
+    let rec = {};
+    try { rec = await record(uid); } catch { /* link-only tools still work */ }
     const g = rec.google;
     const apps = g && !g.broken ? g.apps || [] : [];
-    const declarations = Object.values(google.TOOLS).filter((t) => apps.includes(t.app)).map((t) => t.declaration);
-    return { declarations, apps };
+    const declarations = Object.values(google.TOOLS).filter((t) => t.link || apps.includes(t.app)).map((t) => t.declaration);
+    return { declarations, apps: [...apps, 'gmail'] };
   }
   const isTool = (name) => Object.hasOwn(google.TOOLS, name);
-  const appIdOf = (name) => APP_DEFS.find((d) => d.provider === 'google' && d.app === google.TOOLS[name].app).id;
+  const appIdOf = (name) => (google.TOOLS[name].link ? 'gmail' : APP_DEFS.find((d) => d.provider === 'google' && d.app === google.TOOLS[name].app).id);
 
   async function accessToken(uid) {
     const rec = await record(uid);
@@ -189,6 +194,12 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
     if (a.expiresAt < now()) { pending.delete(id); return { state: 'expired', app: a.app }; }
     if (decision === 'cancel') { a.state = 'cancelled'; return { state: 'cancelled', app: a.app }; }
     if (decision !== 'approve') throw new ConnectHttpError(400, 'bad decision');
+    if (google.TOOLS[a.name].link) {
+      // No Google call: hand back the compose link; the card opens it and the owner sends from Gmail.
+      a.state = 'done';
+      a.result = { summary: 'Opened in Gmail. Nothing is sent until you send it.', at: now(), ...google.composeLinks(a.args) };
+      return { state: 'done', app: a.app, result: a.result };
+    }
     a.state = 'working';
     try {
       const out = await google.runTool(a.name, a.args, { token: await accessToken(uid), fetchImpl, now: now(), timeZone: a.timeZone });
@@ -209,6 +220,6 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
 
 export function describe(name, args) {
   if (name === 'calendar_create_event') return { title: 'Add event to Calendar', summary: [args.title, `${args.start} → ${args.end}`, args.location].filter(Boolean).join('\n') };
-  if (name === 'gmail_create_draft') return { title: `Save draft to ${args.to}`, summary: [`To: ${args.to}`, `Subject: ${args.subject || '(no subject)'}`, args.body.slice(0, 140)].join('\n') };
+  if (name === 'gmail_compose') return { title: `Email ${args.to} in Gmail`, summary: [`To: ${args.to}`, `Subject: ${args.subject || '(no subject)'}`, args.body.slice(0, 140)].join('\n') };
   return { title: name, summary: '' };
 }

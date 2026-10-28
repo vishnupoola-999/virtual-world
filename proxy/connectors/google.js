@@ -1,18 +1,19 @@
 // Google connector: OAuth 2.0 authorization-code flow (server side) plus Drive, Calendar and Gmail-draft tools.
 // Tokens never reach the browser. Writes run only through POST /connections/execute after the owner taps Confirm.
-import { calendarInsertBody, rawEmail } from '../../src/google-tools.js';
+import { calendarInsertBody } from '../../src/google-tools.js';
+import { buildGmailComposeUrl, buildMailtoUrl } from '../../src/agentTools.js';
 import { sanitizeZone } from '../../src/calendarWhen.js';
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 export const SCOPES = {
-  drive: ['https://www.googleapis.com/auth/drive.readonly'],
+  // drive.file: only files this app created or the owner opened with it. Both scopes are non-restricted.
+  drive: ['https://www.googleapis.com/auth/drive.file'],
   calendar: ['https://www.googleapis.com/auth/calendar.events'],
-  gmail: ['https://www.googleapis.com/auth/gmail.compose'],
 };
 export const APPS = Object.keys(SCOPES);
-export const LABELS = { drive: 'Google Drive', calendar: 'Google Calendar', gmail: 'Gmail drafts' };
+export const LABELS = { drive: 'Google Drive', calendar: 'Google Calendar' };
 
 export class ConnectorError extends Error {
   constructor(code, message, status = 502) { super(message); this.code = code; this.status = status; }
@@ -67,10 +68,10 @@ export const appsFromScopes = (scopes) => APPS.filter((a) => SCOPES[a].every((s)
 // ---- tools -----------------------------------------------------------------------------------
 const str = (description) => ({ type: 'STRING', description });
 export const TOOLS = {
-  drive_search: { app: 'drive', write: false, declaration: { name: 'drive_search', description: 'Search or list the owner\'s Google Drive files by name. Read only.', parameters: { type: 'OBJECT', properties: { query: str('Words in the file name; empty lists recent files'), limit: { type: 'INTEGER', description: '1-10' } } } } },
+  drive_search: { app: 'drive', write: false, declaration: { name: 'drive_search', description: 'Search or list Google Drive files this app created or the owner opened with it (not the whole Drive), by name. Read only.', parameters: { type: 'OBJECT', properties: { query: str('Words in the file name; empty lists recent files'), limit: { type: 'INTEGER', description: '1-10' } } } } },
   calendar_upcoming: { app: 'calendar', write: false, declaration: { name: 'calendar_upcoming', description: 'List the owner\'s upcoming Google Calendar events.', parameters: { type: 'OBJECT', properties: { days: { type: 'INTEGER', description: 'How many days ahead, 1-14' } } } } },
   calendar_create_event: { app: 'calendar', write: true, declaration: { name: 'calendar_create_event', description: 'Create an event on the owner\'s Google Calendar. The owner confirms first.', parameters: { type: 'OBJECT', properties: { title: str('Event title'), start: str('ISO 8601 start, with offset'), end: str('ISO 8601 end, with offset'), description: str('Optional notes'), location: str('Optional place') }, required: ['title', 'start', 'end'] } } },
-  gmail_create_draft: { app: 'gmail', write: true, declaration: { name: 'gmail_create_draft', description: 'Save a draft in the owner\'s Gmail. It is never sent. The owner confirms first.', parameters: { type: 'OBJECT', properties: { to: str('Recipient email address'), subject: str('Subject line'), body: str('Plain-text body') }, required: ['to', 'subject', 'body'] } } },
+  gmail_compose: { app: 'gmail', write: true, link: true, declaration: { name: 'gmail_compose', description: 'Open a prefilled Gmail compose window for the owner to review and send themselves. Nothing is sent by you. The owner taps Approve first.', parameters: { type: 'OBJECT', properties: { to: str('Recipient email address'), subject: str('Subject line'), body: str('Plain-text body') }, required: ['to', 'subject', 'body'] } } },
 };
 
 const EMAIL_RE = /^[^\s@<>,;"]{1,64}@[^\s@<>,;"]{1,190}\.[A-Za-z]{2,}$/;
@@ -90,7 +91,7 @@ export function cleanArgs(name, a = {}) {
     if (!isoOk(a.start) || !isoOk(a.end) || Date.parse(a.end) <= Date.parse(a.start)) return null;
     return { title: line(a.title, 200) || 'Event', start: a.start.slice(0, 40), end: a.end.slice(0, 40), description: text(a.description, 2000), location: line(a.location, 200) };
   }
-  if (name === 'gmail_create_draft') {
+  if (name === 'gmail_compose') {
     const to = line(a.to, 254);
     if (!EMAIL_RE.test(to)) return null;
     return { to, subject: line(a.subject, 200), body: text(a.body, 5000) };
@@ -146,9 +147,11 @@ export async function runTool(name, args, { token, fetchImpl, now = Date.now(), 
     const j = await api(fetchImpl, token, 'https://www.googleapis.com/calendar/v3/calendars/primary/events', { method: 'POST', body: JSON.stringify(calendarInsertBody(args, zone)) });
     return { data: { id: j.id, link: j.htmlLink || '' }, text: `Added "${args.title}" to your calendar.` };
   }
-  if (name === 'gmail_create_draft') {
-    const j = await api(fetchImpl, token, 'https://gmail.googleapis.com/gmail/v1/users/me/drafts', { method: 'POST', body: JSON.stringify({ message: { raw: rawEmail(args) } }) });
-    return { data: { id: j.id }, text: `Saved a draft to ${args.to} in Gmail. It hasn't been sent.` };
-  }
   throw new ConnectorError('invalid', 'That request looked wrong, so I skipped it.', 400);
+}
+
+// Gmail is a no-auth link-out: a Gmail web compose URL plus a mailto: fallback. Never calls Google.
+export function composeLinks(args) {
+  const m = { to: [args.to], subject: args.subject, body: args.body };
+  return { link: buildGmailComposeUrl(m), mailto: buildMailtoUrl(m) };
 }

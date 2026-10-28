@@ -498,9 +498,10 @@ async function handleChat(req, res, ctx) {
     const c = await ctx.connectors.toolsFor(uid);
     connected = c.apps;
     if (c.declarations.length) {
+      // Overlaps: a connected Calendar replaces the link-out calendar tools; gmail_compose replaces draft_email.
       const drop = new Set([...(connected.includes('calendar') ? ['list_events', 'add_event'] : []), ...(connected.includes('gmail') ? ['draft_email'] : [])]);
       tools = [{ functionDeclarations: [...TOOL_DECLARATIONS[0].functionDeclarations.filter((d) => !drop.has(d.name)), ...c.declarations] }];
-      prepared.system += ' Connected apps: ' + connected.join(', ') + '. Drafts are never sent. Anything you create waits for the owner to tap Approve.';
+      prepared.system += ' Connected apps: ' + connected.join(', ') + '. You never send email: gmail_compose only opens a prefilled Gmail window. Drive search only sees files opened with or created by this app. Anything you create waits for the owner to tap Approve.';
     }
   }
   let upstream;

@@ -34,6 +34,7 @@ export function readReturn(loc=location){const m=/^#\/me\?(.*)$/.exec(loc.hash||
 
 // In-chat confirm card for one pending action {id, app, kind, title, summary, expiresAt}. Approve runs it once.
 const APP_NAME={gdrive:'Google Drive',gcal:'Google Calendar',gmail:'Gmail'};
+const safeLink=(u,re)=>typeof u==='string'&&re.test(u)?u:'';
 export function actionCard(action,getUser,now=()=>Date.now()){const d=document.createElement('div');d.className='msg bot actCard';
   const name=APP_NAME[action.app]||'App';
   d.innerHTML=`<div class="card"><div class="row"><span class="mk sm">${MARK[action.app]||'A'}</span><span class="cap">${esc(name)}</span></div><b class="ttl"></b><p class="sum meta"></p><div class="acts"><button type="button" class="ghost">Cancel</button><button type="button" class="primary">Approve</button></div><p class="res" hidden></p></div>`;
@@ -41,11 +42,16 @@ export function actionCard(action,getUser,now=()=>Date.now()){const d=document.c
   const acts=d.querySelector('.acts'),res=d.querySelector('.res'),[no,yes]=acts.querySelectorAll('button');let busy=false,finished=false;
   const show=(text,cls='')=>{acts.hidden=true;res.hidden=false;res.className='res '+cls;res.textContent=text;};
   const go=async decision=>{if(busy||finished)return;if(action.expiresAt&&now()>action.expiresAt){finished=true;show('This request expired. Ask again.','meta');return;}
+    // Gmail is link-out: open the tab inside the tap so popup blockers allow it, then point it at the compose URL.
+    const tab=decision==='approve'&&action.app==='gmail'?window.open('about:blank','_blank'):null;
     busy=true;yes.textContent=decision==='approve'?'Working…':yes.textContent;yes.disabled=no.disabled=true;if(decision==='approve')buzz(10);
     let r;try{r=await decideAction(getUser(),action.id,decision);}catch(e){r={state:e.status===404?'expired':'error'};}
     busy=false;yes.disabled=no.disabled=false;yes.textContent='Approve';
     const at=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-    if(r.state==='done'){finished=true;show(`✓ ${r.result?.summary||'Done'} · ${at}`,'ok');}
+    if(r.state!=='done')tab?.close();
+    if(r.state==='done'){finished=true;show(`✓ ${r.result?.summary||'Done'} · ${at}`,'ok');
+      const gm=safeLink(r.result?.link,/^https:\/\/mail\.google\.com\//),mt=safeLink(r.result?.mailto,/^mailto:/);
+      if(gm){if(tab)tab.location.href=gm;const p=document.createElement('p');p.className='res meta';p.innerHTML=`<a href="${esc(gm)}" target="_blank" rel="noopener">Open Gmail</a>${mt?` · <a href="${esc(mt)}">Mail app</a>`:''}`;res.after(p);}else tab?.close();}
     else if(r.state==='cancelled'){finished=true;show('Cancelled · nothing was sent','meta');}
     else if(r.state==='expired'){finished=true;show('This request expired. Ask again.','meta');}
     else if(r.state==='reauth'){res.hidden=false;res.className='res e';res.textContent=`Sign in to ${name} again in Me, then tap Approve.`;}

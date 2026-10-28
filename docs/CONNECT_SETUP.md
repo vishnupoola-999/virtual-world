@@ -1,13 +1,13 @@
 # Connect apps: one-time Google setup (Vishnu)
 
-None of this needs billing, a card or the Google Cloud credits. Drive, Calendar and Gmail APIs are free at our size.
+None of this needs billing, a card or the Google Cloud credits. The Drive and Calendar APIs are free at our size.
+Only two scopes, both non-restricted: `drive.file` and `calendar.events`. Gmail needs no setup: the agent only opens a prefilled Gmail compose window.
 About 10 minutes. Use the Google account that owns project **virtual-world-8ac82**.
 
-## 1. Turn on the three APIs
+## 1. Turn on the two APIs
 Open each link, check the project picker at the top says **virtual-world-8ac82**, and click **Enable**:
 - Drive: https://console.cloud.google.com/apis/library/drive.googleapis.com?project=virtual-world-8ac82
 - Calendar: https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=virtual-world-8ac82
-- Gmail: https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=virtual-world-8ac82
 
 ## 2. Consent screen (Testing mode)
 1. Open https://console.cloud.google.com/auth/branding?project=virtual-world-8ac82
@@ -16,11 +16,10 @@ Open each link, check the project picker at the top says **virtual-world-8ac82**
 3. Open **Audience**: https://console.cloud.google.com/auth/audience?project=virtual-world-8ac82
    Leave Publishing status on **Testing**. Under **Test users** click **Add users**, add every Google account that will try it (yours, Srilatha's, any testers), Save. Max 100. Only these accounts can connect.
 4. Open **Data access**: https://console.cloud.google.com/auth/scopes?project=virtual-world-8ac82
-   Click **Add or remove scopes**, paste these three into "Manually add scopes", click **Add to table**, then **Update**, then **Save**:
+   Click **Add or remove scopes**, paste these two into "Manually add scopes", click **Add to table**, then **Update**, then **Save**:
    ```
-   https://www.googleapis.com/auth/drive.readonly
+   https://www.googleapis.com/auth/drive.file
    https://www.googleapis.com/auth/calendar.events
-   https://www.googleapis.com/auth/gmail.compose
    ```
    In Testing mode Google shows an "unverified app" warning on the consent page; testers click **Continue**. Verification is only needed before going public.
 
@@ -43,4 +42,4 @@ Open each link, check the project picker at the top says **virtual-world-8ac82**
 3. Click **Save, rebuild, and deploy**. `FIREBASE_SERVICE_ACCOUNT` is already set (the token store uses it).
 
 ## 5. Check
-Open the app → Me → Apps. Drive, Calendar and Gmail show **Connect** (before step 4 they show **Coming soon**). Tap Gmail → Google consent → back in the app it says **Connected**.
+Open the app → Me → Apps. Drive and Calendar show **Connect** (before step 4 they show **Coming soon**); Gmail always shows **Connected** because it needs no sign-in. Tap Calendar → Google consent → back in the app it says **Connected**.
