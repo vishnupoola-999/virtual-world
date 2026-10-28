@@ -95,7 +95,7 @@ test('1 Me -> Apps: order, every tile state, count, footnote; whole tile opens t
 
 test('Apps hidden without the API (404); chat falls back to the JSON reply; connect actions are dropped, never run', async ({ page }) => {
   const s = server({ apps: null, chatJson: { choices: [{ message: { content: 'Sure, here is a plan.' } }], actions: [{ id: 'a9', app: 'gcal', kind: 'write', summary: 'x', expiresAt: Date.now() + 9e5 }] } });
-  await boot(page, s); await openMe(page);
+  await boot(page, s, { hist: HIST.slice(0, 2) }); await openMe(page); // seeded: no greeting racing the reply
   await page.waitForTimeout(500); await expect(page.locator('#meApps')).toBeHidden();
   await page.locator('#sheetClose').click(); await openChat(page);
   await say(page, 'Plan my Sunday');
