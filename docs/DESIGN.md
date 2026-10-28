@@ -225,3 +225,4 @@ Each stream ends with exactly one `done` or `error` event. If the stream ends wi
 
 ## Action 404 (2026-10-28)
 A 404 from POST /actions/:id means that one action is unknown or gone (expired, already cleared, server restart): the card shows the expired state with no buttons. It is not an endpoint-missing signal, so other and later confirm cards keep working. GET /apps detection is unchanged (no /apps = no Apps section and no cards). Several cards from one reply appear in server order.
+Expired cards dim their title to #8A90A0.

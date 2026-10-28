@@ -200,6 +200,8 @@ test('4d POST /actions/:id 404 expires only that card; other cards and later act
   expect(await page.locator('.cxCard').evaluateAll((e) => e.map((x) => x.dataset.action))).toEqual(['n1', 'n2']); // server order
   await c1.locator('.cxYes').click();
   await expect(c1.locator('.meta')).toHaveText('This request expired. Ask again.'); await expect(c1.locator('button')).toHaveCount(0);
+  expect(await c1.locator('.cxT').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(138, 144, 160)'); // title dimmed
+  expect(await c2.locator('.cxT').evaluate((e) => getComputedStyle(e).color)).not.toBe('rgb(138, 144, 160)');
   await expect(c2.locator('.cxYes')).toHaveText('Approve'); await c2.locator('.cxYes').click(); await expect(c2.locator('.meta')).toHaveText('✓ Added · 13:42');
   expect(s.decisions).toEqual([['n1', 'approve'], ['n2', 'approve']]);
   s.chatJson = { choices: [{ message: { content: 'One more.' } }], actions: [{ id: 'n3', app: 'gcal', kind: 'write', title: 'Add event to Calendar', summary: 'x', expiresAt: exp }] };
