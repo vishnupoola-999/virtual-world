@@ -75,7 +75,7 @@ export function cardHtml(a, st = 'pending', { result = null, now = Date.now() } 
   if (st === 'cancelled') return head(m.name) + `<b class="cxT sm">${esc(title)}</b><p class="meta">Cancelled · nothing was sent</p>`;
   if (st === 'error') return head(m.name) + `<b class="cxT sm">${esc(title)}</b><p class="meta e" role="alert">Couldn't ${a.kind === 'pay' ? 'pay' : a.kind === 'submit' ? 'submit' : a.kind === 'send' ? 'send' : 'finish'}. Nothing went out.</p><button type="button" class="ghost cxRetry">Try again</button>`;
   if (st === 'reauth') return head(`${m.name} · sign-in expired`) + `<p class="cxSum hi">Sign in to ${esc(m.name)} again to finish this.</p><button type="button" class="primary sm cxReauth">Sign in again</button>`;
-  if (st === 'expired') return head(m.name) + `<b class="cxT sm">${esc(title)}</b><p class="meta">This request expired. Ask again.</p>`;
+  if (st === 'expired') return head(m.name) + `<b class="cxT sm dim">${esc(title)}</b><p class="meta">This request expired. Ask again.</p>`;
   return '';
 }
 

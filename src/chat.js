@@ -485,7 +485,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
         remember('assistant', reply.slice(0, 2000));
         last = await stream(reply);
       }
-      for (const a of connectActs) onAction(a, last);
+      { let at = last; for (const a of connectActs) { onAction(a, at); const el = log.querySelector(`.cxCard[data-action="${CSS.escape(normAction(a)?.id || "")}"]`); if (el) at = el; } } // keep server order
       // Calendar listings: on screen only, never in hist, localStorage, Firestore or later prompts.
       if (ephemeral) add('assistant', ephemeral, 'ephemeral');
       showMe();

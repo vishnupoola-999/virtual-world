@@ -34,6 +34,7 @@
 .cxCard:not(.in){opacity:0}
 .cxCardHd{display:flex;gap:8px;align-items:center}
 .cxT{display:block;font-size:15px;font-weight:600;margin:10px 0 4px}.cxT.sm{font-weight:500;margin:8px 0 2px}
+.cxT.dim{color:#8A90A0} /* expired: title dimmed */
 .cxSum{font-size:13px;color:#8A90A0;line-height:19px;margin:0}.cxSum.hi{color:#C9CEDA;margin:8px 0}
 .cxCard .cxRow{margin-top:12px}
 .cxCard button{font:600 15px/1 Inter,system-ui,sans-serif;border:0;border-radius:22px;height:44px}
