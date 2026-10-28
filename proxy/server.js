@@ -27,7 +27,8 @@ import { allowHit, createUidRateLimiter } from './rate-limit.js';
 import { EMOJI_RE, cleanInterests, publicProfile, publicCard, scrub, isTown, stripTown, townByPublicId, townCharacter, offsetFor, nearbyTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
 import { createConnectors, ConnectHttpError } from './connectors/index.js';
-import { calendarToolContext, reviewCalendarTurn, sanitizeZone } from '../src/calendarWhen.js';
+import { calendarToolContext, reviewCalendarTurn, sanitizeZone, ensureRfc3339 } from '../src/calendarWhen.js';
+import { buildGmailComposeUrl, buildMailtoUrl, buildCalendarUrl } from '../src/agentTools.js';
 
 const DEFAULT_PROJECT_ID = 'virtual-world-8ac82';
 const PROJECT_ID_RE = /^[a-z0-9-]{6,40}$/;
@@ -541,6 +542,29 @@ export function pendingAction(a, now = Date.now()) {
   return { id: 'act_' + randomBytes(9).toString('hex'), app, kind, summary: summary.slice(0, 240), expiresAt: now + STREAM.actionTtlMs };
 }
 
+// Link-out tools (Gmail compose, Google Calendar template) are things the server can't run, so on the stream they are
+// never `action` events (those mean "the server runs this after Approve"). They go out as done.links instead:
+// { app, name, label, url, mailto? }, https/mailto only, which the app renders as plain links the owner taps.
+export function linkOut(a, timeZone = 'UTC') {
+  const g = a?.args || {};
+  const cut = (v, n) => String(v ?? '').slice(0, n);
+  if (a?.name === 'draft_email' || a?.name === 'send_email') {
+    const mail = { to: [cut(g.to, 320)], subject: cut(g.subject, 200), body: String(g.body ?? '') };
+    return { app: 'gmail', name: a.name, label: cut(`Open email to ${g.to || 'someone'} in Gmail`, 120), url: buildGmailComposeUrl(mail), mailto: buildMailtoUrl(mail) };
+  }
+  if (a?.name === 'list_events') return { app: 'gcal', name: a.name, label: 'Open Google Calendar', url: 'https://calendar.google.com/calendar/r' };
+  if (a?.name === 'add_event' || a?.name === 'create_event' || a?.name === 'move_event') {
+    const zone = sanitizeZone(timeZone);
+    const start = new Date(ensureRfc3339(g.start, zone));
+    if (Number.isNaN(start.getTime())) return null;
+    let end = g.end ? new Date(ensureRfc3339(g.end, zone)) : null;
+    if (!end || Number.isNaN(end.getTime()) || end <= start) end = new Date(start.getTime() + 60 * 60_000);
+    const url = buildCalendarUrl({ title: cut(g.title || 'Event', 200), start, end, details: cut(g.description, 1000), location: cut(g.location, 200) });
+    return { app: 'gcal', name: a.name, label: cut(`Add "${g.title || 'Event'}" to Google Calendar`, 120), url };
+  }
+  return null;
+}
+
 function rememberReply(ctx, id, entry) {
   const now = Date.now();
   for (const [k, v] of ctx.replies) if (now - v.at > STREAM.keepMs || ctx.replies.size > STREAM.keepMax) ctx.replies.delete(k); else break;
@@ -760,16 +784,15 @@ async function handleChat(req, res, ctx, stream = false, continueId = '') {
   if (stream) {
     // `done.text` is the final reply (trimmed on MAX_TOKENS, reviewed for calendar turns). The client replaces the
     // streamed bubble with it.
-    const now2 = Date.now();
-    // Connected-app actions are already pending in the connector store (POST /actions/:id runs them); keep their ids.
+    // Connected-app actions are already pending in the connector store (POST /actions/:id runs them); keep their ids
+    // and their action events. Everything else is a link-out the server can't execute: done.links, never an action.
     const isConn = (a) => typeof a?.id === 'string' && a.id.startsWith('act_') && a.app && !a.name;
-    const pending = (actions || []).filter((a) => !isConn(a)).map((a) => ({ ...pendingAction(a, now2), call: a }));
     for (const a of (actions || []).filter(isConn)) sse(res, 'action', a);
-    for (const p of pending) sse(res, 'action', { id: p.id, app: p.app, kind: p.kind, summary: p.summary, expiresAt: p.expiresAt });
+    const links = (actions || []).filter((a) => !isConn(a)).map((a) => linkOut(a, prepared.timeZone || 'UTC')).filter(Boolean);
+    if (!text && links.length) text = 'Tap the link below to finish it.';
     keep(text, undefined);
     // `done.text` is the final reply (reviewed on calendar turns); the client replaces the streamed bubble with it.
-    // `actions` pairs each action event id with today's tool call so the app can still run it after Approve.
-    sse(res, 'done', { messageId, text, ...(pending.length ? { actions: pending.map((p) => ({ id: p.id, ...p.call })) } : {}), ...(toolResults.length ? { toolResults } : {}) });
+    sse(res, 'done', { messageId, text, ...(links.length ? { links } : {}), ...(toolResults.length ? { toolResults } : {}) });
     res.end();
   } else {
     sendJson(res, 200, { choices: [{ message: { role: 'assistant', content: text } }], ...(prepared.tools ? { actions } : {}), ...(toolResults.length ? { toolResults } : {}) });
