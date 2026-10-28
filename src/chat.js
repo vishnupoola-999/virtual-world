@@ -5,27 +5,24 @@ import {loadMessages, addMessage, trimMessages, MAX_MESSAGES, requestGoogleAcces
 import {createGoogleTools, composeReply, TOOL_MESSAGES} from './google-tools.js';
 import {reviewCalendarTurn} from './calendarWhen.js';
 import {confirmAction} from './ui/confirmAction.js';
-import {actionCard,isServerAction} from './connections.js';
 
 import {toolsApiEnabled} from './tools-config.js';
+import {chat as chatApi, continueChat, stopChat, normAction} from './connect-api.js';
+// Connected-app reads ({name, app, text}): on screen only, never in hist or memory.
+const readOuts = (list) => (Array.isArray(list) ? list : []).map((r) => String(r?.text || '')).filter(Boolean).join('\n');
+import {streamBubble} from './stream-ui.js';
 
 const googleTools = createGoogleTools({ requestAccess: requestGoogleAccess, confirm: confirmAction, apiEnabled: () => toolsApiEnabled(currentUser()) });
 
-const API = 'https://virtual-world-ai.onrender.com/chat';
+// The proxy endpoint lives in connect-api.js (POST /chat, SSE when the server supports it).
 const REPLY_TIMEOUT_MS = 60_000;
 const SEND_LAST = 20; // messages sent to the proxy as context
 const LOAD_TIMEOUT_MS = 5_000;
 const WAKE_AFTER_MS = 3_000;
 const $ = (id) => document.getElementById(id);
 
-function friendlyError(status) {
-  if (status === 401) return 'Sign in again.';
-  if (status === 429) return 'Slow down.';
-  if (status === 502 || status === 503) return 'The server is busy. Try again in a minute.';
-  return 'Check your internet and try again.';
-}
 
-export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
+export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, connect = null}) {
   const key = () => 'vw-chat-' + (getUser()?.uid || 'guest');
   let hist = [];
   let openedFor = null;
@@ -55,6 +52,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     return { d, body };
   };
   const actions = (body, text) => {
+    if (!String(text || '').trim()) return; // only under a real agent reply
     const row = document.createElement('div');
     row.className = 'actions';
     const mk = (label, svg, fn) => {
@@ -142,15 +140,6 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     };
     requestAnimationFrame(step);
   });
-  // What the agent is doing, named in the thinking shimmer.
-  const actionFor = (text = '') => {
-    const s = text.toLowerCase();
-    if (/calendar|free|busy|meeting|today|tomorrow|schedule|plan/.test(s)) return 'Checking your calendar…';
-    if (/friend|family|who.*near|nearby|people/.test(s)) return 'Looking for your friends…';
-    if (/where|map|place|near|go to|chai|food|eat|restaurant|cafe/.test(s)) return 'Searching the map…';
-    if (/weather|rain|hot|cold/.test(s)) return 'Checking the weather…';
-    return 'Thinking it through…';
-  };
   const typing = (label = 'Thinking it through…') => {
     const m = agentShell();
     m.d.classList.add('thinking');
@@ -300,11 +289,19 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
   }
 
   // Send is a solid white circle whenever there is text (class `on`), even while a reply is still running (`busy`).
+  // While a reply streams the send button is swapped for Stop (connect-v1 §5); the field stays typable.
+  let streaming = null;
+  const stopBtn = document.createElement('button');
+  stopBtn.type = 'button'; stopBtn.className = 'cxStop'; stopBtn.hidden = true; stopBtn.setAttribute('aria-label', 'Stop');
+  stopBtn.innerHTML = '<i aria-hidden="true"></i>';
+  send.after(stopBtn);
+  stopBtn.onclick = () => streaming?.stop();
   const sync = () => {
     const hasText = !!input.value.trim();
     send.classList.toggle('on', hasText);
     send.classList.toggle('busy', busy);
     send.disabled = busy || !hasText;
+    stopBtn.hidden = !streaming; send.hidden = !!streaming;
   };
   input.addEventListener('input', sync);
   sync();
@@ -323,8 +320,22 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     ask();
   };
 
+  // Pending connect actions (SSE `action` event or actions[] in a JSON reply) all go through one handler:
+  // a confirm card that only runs after Approve. Without the apps API the card is not shown and nothing runs.
+  const onAction = (raw, after) => {
+    const a = normAction(raw);
+    if (!a || !connect) return false;
+    const el = connect.card(a);
+    if (!el) return true; // a connect action, but the API is not there: drop it, never run it
+    (after?.isConnected ? after : log.lastElementChild)?.after(el);
+    requestAnimationFrame(() => el.classList.add('in')); // fade in (opacity + transform only)
+    scrollEnd();
+    return true;
+  };
+
   // Sends the transcript to the proxy (also used by Retry, which resends without adding a message).
-  async function ask() {
+  // opts.bubble: reuse a stopped/cut-off bubble; opts.contId: continue a stopped / cut-off reply the server kept (POST /agent/chat/:id/continue).
+  async function ask(opts = {}) {
     if (busy) return;
     const user = getUser();
     if (!user || typeof user.getIdToken !== 'function') { signInPrompt(); return; }
@@ -335,31 +346,30 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
     status('ok');
     hero.state('thinking');
     const lastUser = [...hist].reverse().find((m) => m.role === 'user')?.content;
-    const pending = typing(actionFor(lastUser));
+    for (const old of log.querySelectorAll('.msg.retry')) old.remove();
+    if (opts.replace) opts.replace.remove();
+    const sb = opts.bubble || streamBubble({ log, view: $('chatView') });
+    if (opts.bubble) sb.reopen();
     const ctrl = new AbortController();
+    let stopped = false, gotToken = false;
+    const sub = (v) => { $('chatSub').textContent = v; };
+    const think = setTimeout(() => { if (!gotToken) sub('thinking…'); }, 600);
+    const noToken = setTimeout(() => { if (!gotToken) ctrl.abort(); }, 20_000);
     const kill = setTimeout(() => ctrl.abort(), REPLY_TIMEOUT_MS);
-    const wake = setTimeout(() => { status('waking'); pending.label?.('Waking up…'); hero.state('sleeping'); }, WAKE_AFTER_MS);
-    const fail = (status_) => {
-      pending.remove();
-      status('error', friendlyError(status_));
+    const wake = setTimeout(() => { if (!gotToken) { status('waking'); hero.state('sleeping'); } }, WAKE_AFTER_MS);
+    const retry = () => ask({ replace: sb.el });
+    let messageId = opts.contId || null;
+    // One line per outcome (connect-v1 §6). Stopped and cut-off replies the server kept can be continued.
+    const fail = (reason = 'failed') => {
       hero.state('error');
-      // Always leave a visible line in the transcript too, so a failure is never silent.
-      for (const old of log.querySelectorAll('.msg.retry')) old.remove();
-      const line = add('assistant', '', 'sys');
-      line.classList.add('retry');
-      line.textContent = "\u26A0\uFE0E Couldn't reach your agent. ";
-      const tap = document.createElement('u');
-      tap.textContent = 'Tap to retry';
-      line.appendChild(tap);
-      line.setAttribute('role', 'button');
-      line.tabIndex = 0;
-      line.onclick = () => { line.remove(); ask(); };
-      line.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); line.click(); } };
+      sub('Online');
+      status('ok');
+      if (reason === 'cut_off' && messageId && sb.started) sb.fail('cut_off_continue', () => ask({ bubble: sb, contId: messageId }));
+      else sb.fail(reason, retry);
     };
     try {
       let token;
       try {
-        // auth.currentUser.getIdToken() — getUser() is that Firebase user.
         token = await new Promise((resolve, reject) => {
           const onAbort = () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
           if (ctrl.signal.aborted) { onAbort(); return; }
@@ -367,7 +377,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
           user.getIdToken().then(resolve, reject);
         });
       } catch (err) {
-        fail(err?.name === 'AbortError' ? 0 : 401);
+        fail('failed');
         return;
       }
       const messages = hist.slice(-SEND_LAST)
@@ -375,45 +385,64 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
         .map((message) => ({ role: message.role, content: String(message.content || '').slice(0, 1000) }));
       let timeZone = 'UTC';
       try { timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { /* UTC */ }
-      const response = await fetch(API, {
-        method: 'POST',
+      const body = {
+        agent: { name: String(agent.name || '').slice(0, 40), personality: String(agent.personality || '').slice(0, 300) },
+        messages, tools: true, timeZone,
+      };
+      const tokenUser = { getIdToken: async () => token };
+      // Stop closes the stream (abort) and tells the server, which saves the partial reply.
+      streaming = { stop: () => { stopped = true; ctrl.abort(); if (messageId) stopChat(tokenUser, messageId); } };
+      sync();
+      let doneReads = '';
+      const handlers = {
         signal: ctrl.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          agent: {
-            name: String(agent.name || '').slice(0, 40),
-            personality: String(agent.personality || '').slice(0, 300),
-          },
-          messages,
-          tools: true,
-          timeZone,
-        }),
-      });
-      const type = response.headers.get('content-type') || '';
-      if (!response.ok || !type.includes('application/json')) {
-        fail(response.status);
+        onStart: (id) => { messageId = id; },
+        onToken: (t) => { if (!gotToken) { gotToken = true; status('ok'); sub('replying…'); hero.state('talking'); } sb.push(t); },
+        onAction: (a) => onAction(a, sb.el),
+        onDone: (e) => { messageId = e.messageId || messageId; doneReads = readOuts(e.toolResults); if (!sb.started && e.text) sb.push(e.text); },
+      };
+      const res = opts.contId ? await continueChat(tokenUser, opts.contId, handlers) : await chatApi(tokenUser, body, handlers);
+      if (res.stream) {
+        streaming = null; sync();
+        sub('Online');
+        if (stopped || res.stopped) {
+          // Stop closes the stream; the server keeps the partial. On screen only here, never in hist/memory.
+          if (!sb.started) { sb.remove(); hero.state('idle'); return; }
+          sb.stop(() => (messageId ? ask({ bubble: sb, contId: messageId }) : ask({ replace: sb.el })));
+          hero.state('idle');
+          return;
+        }
+        if (res.error) { fail(res.error); return; }
+        const full = sb.finish();
+        if (!full.trim()) { fail('failed'); return; }
+        const whole = full;
+        remember('assistant', whole.slice(0, 2000));
+        actions(sb.el.querySelector('.mbody'), whole);
+        if (doneReads) add('assistant', doneReads, 'ephemeral');
+        hero.state('talking');
+        showMe();
+        save();
         return;
       }
-      const payload = await response.json();
-      let actions = Array.isArray(payload.actions) ? payload.actions : [];
+      // No SSE yet: the current JSON reply path.
+      streaming = null; sync();
+      sub('Online');
+      if (!res.ok || !res.json) { fail(res.status === 429 ? 'rate_limited' : 'failed'); return; }
+      const payload = res.json;
+      let acts = Array.isArray(payload.actions) ? payload.actions : [];
+      // Connect actions ({id, app, kind, summary, expiresAt}) use the same handler as the SSE action event.
+      const connectActs = acts.filter((x) => normAction(x));
+      acts = acts.filter((x) => !normAction(x));
       let reply = payload.choices?.[0]?.message?.content?.trim() || '';
-      // Past tense never opens the sheet. Relative dates use this device's zone, not a guessed past day.
-      const reviewed = reviewCalendarTurn({ userText: lastUser || '', actions, reply, now: Date.now(), timeZone });
-      actions = reviewed.actions;
+      const reviewed = reviewCalendarTurn({ userText: lastUser || '', actions: acts, reply, now: Date.now(), timeZone });
+      acts = reviewed.actions;
       reply = reviewed.reply;
-      // Connect v1: connected-app actions wait in the proxy; the card's Approve runs them (POST /actions/:id).
-      const serverActions = actions.filter(isServerAction);
-      actions = actions.filter((a) => !isServerAction(a));
-      const readOuts = (Array.isArray(payload.toolResults) ? payload.toolResults : []).map((r) => String(r?.text || '')).filter(Boolean);
-      let ephemeral = readOuts.join('\n');
-      if (actions.length) {
+      // Connected-app reads (toolResults) are shown once, never saved.
+      let ephemeral = readOuts(payload.toolResults);
+      if (acts.length) {
         // Agent tools: each action goes through google-tools.js, which asks confirmAction() before any write.
-        pending.remove();
         const results = [];
-        for (const action of actions) {
+        for (const action of acts) {
           try { results.push({ name: action?.name, text: await googleTools.run(action) }); }
           catch (err) { results.push({ name: 'error', text: err?.message || TOOL_MESSAGES.failed }); }
         }
@@ -421,26 +450,30 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
         reply = out.persist;
         ephemeral = [ephemeral, out.ephemeral].filter(Boolean).join('\n');
       }
-      if (!reply && !ephemeral && !serverActions.length) { fail(0); return; }
-      pending.remove();
-      for (const old of log.querySelectorAll('.msg.retry')) old.remove();
+      if (!reply && !ephemeral && !connectActs.length) { fail('failed'); return; }
+      sb.remove();
       status('ok');
       hero.state('talking');
+      let last = null;
       if (reply) {
         remember('assistant', reply.slice(0, 2000));
-        await stream(reply);
+        last = await stream(reply);
       }
+      for (const a of connectActs) onAction(a, last);
       // Calendar listings: on screen only, never in hist, localStorage, Firestore or later prompts.
       if (ephemeral) add('assistant', ephemeral, 'ephemeral');
-      for (const a of serverActions) log.append(actionCard(a, currentUser));
-      if (serverActions.length) log.scrollTop = log.scrollHeight;
       showMe();
       save();
     } catch (err) {
-      fail(err?.name === 'AbortError' ? 0 : err?.status);
+      streaming = null; sync();
+      if (stopped) { if (sb.started) sb.stop(() => (messageId ? ask({ bubble: sb, contId: messageId }) : ask({ replace: sb.el }))); else sb.remove(); sub('Online'); hero.state('idle'); return; }
+      fail(sb.started ? 'cut_off' : 'failed');
     } finally {
       clearTimeout(kill);
       clearTimeout(wake);
+      clearTimeout(think);
+      clearTimeout(noToken);
+      streaming = null;
       busy = false;
       sync();
     }

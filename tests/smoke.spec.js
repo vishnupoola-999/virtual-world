@@ -216,7 +216,7 @@ test('bot replies are full width with no avatar at 360px', async ({ page }) => {
 
 // Regression: on phones the floating Chat/World tab bar overlapped the "Ask ... anything" input.
 // The composer now sits 12px above the 56px tab pill, which keeps safe-area padding.
-test('chat input sits above the tab bar at 360x740', async ({ page }) => {
+test('agent chat: no tab pill (like a person chat), input 12px above the bottom at 360x740', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
   await page.goto('/?onb=0');
   await page.waitForFunction(() => document.getElementById('chatF'));
@@ -231,10 +231,9 @@ test('chat input sits above the tab bar at 360x740', async ({ page }) => {
     return { inBottom: a.bottom, inH: a.height, tabTop: t.top, tabBottom: t.bottom, tabH: t.height, vh: window.innerHeight };
   });
   expect(r.inH).toBeGreaterThan(0);
-  expect(r.inBottom).toBeLessThanOrEqual(r.tabTop - 8);
-  expect(r.tabBottom).toBeLessThanOrEqual(r.vh);
+  expect(Math.round(r.tabH)).toBe(0); // #64 review: tab pill hidden in the agent chat
+  expect(Math.round(r.vh - r.inBottom)).toBe(12);
   expect(Math.round(r.inH)).toBe(52);
-  expect(Math.round(r.tabH)).toBe(56);
   // v3: typing makes Send a solid white circle with a dark arrow, with no fade to wait for.
   await page.fill('#chatIn', 'Find me a cafe');
   const send = await page.evaluate(() => {

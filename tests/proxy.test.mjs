@@ -204,7 +204,7 @@ describe('POST /chat auth', () => {
       const request = captured[0];
       assert.equal(request.url.includes('test-key'), false);
       assert.equal(request.url.includes('evil-model'), false);
-      assert.match(request.url, /models\/gemini-flash-lite-latest:generateContent$/);
+      assert.match(request.url, /models\/gemini-3\.8-flash:generateContent$/);
       assert.equal(request.init.headers['x-goog-api-key'], 'test-key');
       const encoded = JSON.stringify(request.body);
       assert.equal(encoded.includes(LEAK), false);

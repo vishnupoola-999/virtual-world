@@ -28,7 +28,7 @@ const ICON={pin:'<svg viewBox="0 0 24 24" width="18" height="18" fill="none" str
   chev:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
   star:'<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z"/></svg>'};
 
-export function setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAgent,getUser,goChat=()=>{}}){
+export function setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAgent,getUser,goChat=()=>{},connect=null}){
   document.body.classList.add('v4');
   // ---- tab pill: World · Chats · Me (the old Chat tab is reached from Me: "Talk to <name>")
   const nav=$('tabs');nav.innerHTML=`<button class="tab" role="tab" id="tabWorld" aria-selected="true">World</button><button class="tab" role="tab" id="tabChats" aria-selected="false">Chats<i class="udot" id="chatsDot" hidden></i></button><button class="tab" role="tab" id="tabMe" aria-selected="false">Me</button><button id="tabChat" hidden></button>`;
@@ -83,7 +83,7 @@ export function setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAg
   function renderMe(){const a=getAgent(),box=$('v4Me');if(!box)return;if(!a){box.innerHTML=`<button type="button" class="primary" id="meSignIn">Create your agent</button>`;$('meSignIn').onclick=()=>{openSheet('agent');};return;}
     const l=toLook(a.look,a.name),since=atMs(a.createdAt),ints=interestsOf({interests:a.interests}).concat((a.interests||[]).slice(3)).slice(0,6),wk=weekOf(town.feed,threads.threads);
     box.innerHTML=`<div class="meHero">${avatar(l,'cav lg',0)}<div><h2>${esc(a.name||'My agent')}</h2><small>Your agent${since?` · exploring since ${new Date(since).toLocaleDateString(undefined,{day:'numeric',month:'short'})}`:''}</small></div></div>`
-      +`<div class="capLbl">Interests</div><div class="chips">${ints.map(x=>`<span class="chip">${esc(x)}</span>`).join('')}<button type="button" class="chip add" id="meAdd">+ Add</button></div>`
+      +`<div class="capLbl">Interests</div><div class="chips">${ints.map(x=>`<span class="chip">${esc(x)}</span>`).join('')}<button type="button" class="chip add" id="meAdd">+ Add</button></div><div class="cxApps" id="meApps" hidden></div>`
       +`<div class="capLbl">Colour</div><div class="colRow" id="meCol" role="radiogroup" aria-label="Body colour"><button type="button" role="radio" class="swc def" data-col="" aria-label="Default colour"></button>${BODY_SWATCHES.map((c,i)=>`<button type="button" role="radio" class="swc" data-col="${c}" style="--c:${c}" aria-label="Colour ${i+1}"></button>`).join('')}<label class="swc cust" aria-label="More colours"><input type="color" value="${l.color||'#a99bff'}" aria-label="More colours"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></svg></label></div>`
       +(wk?`<div class="week"><b>This week</b><small>${esc(wk)}</small></div>`:'')
       +`<button type="button" class="primary" id="meEdit">Edit my agent</button><button type="button" class="ghost" id="meTalk">Talk to ${esc(a.name||'my agent')}</button>`
@@ -95,6 +95,7 @@ export function setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAg
     $('meEdit').onclick=()=>{openSheet('agent');$('agEdit')?.click();};$('meTalk').onclick=()=>{closeSheet();goChat();};
     $('meAdd').onclick=()=>{closeSheet();$('chatInterests')?.click();};
     for(const b of box.querySelectorAll('.meTools button'))b.onclick=()=>openSheet(b.dataset.go);
+    connect?.mount($('meApps')); // Apps section (hidden unless GET /apps exists)
     // Privacy & read receipts (GET/POST /me/chat-settings). Hidden when signed out or the endpoint is missing.
     const u=getUser()||hudU,pr=$('mePriv'),rr=$('meRR');if(u&&!u.isAnonymous)getChatSettings(u).then(j=>{if(typeof j?.readReceipts!=='boolean')return;rr.setAttribute('aria-checked',String(j.readReceipts));pr.hidden=false;pr.previousElementSibling.hidden=false;}).catch(()=>{});
     pr.previousElementSibling.hidden=true;

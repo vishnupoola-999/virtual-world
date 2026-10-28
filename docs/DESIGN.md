@@ -191,5 +191,34 @@ Spec: design/connect-v1-spec.md (Diggy). App ids: gdrive, gcal, gmail, notion, s
 - `DELETE /apps/:id` -> `{state:'connect', reauth?:[ids]}`. Google can't revoke one scope, so disconnecting Drive or Calendar revokes the whole Google grant and the other Google app turns `reauth`; the disconnect confirm says so first.
 - Chat reply (`POST /chat`, later the SSE `action` event) carries `actions[]`; a connected-app action is `{id:'act_…', app, kind:'write', title, summary, expiresAt, state:'pending'}`, and reads come as `toolResults:[{name, app, text, error?}]` (shown, not saved).
 - `POST /actions/:id {decision:'approve'|'cancel'}` -> `{state:'done'|'cancelled'|'error'|'reauth'|'expired', app, result?:{summary, at, link?, mailto?}, error?}` (Gmail: `link` is the compose URL the card opens). Idempotent: approving a done action returns done again without re-running. Requests expire after 15 min. The card shows `working` locally while the call runs.
-- UI: Me → Apps tiles (48px #16181F, 32px mark letter, state chip), inline disconnect confirm, and an in-chat confirm card (Cancel ghost / Approve white) with done, cancelled, error, reauth and expired lines. Minimal port; Diggy's full app sheet comes later.
-- The #63 frontend is a temporary, removable stand-in for Buildy Design's Apps UI (#64): `src/connections.js` + `src/connections.css` self-install into the Me sheet (no v4.js changes) and handle the `?connect=&nonce=` return; the only other hooks are the stylesheet link in index.html, two sw.js entries and the confirm-card hook in chat.js.
+- Frontend: Buildy Design's #64 (`src/connect.js`, `src/connect-api.js`). #63's temporary `src/connections.*` was removed when #63 merged. Streaming (`POST /agent/chat`) emits connected-app actions as `action` events with their store ids and puts `toolResults` on `done`. An action id the server no longer holds answers `200 {state:'expired'}`.
+
+## Connect apps + streaming (2026-10-28)
+Spec: Diggy's connect-v1. Server shapes from Buildy (#62, draft) sit behind src/connect-api.js only; the UI never calls fetch for these directly.
+- Me > Apps: five tiles (Drive, Calendar, Gmail, Notion, Spotify) with state chips; the sheet connects through the server's https consent URL only and returns via `#/me?app=&result=`. The section is hidden when GET /apps is missing, and nothing shows as connected without the server saying so.
+- Confirm cards: one decision per action id, POST /actions/:id {decision}; expiry timer; sign-in expired returns to Needs your OK only after the app reconnects. Never runs without the Approve tap.
+- Streaming: SSE token/action/done/error; words flushed every 30ms (50ms on slow frames), caret, follow within 48px else a Jump to latest chip 16px above the input bar. Stop aborts and posts /stop; "Stopped · Continue" and a cut-off reply with a message id use /continue into the same bubble; failed / rate_limited each have their own line. No stream endpoint => old /chat JSON.
+- Motion: transform and opacity only, reduced-motion respected, no blur.
+- Review pass (2026-10-28, #64): agent chat is full-height like a person chat (no tab pill, Back in the header); last item clears the input by 12px; retry lines are 14px with 44px targets; Jump chip 12px above the input (it overlays scrolled content by nature). Built to SWE's "Connect apps API" in #63: Gmail is always on with no sign-in and only opens a Gmail compose (or mailto) after Approve; a return with `c` is confirmed via POST /apps/:id/confirm before the tile says Connected (410/403 = "Couldn't connect"); revoking one Google app shows the other as Sign in again.
+- Final pass (2026-10-28, #64): Jump to latest sits at the right edge over a static fade behind the input bar (no blur, opacity only), shown only while scrolled up; card Try again matches Continue / Tap to retry (14px/500 white, 44px).
+
+## Streaming chat (POST /agent/chat)
+
+This is the backend for Diggy's connect-v1 spec, §5 and §6. `POST /agent/chat` (`/chat/stream` is an alias) takes the same body as `POST /chat` (`agent`, `messages`, optional `tools`/`timeZone`), the same Firebase `Authorization: Bearer <idToken>` header and the same rate limits. Send `Accept: text/event-stream`. `POST /chat` is unchanged and remains the fallback.
+
+**Response:** `Content-Type: text/event-stream`. The `X-Message-Id: m_…` header arrives before the first token, so Stop works straight away. It is exposed to the browser through CORS. Events are sent as `event: <name>\ndata: <json>\n\n`:
+
+| event | data | UI |
+|---|---|---|
+| `token` | `{ "t": "..." }` | Append to the bubble, flushing whole words. The first one replaces the dots. Thinking text is never sent. |
+| `action` | `{ id, app, kind, summary, expiresAt }` | SWE's pending-action shape. Show the confirm card (§4). `app`: `gmail` or `gcal` today. `kind`: `send`, `write`, or `read` (calendar look-up). `expiresAt` is ms, 15 min out. Sent after the last token and before `done`. |
+| `done` | `{ messageId, text, actions?, partial? }` | Finish: remove the caret and **replace** the bubble with `text`, since calendar turns are reviewed server-side. `actions[i]` is `{ id, name, args, confirm }`, with the same `id` as its `action` event, so the existing calendar and Gmail code can run it after Approve. `partial: "stopped"` means Stop was tapped, so show "Stopped · **Continue**". |
+| `error` | `{ code, message, messageId?, text?, partial? }` | `code` is `cut_off` (reply hit the length limit; `text` is the partial, so keep it and show "Reply cut off · Tap to retry"), `failed` (upstream dropped mid-reply with `partial: "cut_off"`, or no reply at all), or `rate_limited`. |
+
+Each stream ends with exactly one `done` or `error` event. If the stream ends without either, it was a network drop, so treat it as §6 "Reply cut off". A `failed` or `rate_limited` before any token comes with the real HTTP status (502 or 429) and still uses the SSE body. 400, 401, 403 and 413 stay JSON `{ "error": "..." }`, as on `/chat`. EventSource can't POST, so read the stream with `fetch()` and `response.body.getReader()`.
+
+**Stop:** abort the fetch (`AbortController`), or call `POST /agent/chat/:messageId/stop`, which also ends the open stream with `done {partial: "stopped"}`. Either way the server aborts the Gemini call and stores the partial as `stopped`.
+
+**Continue:** `POST /agent/chat/:messageId/continue` with an empty body. It works only for your own `stopped` or `cut_off` reply within 15 minutes, otherwise it returns 404. It streams a new reply (new `X-Message-Id`) that carries on from the partial. Append its tokens to the stopped bubble.
+
+**Stored replies:** `GET /agent/chat/:messageId` returns `{ messageId, text, partial? }` (`partial` is `stopped` or `cut_off`) for 15 minutes, owner only. Replies are kept in memory on the proxy and are lost on restart. Partial replies never feed the memory refresh. Only a full `done` reply updates memory, as `/chat` does.
