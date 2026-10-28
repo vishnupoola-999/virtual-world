@@ -155,5 +155,15 @@ Six local creatures 150-500 m around your agent. Meet partner offset MEET_DX=76p
 ## Accept and chat (2026-10-26)
 Agent chats: Chats (friends, creature avatar, last line or interests, unread) on top, then Requests (sender creature, their note, Decline/Accept), Worth meeting, Log. Accept opens the chat; decline is silent to the sender (stays Request sent). Chat: dark messenger, both creatures in the header, agents' intro centred small grey with the two creatures (not a bubble). Blocked text (400) keeps the draft and shows 'Links and contact details can't be shared here yet.'; 429 shows 'Slow down a little, try again in a minute' and fades Send for a minute. Friends get a small green ring under their creature. Null look falls back to a default creature.
 
+## Chat API v4 (presence, read receipts, thread details)
+All endpoints need a non-anonymous Firebase ID token; non-members get 404. Uids never leave the server.
+- `GET /threads` → `{ myId, threads: [{ id, with: { id, name, interests, bio, look: {creature, accessory, color?} | null }, createdAt, metAt, sharedInterests: [..], last, unread }] }`. `metAt` = when the request was accepted (thread creation).
+- `GET /threads/:id/messages?after=ms` → `{ threadId, typingUntil (ms, 0 if not typing; the other person), receipts (bool), seenUpTo (ms or null when receipts are off), messages: [{ id, from: 'me'|'them'|'system', fromId, text, at, status?: 'sent'|'seen' (own messages only) }], more }`. "Sending" is client-only (optimistic, before POST returns).
+- `POST /threads/:id/messages {text}` → `201 { id, from:'me', fromId, text, at, status:'sent' }`. Clears your typing flag.
+- `POST /threads/:id/typing` → `{ typingUntil }` (now+5 s). Max once per 2 s per thread (429). Call while the user types; hide the dots when `typingUntil` passes.
+- `POST /threads/:id/read {upTo: ms}` → `{ readUpTo }`. Monotonic, clamped to now; also zeroes your unread. Max once per second per thread.
+- `GET /me/chat-settings` → `{ readReceipts }` (default true). `POST /me/chat-settings {readReceipts: bool}` → same. Receipts are mutual: if either person turns them off, both get `receipts:false, seenUpTo:null` and own messages stay `sent`.
+Storage: `threads/{id}.typing.{h_}`, `threads/{id}.read.{h_}`, `chatPrefs/{uid}` — all server-only (existing threads rule + catch-all deny), so no rules deploy needed.
+
 ## Body colour (2026-10-28)
 My agent > Colour, right under Extra: a Default swatch (the creature's own colour, shown as a six-colour wheel), eight hand-picked cute colours and a dashed More swatch (three dots) that opens the native colour picker for any colour. Selected swatch gets the accent ring used by the Extra chips. Only the body material changes, so shading, outline, eyes, mouth and accessories stay. Saved as look.color (#rrggbb); missing or invalid falls back to the creature colour. 36px swatches (44px tap targets) in one row that scrolls sideways with scroll-snap, no scrollbar and a 24px opacity fade on the right; the selected swatch is scrolled into view. Transform/opacity only.

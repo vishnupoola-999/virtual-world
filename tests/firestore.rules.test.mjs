@@ -170,6 +170,14 @@ describe('agents/{uid} rules', { concurrency: false }, () => {
     await assertFails(setDoc(agentRef(ALICE), agent({ look: { creature: 'blob', accessory: 'none', colour: '#fff' } })));
   });
 
+  test('creature looks accept an optional lowercase #rrggbb color only', async () => {
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({ look: { creature: 'blob', accessory: 'none', color: '#a1b2c3' } })));
+    await assertSucceeds(setDoc(agentRef(ALICE), agent({ look: { creature: 'blob', accessory: 'none' } })));
+    await assertFails(setDoc(agentRef(ALICE), agent({ look: { creature: 'blob', accessory: 'none', color: '#A1B2C3' } })));
+    for (const bad of ['#fff', 'a1b2c3', '#a1b2c3d', '#gggggg', 'red', ' #a1b2c3']) await assertFails(setDoc(agentRef(ALICE), agent({ look: { creature: 'blob', accessory: 'none', color: bad } })));
+    await assertFails(setDoc(agentRef(ALICE), agent({ look: { creature: 'blob', accessory: 'none', color: 123456 } })));
+  });
+
   test('owner can save v1 character looks for both bases', async () => {
     await assertSucceeds(setDoc(agentRef(ALICE), agent({ look: GIRL_LOOK })));
     const stored = await assertSucceeds(getDoc(agentRef(ALICE)));
