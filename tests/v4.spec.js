@@ -118,7 +118,7 @@ test('4 private chat: header creatures + met line, grouped bubbles, rise in, Sen
   await v.locator('textarea').fill('Sunday works!'); await v.locator('.dmSend').click();
   await expect(v.locator('.msg.me').last()).toContainText('Sunday works!');
   await v.locator('.msg.them').first().dblclick(); await expect(v.locator('.msg.them').first().locator('.rx')).toHaveCount(1); // no /react endpoint (404): local-only fallback
-  expect(await page.evaluate(() => globalThis.localStorage.getItem('vw-rx'))).toContain('t_p|b');
+  await expect.poll(() => page.evaluate(() => globalThis.localStorage.getItem('vw-rx') || '')).toContain('t_p|b'); // written after the /react 404
   s.next = 400; await v.locator('textarea').fill('call 98480 12345'); await v.locator('.dmSend').click();
   await expect(v.locator('.dmNote')).toHaveText("Links and contact details can't be shared here yet."); await expect(v.locator('textarea')).toHaveValue('call 98480 12345');
   await v.locator('textarea').fill('');
