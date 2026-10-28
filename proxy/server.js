@@ -773,6 +773,12 @@ async function handleRespond(req, res, ctx) {
     }
   }
   await s.updateConnect(connectId, { status: 'accepted', respondedAt: now, threadId }, c.updateTime);
+  // Both people may have sent a request: accepting one also settles the reverse pending one, so neither side still sees "pending".
+  if (s.listConnects) {
+    const reverse = (await s.listConnects('fromUid', uid).catch(() => [])).filter((r) => r.toUid === c.fromUid && r.status === 'pending');
+    await Promise.all(reverse.map((r) => s.updateConnect(r.id, { status: 'accepted', respondedAt: now, threadId }, r.updateTime)
+      .catch((e) => console.warn('reverse accept failed', String(e.message || e).slice(0, 80)))));
+  }
   sendJson(res, 200, { connectId, status: 'accepted', threadId });
 }
 
@@ -924,6 +930,24 @@ async function handlePublish(req, res, ctx) {
 
 const statusOf = (c) => (['pending', 'accepted', 'declined'].includes(c.status) ? c.status : 'pending');
 
+// Once any request between two people is accepted they share one thread (threadIdFor is deterministic), so every request
+// between them, either direction, reports accepted + that threadId. Covers mutual requests and accepted rows missing threadId.
+export function connectViews(uid, inc, out, salt) {
+  const friends = new Map();
+  for (const c of [...inc, ...out]) {
+    if (c.status !== 'accepted') continue;
+    const other = c.fromUid === uid ? c.toUid : c.fromUid;
+    const tid = (typeof c.threadId === 'string' && c.threadId) || (salt ? threadIdFor(c.fromUid, c.toUid, salt) : null);
+    if (other && tid && !friends.has(other)) friends.set(other, tid);
+  }
+  const view = (c, other) => {
+    const tid = friends.get(other);
+    if (tid) return { status: 'accepted', threadId: tid, stale: c.status !== 'accepted' || c.threadId !== tid };
+    return { status: statusOf(c), stale: false };
+  };
+  return { friends, view };
+}
+
 // One card per person: keep only the newest meet per withId (diary notes untouched, order preserved).
 export function dedupeMeets(entries) {
   const newest = new Map();
@@ -952,6 +976,17 @@ async function handleFeed(req, res, ctx, url) {
     ctx.lifeStore.listConnects('toUid', uid).catch(() => []),
     ctx.lifeStore.listConnects('fromUid', uid).catch(() => []),
   ]) : [[], []];
+  inc.sort(byNewest); out.sort(byNewest);
+  const cv = connectViews(uid, inc, out, ctx.lifeSalt);
+  // One-off self-healing backfill: only flips the caller's stale rows (pending, or accepted without threadId) to accepted+threadId,
+  // guarded by updateTime. Never deletes; declined rows are left as stored.
+  if (ctx.lifeStore.updateConnect) {
+    const fix = [...inc.map((c) => [c, c.fromUid]), ...out.map((c) => [c, c.toUid])]
+      .filter(([c, o]) => c.status !== 'declined' && cv.view(c, o).stale).slice(0, 10)
+      .map(([c, o]) => ctx.lifeStore.updateConnect(c.id, { status: 'accepted', threadId: cv.friends.get(o), ...(c.respondedAt ? {} : { respondedAt: Date.now() }) }, c.updateTime)
+        .catch((e) => console.warn('connect backfill failed', String(e.message || e).slice(0, 80))));
+    if (fix.length) ctx.pending?.push(Promise.all(fix));
+  }
   sendJson(res, 200, {
     // The caller's own publicAgents doc id, so the app can skip drawing its own card twice.
     myId: ctx.lifeSalt ? hashId(uid, ctx.lifeSalt) : null,
@@ -959,11 +994,11 @@ async function handleFeed(req, res, ctx, url) {
     // Town characters standing around the caller's agent today (deterministic per user and day).
     nearby: ctx.lifeSalt ? nearbyTown(uid, ctx.lifeSalt, pos, Date.now()) : [],
     // Uids never leave the server: only public agent ids and names.
-    incoming: inc.sort(byNewest).slice(0, CONNECT.feedMax)
-      .map((c) => ({ id: c.id, fromAgentId: c.fromAgentId, fromName: c.fromName, text: c.text, meetId: c.meetId, createdAt: Number(c.createdAt) || 0,
-        status: statusOf(c), ...(c.status === 'accepted' && c.threadId ? { threadId: c.threadId } : {}) })),
-    outgoing: out.sort(byNewest).slice(0, CONNECT.feedMax).map((c) => ({ id: c.id, toAgentId: c.toAgentId, createdAt: Number(c.createdAt) || 0,
-      status: statusOf(c), ...(c.status === 'accepted' && c.threadId ? { threadId: c.threadId } : {}) })),
+    incoming: inc.slice(0, CONNECT.feedMax).map((c) => { const v = cv.view(c, c.fromUid);
+      return { id: c.id, fromAgentId: c.fromAgentId, fromName: c.fromName, text: c.text, meetId: c.meetId, createdAt: Number(c.createdAt) || 0,
+        status: v.status, ...(v.threadId ? { threadId: v.threadId } : {}) }; }),
+    outgoing: out.slice(0, CONNECT.feedMax).map((c) => { const v = cv.view(c, c.toUid);
+      return { id: c.id, toAgentId: c.toAgentId, createdAt: Number(c.createdAt) || 0, status: v.status, ...(v.threadId ? { threadId: v.threadId } : {}) }; }),
     town: meets.map((m) => ({ id: m.id, aId: m.aId, aName: stripTown(m.aName), bId: m.bId, bName: stripTown(m.bName), shared: Array.isArray(m.shared) ? m.shared : [], at: Number(m.at) || 0 })),
   });
 }

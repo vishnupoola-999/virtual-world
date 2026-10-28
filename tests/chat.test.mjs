@@ -194,6 +194,44 @@ describe('chat presence and receipts', () => {
   });
 });
 
+describe('feed status after accept', () => {
+  test('mutual requests: accepting one settles the reverse, both feeds show accepted + threadId', async () => {
+    const store = memStore();
+    store.connects.set('c2', { id: 'c2', fromUid: BOB, fromAgentId: B, fromName: 'Vishnu', toUid: ALICE, toAgentId: A, meetId: 'm9', text: 'hi', status: 'pending', createdAt: 6 });
+    await withApi(store, async (call) => {
+      const tid = threadIdFor(ALICE, BOB, SALT);
+      assert.equal((await call(BOB, 'POST', '/connect/respond', { connectId: 'c1', action: 'accept' })).status, 200);
+      assert.equal(store.connects.get('c2').status, 'accepted'); assert.equal(store.connects.get('c2').threadId, tid);
+      const fb = (await call(BOB, 'GET', '/feed')).json;
+      assert.deepEqual([fb.outgoing[0].status, fb.outgoing[0].threadId], ['accepted', tid]);
+      const fa = (await call(ALICE, 'GET', '/feed')).json;
+      assert.deepEqual([fa.incoming[0].status, fa.incoming[0].threadId], ['accepted', tid]);
+      assert.equal(store.threads.size, 1);
+    });
+  });
+  test('existing data: stale reverse pending and accepted-without-threadId are reported accepted and backfilled', async () => {
+    const store = memStore();
+    Object.assign(store.connects.get('c1'), { status: 'accepted' }); // older row, no threadId
+    store.connects.set('c2', { id: 'c2', fromUid: BOB, fromAgentId: B, toUid: ALICE, toAgentId: A, status: 'pending', createdAt: 6 });
+    store.connects.set('c3', { id: 'c3', fromUid: BOB, fromAgentId: B, toUid: EVE, toAgentId: hashId(EVE, SALT), status: 'pending', createdAt: 7 });
+    store.connects.set('c4', { id: 'c4', fromUid: BOB, fromAgentId: B, toUid: EVE, toAgentId: hashId(EVE, SALT), status: 'declined', createdAt: 2 });
+    await withApi(store, async (call) => {
+      const tid = threadIdFor(ALICE, BOB, SALT);
+      const fb = (await call(BOB, 'GET', '/feed')).json;
+      const byId = Object.fromEntries(fb.outgoing.map((o) => [o.id, o]));
+      assert.deepEqual([byId.c2.status, byId.c2.threadId], ['accepted', tid]);
+      assert.equal(byId.c3.status, 'pending'); assert.equal(byId.c3.threadId, undefined);
+      assert.equal(byId.c4.status, 'declined');
+      assert.equal(fb.incoming[0].threadId, tid);
+      await new Promise((r) => setTimeout(r, 20));
+      assert.equal(store.connects.get('c2').status, 'accepted'); assert.equal(store.connects.get('c2').threadId, tid);
+      assert.equal(store.connects.get('c1').threadId, tid);
+      assert.equal(store.connects.get('c3').status, 'pending'); assert.equal(store.connects.get('c4').status, 'declined');
+      assert.equal(store.connects.size, 4);
+    });
+  });
+});
+
 describe('helpers', () => {
   test('chatText', () => {
     assert.equal(chatText('  hi 😀 '), 'hi 😀');
