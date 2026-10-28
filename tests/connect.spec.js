@@ -297,10 +297,13 @@ test('7 link rows (done.links): 48px rows with letter tile, label, arrow; mail-a
       full: Math.round(r(a).width) === Math.round(a.closest('.agent-links').getBoundingClientRect().width), gap: Math.round(r(g).top - r(a).bottom) >= 0 && Math.round(r(b).top - r(g).bottom),
       label: [st(t).fontSize, st(t).fontWeight, st(t).color, st(a).textDecorationLine], ghost: [st(g).fontSize, st(g).fontWeight, st(g).color],
       mk: [r(mk).width, r(mk).height], arrow: [st(ar).color, Math.round(r(a).right - r(ar).right) <= 16], toolsBelow: !!tools && r(tools).top >= r(b).bottom,
-      noBlur: [st(a).backdropFilter, st(a).filter], tr: st(a).transitionProperty };
+      noBlur: [st(a).backdropFilter, st(a).filter], tr: st(a).transitionProperty,
+      // bubble keeps the normal width (same max as a reply without links); rows span the log's content width
+      bubble: [st(bub).maxWidth, Math.round(r(bub).width) <= 264, st(document.querySelector('#chatLog .msg.bot:not(:has(.agent-links)) .agent-text')).maxWidth],
+      rowsFull: (() => { const l = document.getElementById('chatLog'), ls = getComputedStyle(l); return Math.round(r(a).width) === Math.round(l.clientWidth - parseFloat(ls.paddingLeft) - parseFloat(ls.paddingRight)); })() };
   });
   expect(m).toEqual({ h: [48, 48, 40], bg: ['rgb(22, 24, 31)', 'rgba(0, 0, 0, 0)'], rad: '12px', left: 0, full: true, gap: 8, label: ['15px', '500', 'rgb(255, 255, 255)', 'none'], ghost: ['14px', '500', 'rgb(255, 255, 255)'],
-    mk: [24, 24], arrow: ['rgb(138, 144, 160)', true], toolsBelow: true, noBlur: ['none', 'none'], tr: 'transform' });
+    mk: [24, 24], arrow: ['rgb(138, 144, 160)', true], toolsBelow: true, noBlur: ['none', 'none'], tr: 'transform', bubble: ['264px', true, '264px'], rowsFull: true });
   expect(await page.evaluate(() => globalThis.__opened || [])).toEqual([]); // nothing opens without a tap
   await shot(page, '7-link-rows');
 });

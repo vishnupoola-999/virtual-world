@@ -70,10 +70,10 @@ body[data-tab=chat] #chatLog{padding-bottom:calc(var(--input-h) + 24px + env(saf
 .cxFade{position:absolute;left:0;right:0;bottom:0;z-index:1;pointer-events:none;opacity:0;transition:opacity 160ms linear;
  background:linear-gradient(to top,#07080C 0,#07080C var(--cxBar,76px),rgba(7,8,12,0) calc(var(--cxBar,76px) + 72px));height:calc(var(--cxBar,76px) + 72px)}
 .cxFade.on{opacity:1}
-#chatLog .msg.bot.hasLinks,#chatLog .msg.bot.hasLinks .mbody{max-width:none;width:100%;align-self:stretch}
-#chatLog .msg.bot.hasLinks .mbody .agent-text{max-width:min(264px,78%)}
 /* Link rows (done.links): full-width 48px rows, letter tile + label + arrow; the mail-app fallback is a 40px ghost row. */
-#chatLog .msg.bot .mbody .agent-links{display:flex;flex-direction:column;gap:8px;margin-top:8px;width:100%}
+/* Only the rows span the chat width (100cqw of #chatLog's content box); the bubble keeps its normal width. */
+#chatLog{container-type:inline-size}
+#chatLog .msg.bot .mbody .agent-links{display:flex;flex-direction:column;gap:8px;margin-top:8px;width:100cqw;max-width:none}
 #chatLog .msg.bot .mbody .cxLink{display:flex;align-items:center;gap:12px;height:48px;padding:0 14px 0 12px;background:#16181F;border-radius:12px;color:#FFFFFF;font:500 15px/20px Inter,system-ui,sans-serif;text-decoration:none;transition:transform 120ms ease}
 #chatLog .msg.bot .mbody .cxLink:active{transform:scale(.98)}
 #chatLog .msg.bot .mbody .cxLinkT{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

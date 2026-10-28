@@ -75,7 +75,6 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
       }
     }
     body.append(box);
-    body.closest('.msg')?.classList.add('hasLinks'); // rows span the chat width, not the bubble column
   };
   const actions = (body, text) => {
     if (!String(text || '').trim()) return; // only under a real agent reply
