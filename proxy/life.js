@@ -98,12 +98,27 @@ export function shardOf(uid, of) {
 }
 
 // Public map card for publicAgents/{hashId}: no uid, no exact location (~1 km), no owner data.
+// Same shape firestore.rules creatureLook() accepts: {creature, accessory, color?}; anything else is dropped.
+export const CREATURES = ['blob', 'puff', 'sprout', 'pebble', 'drip', 'mallow'];
+export const ACCESSORIES = ['none', 'glasses', 'beanie', 'tuft', 'headphones', 'bow'];
+const COLOR_RE = /^#[0-9a-f]{6}$/;
+export function cleanLook(l) {
+  if (!l || typeof l !== 'object' || Array.isArray(l)) return null;
+  const keys = Object.keys(l);
+  if (!keys.every((k) => ['creature', 'accessory', 'color'].includes(k))) return null;
+  if (!CREATURES.includes(l.creature) || !ACCESSORIES.includes(l.accessory)) return null;
+  if ('color' in l && !(typeof l.color === 'string' && COLOR_RE.test(l.color))) return null;
+  return { creature: l.creature, accessory: l.accessory, ...('color' in l ? { color: l.color } : {}) };
+}
+
 export function publicCard(agent, status, now) {
   const p = publicProfile(agent);
   const src = agent.approx && Number.isFinite(agent.approx.lat) ? agent.approx : { lat: agent.lat, lon: agent.lon };
   const card = { name: p.name, interests: p.interests, updatedAt: now };
   if (Number.isFinite(src.lat) && Number.isFinite(src.lon)) { card.lat = round2(src.lat); card.lon = round2(src.lon); }
   if (status) card.status = status;
+  const look = cleanLook(agent.look);
+  if (look) card.look = look;
   return card;
 }
 
@@ -612,6 +627,12 @@ export function lifeStore(admin) {
       await patch(`connects/${id}`, Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, toValue(v)])), Object.keys(fields), updateTime);
     },
     async getThread(id) { return getDoc(`threads/${id}`); },
+    // chatPrefs/{uid}: {readReceipts}. Server-only (catch-all deny in firestore.rules).
+    async getChatPrefs(uid) { return UID_RE.test(uid) ? getDoc(`chatPrefs/${uid}`) : null; },
+    async setChatPrefs(uid, p) {
+      if (!UID_RE.test(uid)) throw new Error('bad uid');
+      await call(`${base}/chatPrefs/${uid}?updateMask.fieldPaths=readReceipts`, { method: 'PATCH', body: JSON.stringify({ fields: { readReceipts: toValue(!!p.readReceipts) } }) });
+    },
     // Create-only: fails (409) if the thread already exists, so a double accept never seeds twice.
     async createThread(id, t) {
       const fields = Object.fromEntries(Object.entries(t).map(([k, v]) => [k, toValue(v)]));

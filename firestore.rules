@@ -76,7 +76,8 @@ service cloud.firestore {
     }
     // Creatures v2 look from src/character-data.js sanitize(): exactly {creature, accessory}.
     function creatureLook(l) {
-      return l.keys().hasOnly(['creature','accessory']) && l.keys().hasAll(['creature','accessory'])
+      return l.keys().hasOnly(['creature','accessory','color']) && l.keys().hasAll(['creature','accessory'])
+        && (!('color' in l) || (l.color is string && l.color.matches('^#[0-9a-f]{6}$')))
         && l.creature in ['blob','puff','sprout','pebble','drip','mallow']
         && l.accessory in ['none','glasses','beanie','tuft','headphones','bow'];
     }
