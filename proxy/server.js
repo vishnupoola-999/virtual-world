@@ -1100,7 +1100,7 @@ async function handleApps(req, res, ctx, url) {
     res.statusCode = 302; res.setHeader('Location', to); res.setHeader('Cache-Control', 'no-store'); res.end();
     return true;
   }
-  const am = url.pathname.match(/^\/apps\/([a-z]{1,20})(\/connect)?$/);
+  const am = url.pathname.match(/^\/apps\/([a-z]{1,20})(\/connect|\/confirm)?$/);
   const ac = url.pathname.match(/^\/actions\/(act_[0-9a-f]{24})$/);
   const list = url.pathname === '/apps' && req.method === 'GET';
   if (!list && !(am && ((am[2] && req.method === 'POST') || (!am[2] && req.method === 'DELETE'))) && !(ac && req.method === 'POST')) return false;
@@ -1113,6 +1113,11 @@ async function handleApps(req, res, ctx, url) {
     if (ac) {
       const body = await readJson(req);
       sendJson(res, 200, await c.decide(uid, ac[1], body.decision));
+      return true;
+    }
+    if (am[2] === '/confirm') {
+      const body = await readJson(req);
+      sendJson(res, 200, await c.confirm(uid, am[1], body.c));
       return true;
     }
     sendJson(res, 200, am[2] ? await c.startConnect(uid, am[1]) : await c.disconnect(uid, am[1]));
@@ -1244,7 +1249,7 @@ export function createServer(options = {}) {
       req.resume();
       const status = error instanceof HttpError ? error.statusCode : 500;
       if (!(error instanceof HttpError)) console.error('proxy', error);
-      else console.warn('chat rejected', req.method, req.url, status, error.message);
+      else console.warn('chat rejected', req.method, new URL(req.url || '/', 'http://127.0.0.1').pathname, status, error.message);
       const message = error instanceof HttpError ? error.message : 'bad request';
       sendJson(res, status, { error: message });
     }

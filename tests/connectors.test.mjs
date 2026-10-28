@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { randomBytes } from 'node:crypto';
-import { signState, verifyState, encrypt, decrypt, parseKey } from '../proxy/connectors/crypto.js';
+import { signState, verifyState, encrypt, decrypt, parseKey, keyId } from '../proxy/connectors/crypto.js';
 import { cleanArgs, runTool, authUrl, appsFromScopes, SCOPES, composeLinks } from '../proxy/connectors/google.js';
 import { createConnectors, ACTION_TTL_MS } from '../proxy/connectors/index.js';
 import { createServer } from '../proxy/server.js';
@@ -10,8 +10,8 @@ const KEY = randomBytes(32);
 const json = (status, body) => ({ ok: status < 400, status, json: async () => body });
 
 test('state: signed, bound to uid, tamper/expiry/wrong-key rejected', () => {
-  const s = signState(KEY, { uid: 'u1', provider: 'google', apps: ['drive'], ret: 'gdrive' }, 1000);
-  assert.deepEqual(verifyState(KEY, s, 2000), { uid: 'u1', provider: 'google', apps: ['drive'], ret: 'gdrive' });
+  const s = signState(KEY, { uid: 'u1', provider: 'google', apps: ['drive'], ret: 'gdrive', nonce: 'n'.repeat(24) }, 1000);
+  assert.deepEqual(verifyState(KEY, s, 2000), { uid: 'u1', provider: 'google', apps: ['drive'], ret: 'gdrive', nonce: 'n'.repeat(24) });
   const [body, mac] = s.split('.');
   const forged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, 'base64url')), u: 'attacker' })).toString('base64url');
   assert.equal(verifyState(KEY, `${forged}.${mac}`, 2000), null);
@@ -33,7 +33,7 @@ test('encryption: round trip, bound to uid', () => {
 
 test('consent URL: offline, incremental, only the asked scopes', () => {
   const u = new URL(authUrl({ clientId: 'cid', redirectUri: 'https://x/cb' }, ['drive'], 'st'));
-  assert.equal(u.searchParams.get('scope'), 'https://www.googleapis.com/auth/drive.file');
+  assert.equal(u.searchParams.get('scope'), 'openid email https://www.googleapis.com/auth/drive.file');
   assert.deepEqual(Object.values(SCOPES).flat().sort(), ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/drive.file'], 'only non-restricted scopes; no Gmail, no drive.readonly');
   assert.equal(u.searchParams.get('include_granted_scopes'), 'true');
   assert.equal(u.searchParams.get('access_type'), 'offline');
@@ -78,13 +78,15 @@ test('tool handlers call the right Google APIs (mocked)', async () => {
 
 function harness() {
   const docs = new Map();
-  const store = { get: async (u) => (docs.has(u) ? structuredClone(docs.get(u)) : null), put: async (u, r) => { docs.set(u, structuredClone(r)); }, del: async (u) => { docs.delete(u); } };
+  const pend = new Map();
+  const store = { get: async (u) => (docs.has(u) ? structuredClone(docs.get(u)) : null), put: async (u, r) => { docs.set(u, structuredClone(r)); }, del: async (u) => { docs.delete(u); },
+    putPending: async (n, r) => { pend.set(n, structuredClone(r)); }, takePending: async (n) => { const r = pend.get(n); pend.delete(n); return r ? structuredClone(r) : null; } };
   const calls = [];
   let t = 1_000_000;
   const all = [SCOPES.drive[0], SCOPES.calendar[0]].join(' ');
   const fetchImpl = async (url, init = {}) => {
     calls.push({ url: String(url), body: String(init.body || '') });
-    if (url.includes('oauth2.googleapis.com/token')) return init.body.includes('authorization_code') ? json(200, { access_token: 'AT', refresh_token: 'RT1', scope: all }) : json(200, { access_token: 'AT2' });
+    if (url.includes('oauth2.googleapis.com/token')) return init.body.includes('authorization_code') ? json(200, { access_token: 'AT', refresh_token: 'RT1', scope: `openid email ${all}`, id_token: `x.${Buffer.from(JSON.stringify({ email: 'vishnu@example.com', email_verified: true })).toString('base64url')}.y` }) : json(200, { access_token: 'AT2' });
     if (url.includes('/revoke')) return json(200, {});
     if (url.includes('/events?')) return json(200, { items: [] });
     if (url.endsWith('/events')) return json(200, { id: 'e1', htmlLink: 'https://c/e1' });
@@ -92,7 +94,14 @@ function harness() {
   };
   const env = { GOOGLE_OAUTH_CLIENT_ID: 'cid', GOOGLE_OAUTH_CLIENT_SECRET: 'sec', CONNECTOR_TOKEN_KEY: KEY.toString('base64') };
   const c = createConnectors({ env, store, fetchImpl, now: () => t });
-  return { c, docs, calls, tick: (ms) => { t += ms; } };
+  return { c, docs, pend, calls, tick: (ms) => { t += ms; } };
+}
+// Full round trip: start -> Google callback -> signed-in confirm.
+async function connect(c, uid, app) {
+  const st = new URL((await c.startConnect(uid, app)).authUrl).searchParams.get('state');
+  const back = await c.callback('google', new URLSearchParams({ state: st, code: 'C' }));
+  const cid = new URLSearchParams(back.split('#/me?')[1]).get('c');
+  return c.confirm(uid, app, cid);
 }
 
 test('connect flow: start, callback stores record, list, disconnect revokes; Gmail needs no sign-in', async () => {
@@ -106,9 +115,14 @@ test('connect flow: start, callback stores record, list, disconnect revokes; Gma
   const { authUrl: url } = await c.startConnect('u1', 'gcal');
   assert.ok(!url.includes('gmail') && !url.includes('readonly'));
   const state = new URL(url).searchParams.get('state');
+  assert.deepEqual(new URL(url).searchParams.get('scope').split(' ').slice(0, 2), ['openid', 'email']);
   const back = await c.callback('google', new URLSearchParams({ state, code: 'CODE' }));
-  assert.match(back, /#\/me\?app=gcal&result=ok$/);
+  assert.match(back, /#\/me\?app=gcal&result=ok&c=[A-Za-z0-9_-]{24}$/);
+  assert.equal(docs.has('u1'), false, 'callback must not store tokens');
+  const cid = new URLSearchParams(back.split('#/me?')[1]).get('c');
+  assert.deepEqual(await c.confirm('u1', 'gcal', cid), { state: 'connected', account: 'vishnu@example.com' });
   assert.equal(docs.get('u1').google.rt, 'RT1');
+  assert.equal((await c.listApps('u1')).find((a) => a.id === 'gcal').account, 'vishnu@example.com');
   const apps = await c.listApps('u1');
   assert.equal(apps.find((a) => a.id === 'gcal').state, 'connected');
   assert.equal(apps.find((a) => a.id === 'gdrive').state, 'connect');
@@ -120,8 +134,7 @@ test('connect flow: start, callback stores record, list, disconnect revokes; Gma
 
 test('agent actions: read runs now, write waits for approve, idempotent, cancel, expiry; Gmail is link-only', async () => {
   const { c, tick, calls } = harness();
-  const st = new URL((await c.startConnect('u1', 'gcal')).authUrl).searchParams.get('state');
-  await c.callback('google', new URLSearchParams({ state: st, code: 'C' }));
+  await connect(c, 'u1', 'gcal');
   assert.deepEqual((await c.toolsFor('u1')).apps.sort(), ['calendar', 'gmail']);
   const read = await c.handleCall('u1', { name: 'calendar_upcoming', args: { days: 2 } }, 'UTC');
   assert.match(read.result.text, /Nothing on your calendar/);
@@ -171,8 +184,7 @@ test('not configured: /apps says soon, connect returns 503', async () => {
 
 test('chat: connected tools are offered and a write comes back as a pending action, not executed', async () => {
   const { c } = harness();
-  const st = new URL((await c.startConnect('u1', 'gcal')).authUrl).searchParams.get('state');
-  await c.callback('google', new URLSearchParams({ state: st, code: 'C' }));
+  await connect(c, 'u1', 'gcal');
   let sent;
   const fetchImpl = async (url, init) => {
     sent = JSON.parse(init.body);
@@ -214,8 +226,7 @@ test('DELETE revokes at Google before deleting; tokens never in responses or log
   const orig = { error: console.error, warn: console.warn, log: console.log };
   for (const k of Object.keys(orig)) console[k] = (...a) => logs.push(a.map(String).join(' '));
   try {
-    const st = new URL((await c.startConnect('u1', 'gcal')).authUrl).searchParams.get('state');
-    await c.callback('google', new URLSearchParams({ state: st, code: 'C' }));
+    await connect(c, 'u1', 'gcal');
     const out = [];
     out.push(await c.listApps('u1'));
     const { action } = await c.handleCall('u1', { name: 'calendar_create_event', args: { title: 't', start: '2026-11-01T10:00:00Z', end: '2026-11-01T11:00:00Z' } }, 'UTC');
@@ -228,6 +239,68 @@ test('DELETE revokes at Google before deleting; tokens never in responses or log
     out.push(await c.disconnect('u1', 'gcal'));
     assert.equal(deletedWhileRevoked, true, 'revoke happens before delete');
     const blob = JSON.stringify(out) + logs.join('\n');
-    for (const secret of ['RT1', 'AT2', '"AT"', 'sec']) assert.ok(!blob.includes(secret), `leaked ${secret}`);
+    for (const secret of ['RT1', 'AT2', '"AT"', 'sec', 'CODE']) assert.ok(!blob.includes(secret), `leaked ${secret}`);
   } finally { Object.assign(console, orig); }
+});
+
+test('login CSRF: state is single use, confirm needs the same uid, unconfirmed grants expire', async () => {
+  const { c, docs, pend, tick } = harness();
+  const st = new URL((await c.startConnect('u1', 'gcal')).authUrl).searchParams.get('state');
+  const first = await c.callback('google', new URLSearchParams({ state: st, code: 'C' }));
+  assert.match(first, /result=ok/);
+  assert.match(await c.callback('google', new URLSearchParams({ state: st, code: 'C2' })), /result=error$/, 'reused state rejected');
+  const cid = new URLSearchParams(first.split('#/me?')[1]).get('c');
+  // Attacker's grant landing in a victim's app: the victim's uid does not match.
+  await assert.rejects(c.confirm('victim', 'gcal', cid), (e) => e.status === 403);
+  assert.equal(docs.has('victim'), false);
+  assert.equal(docs.has('u1'), false);
+  await assert.rejects(c.confirm('u1', 'gcal', cid), (e) => e.status === 410, 'confirm id is single use too');
+  // Unconfirmed pending expires.
+  const st2 = new URL((await c.startConnect('u1', 'gcal')).authUrl).searchParams.get('state');
+  const b2 = await c.callback('google', new URLSearchParams({ state: st2, code: 'C' }));
+  tick(11 * 60_000);
+  await assert.rejects(c.confirm('u1', 'gcal', new URLSearchParams(b2.split('#/me?')[1]).get('c')), (e) => e.status === 410);
+  assert.equal(docs.has('u1'), false);
+  // Expired state nonce rejected at callback.
+  const st3 = new URL((await c.startConnect('u1', 'gcal')).authUrl).searchParams.get('state');
+  tick(11 * 60_000);
+  assert.match(await c.callback('google', new URLSearchParams({ state: st3, code: 'C' })), /result=error$/);
+  // A validly signed state whose nonce was never stored (or was already consumed) is rejected.
+  pend.clear();
+  const unstored = signState(KEY, { uid: 'u1', provider: 'google', apps: ['calendar'], ret: 'gcal' }, 1_000_000 + 22 * 60_000);
+  assert.match(await c.callback('google', new URLSearchParams({ state: unstored, code: 'C' })), /result=error$/);
+});
+
+test('disconnect one Google app revokes the grant and marks the others reauth', async () => {
+  const { c, calls } = harness();
+  await connect(c, 'u1', 'gcal');
+  await connect(c, 'u1', 'gdrive');
+  const r = await c.disconnect('u1', 'gcal');
+  assert.deepEqual(r, { state: 'connect', reauth: ['gdrive'] });
+  assert.ok(calls.some((x) => x.url.includes('/revoke')));
+  const apps = await c.listApps('u1');
+  assert.equal(apps.find((a) => a.id === 'gcal').state, 'connect');
+  assert.equal(apps.find((a) => a.id === 'gdrive').state, 'reauth');
+  assert.equal((await c.handleCall('u1', { name: 'drive_search', args: {} }, 'UTC')).result.error, 'reauth');
+  await connect(c, 'u1', 'gdrive');
+  assert.equal((await c.listApps('u1')).find((a) => a.id === 'gdrive').state, 'connected');
+});
+
+test('wrong key: record reads as reauth, not a 500; ciphertext carries a key id', async () => {
+  const { firestoreTokenStore } = await import('../proxy/connectors/index.js');
+  let doc = null;
+  const admin = { projectId: 'p', now: () => 1, accessToken: async () => 'ADMIN', fetchImpl: async (url, init = {}) => {
+    if (init.method === 'PATCH') { doc = JSON.parse(init.body); return json(200, {}); }
+    return doc ? json(200, doc) : json(404, {});
+  } };
+  await firestoreTokenStore(admin, KEY).put('u1', { google: { rt: 'X', apps: ['calendar'] } });
+  assert.match(doc.fields.data.stringValue, new RegExp(`^v2\\.${keyId(KEY)}\\.`));
+  const other = randomBytes(32);
+  const store = firestoreTokenStore(admin, other);
+  assert.deepEqual(await store.get('u1'), { _corrupt: true });
+  const env = { GOOGLE_OAUTH_CLIENT_ID: 'cid', GOOGLE_OAUTH_CLIENT_SECRET: 's', CONNECTOR_TOKEN_KEY: other.toString('base64') };
+  const c = createConnectors({ env, store, fetchImpl: async () => json(500, {}) });
+  const apps = await c.listApps('u1');
+  assert.equal(apps.find((a) => a.id === 'gcal').state, 'reauth');
+  assert.equal(apps.find((a) => a.id === 'gdrive').state, 'reauth');
 });

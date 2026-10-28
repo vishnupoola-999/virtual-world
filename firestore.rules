@@ -115,6 +115,10 @@ service cloud.firestore {
     match /connectorTokens/{uid} {
       allow read, write: if false;
     }
+    // Single-use OAuth state nonces and exchanged-but-unconfirmed grants (10 min). Proxy only.
+    match /connectorPending/{nonce} {
+      allow read, write: if false;
+    }
     match /{document=**} { allow read, write: if false; }
   }
 }

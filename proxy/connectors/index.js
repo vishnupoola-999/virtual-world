@@ -2,7 +2,7 @@
 // pending agent actions and the HTTP handlers. Add Notion/Spotify by adding a provider + APP_DEFS entries.
 import { randomBytes } from 'node:crypto';
 import * as google from './google.js';
-import { decrypt, encrypt, parseKey, signState, verifyState } from './crypto.js';
+import { decrypt, encrypt, KeyMismatchError, newNonce, parseKey, signState, verifyState } from './crypto.js';
 
 // Public app ids (Diggy's spec) -> provider + provider-local app.
 export const APP_DEFS = [
@@ -21,12 +21,21 @@ const APP_RETURN = 'https://vishnupoola-999.github.io/virtual-world/';
 
 export class ConnectHttpError extends Error { constructor(status, message, extra = {}) { super(message); this.status = status; this.extra = extra; } }
 
-// Firestore REST store for connectorTokens/{uid}: one field `data` = AES-GCM(JSON record), uid as AAD.
-// firestore.rules deny this collection to every client; only the proxy's admin token can touch it.
+// Firestore REST store. connectorTokens/{uid}: one field `data` = AES-GCM(JSON record), uid as AAD.
+// connectorPending/{nonce}: OAuth state nonces and exchanged-but-unconfirmed grants, AES-GCM with the nonce as AAD.
+// firestore.rules deny both collections to every client; only the proxy's admin token can touch them.
+// Logs carry HTTP status codes only.
 export function firestoreTokenStore(admin, key, db = 'default') {
   if (!admin || !key) return null;
-  const url = (uid) => `https://firestore.googleapis.com/v1/projects/${admin.projectId}/databases/${encodeURIComponent(db)}/documents/connectorTokens/${uid}`;
+  const base = `https://firestore.googleapis.com/v1/projects/${admin.projectId}/databases/${encodeURIComponent(db)}/documents`;
+  const url = (uid) => `${base}/connectorTokens/${uid}`;
+  const purl = (n) => `${base}/connectorPending/${n}`;
   const auth = async () => ({ Authorization: `Bearer ${await admin.accessToken()}` });
+  const write = async (u, blob, extra = {}) => {
+    const body = { fields: { data: { stringValue: blob }, updatedAt: { timestampValue: new Date(admin.now()).toISOString() }, ...extra } };
+    const r = await admin.fetchImpl(u, { method: 'PATCH', headers: { ...await auth(), 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error(`token write ${r.status}`);
+  };
   return {
     async get(uid) {
       if (!UID_RE.test(uid)) return null;
@@ -34,20 +43,39 @@ export function firestoreTokenStore(admin, key, db = 'default') {
       if (r.status === 404) return null;
       if (!r.ok) throw new Error(`token read ${r.status}`);
       const blob = (await r.json()).fields?.data?.stringValue;
-      return blob ? JSON.parse(decrypt(key, blob, uid)) : null;
+      if (!blob) return null;
+      // Wrong/rotated key or damaged doc: treat as signed out (state 'reauth'), never a 500.
+      try { return JSON.parse(decrypt(key, blob, uid)); } catch (e) { console.warn('connector record unreadable', e instanceof KeyMismatchError ? 'key id mismatch' : 'decrypt failed'); return { _corrupt: true }; }
     },
     async put(uid, rec) {
       if (!UID_RE.test(uid)) throw new Error('bad uid');
-      const body = { fields: { data: { stringValue: encrypt(key, JSON.stringify(rec), uid) }, updatedAt: { timestampValue: new Date(admin.now()).toISOString() } } };
-      const r = await admin.fetchImpl(url(uid), { method: 'PATCH', headers: { ...await auth(), 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(8000) });
-      if (!r.ok) throw new Error(`token write ${r.status}`);
+      await write(url(uid), encrypt(key, JSON.stringify(rec), uid));
     },
     async del(uid) {
       if (!UID_RE.test(uid)) return;
-      await admin.fetchImpl(url(uid), { method: 'DELETE', headers: await auth(), signal: AbortSignal.timeout(8000) });
+      const r = await admin.fetchImpl(url(uid), { method: 'DELETE', headers: await auth(), signal: AbortSignal.timeout(8000) });
+      if (!r.ok) console.warn('connector token delete failed', r.status);
+    },
+    async putPending(nonce, rec) {
+      if (!NONCE_RE.test(nonce)) throw new Error('bad nonce');
+      await write(purl(nonce), encrypt(key, JSON.stringify(rec), `pending:${nonce}`), { expireAt: { timestampValue: new Date(rec.exp).toISOString() } });
+    },
+    // Single use: read, then delete with an updateTime precondition. Only one caller can win the delete.
+    async takePending(nonce) {
+      if (!NONCE_RE.test(nonce)) return null;
+      const r = await admin.fetchImpl(purl(nonce), { headers: await auth(), signal: AbortSignal.timeout(5000) });
+      if (!r.ok) return null;
+      const doc = await r.json();
+      const d = await admin.fetchImpl(`${purl(nonce)}?currentDocument.updateTime=${encodeURIComponent(doc.updateTime || '')}`, { method: 'DELETE', headers: await auth(), signal: AbortSignal.timeout(5000) });
+      if (!d.ok) { console.warn('connector pending consume failed', d.status); return null; }
+      try { return JSON.parse(decrypt(key, doc.fields?.data?.stringValue, `pending:${nonce}`)); } catch { return null; }
     },
   };
 }
+
+export const STATE_TTL_MS = 10 * 60_000;
+export const CONFIRM_TTL_MS = 10 * 60_000;
+const NONCE_RE = /^[A-Za-z0-9_-]{16,40}$/;
 
 export function createConnectors({ env = process.env, admin = null, store, fetchImpl = fetch, now = () => Date.now() } = {}) {
   const key = parseKey(env.CONNECTOR_TOKEN_KEY);
@@ -58,9 +86,11 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
   const notConfigured = () => new ConnectHttpError(503, 'not configured');
 
   async function record(uid) { return (await tokens.get(uid)) || {}; }
+  const clean = (rec) => (rec._corrupt ? {} : rec);
   function appState(def, rec) {
     if (def.linkOnly) return 'connected';
     if (!ready(def.provider)) return 'soon';
+    if (rec._corrupt) return 'reauth';
     const p = rec[def.provider];
     if (!p || !(p.apps || []).includes(def.app)) return 'connect';
     return p.broken ? 'reauth' : 'connected';
@@ -81,58 +111,85 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
     if (!def) throw new ConnectHttpError(404, 'unknown app');
     if (def.linkOnly) throw new ConnectHttpError(400, 'no sign-in needed');
     if (!ready(def.provider)) throw notConfigured();
-    const rec = await record(uid);
+    const rec = clean(await record(uid));
     // Incremental: ask for this app's scopes; include_granted_scopes keeps the ones already granted.
     const have = (rec[def.provider]?.apps || []).filter((a) => a !== def.app && !rec[def.provider]?.broken);
-    const state = signState(key, { uid, provider: def.provider, apps: [...have, def.app], ret: appId }, now());
+    const nonce = newNonce();
+    const apps = [...have, def.app];
+    await tokens.putPending(nonce, { stage: 'state', uid, provider: def.provider, apps, ret: appId, exp: now() + STATE_TTL_MS });
+    const state = signState(key, { uid, provider: def.provider, apps, ret: appId, nonce }, now());
     return { authUrl: PROVIDERS[def.provider].authUrl(cfg[def.provider], [def.app], state) };
   }
 
-  // Returns the URL to send the browser back to. Never throws: failures become result=error.
+  // Browser redirect from Google. Consumes the state nonce (single use), exchanges the code, and parks the result
+  // under a new confirm id. Nothing is saved to the user's record until the signed-in app calls confirm().
   async function callback(provider, query) {
-    const back = (appId, result) => `${APP_RETURN}#/me?app=${encodeURIComponent(appId || '')}&result=${result}`;
+    const back = (appId, result, c) => `${APP_RETURN}#/me?app=${encodeURIComponent(appId || '')}&result=${result}${c ? `&c=${c}` : ''}`;
     if (!ready(provider)) return back('', 'error');
     const st = verifyState(key, query.get('state'), now());
     if (!st || st.provider !== provider || !BY_ID.has(st.ret)) return back('', 'error');
-    const code = query.get('code');
-    if (!code || query.get('error')) return back(st.ret, 'error');
     try {
+      const saved = await tokens.takePending(st.nonce);
+      if (!saved || saved.stage !== 'state' || saved.uid !== st.uid || saved.ret !== st.ret || saved.exp < now()) return back(st.ret, 'error');
+      const code = query.get('code');
+      if (!code || query.get('error')) return back(st.ret, 'error');
       const P = PROVIDERS[provider];
       const ex = await P.exchangeCode(cfg[provider], code, fetchImpl);
-      const rec = await record(st.uid);
-      const prev = rec[provider] || {};
-      const refreshToken = ex.refreshToken || prev.rt;
-      if (!refreshToken) return back(st.ret, 'error');
       const granted = P.appsFromScopes(ex.scopes);
-      const apps = [...new Set([...(prev.broken ? [] : prev.apps || []), ...st.apps])].filter((a) => granted.includes(a));
-      if (!apps.includes(BY_ID.get(st.ret).app)) return back(st.ret, 'error'); // user unticked the scope
-      rec[provider] = { rt: refreshToken, apps, scopes: ex.scopes, lastUsed: prev.lastUsed || {}, connectedAt: now() };
-      await tokens.put(st.uid, rec);
-      return back(st.ret, 'ok');
+      if (!granted.includes(BY_ID.get(st.ret).app)) return back(st.ret, 'error'); // user unticked the scope
+      const c = newNonce();
+      await tokens.putPending(c, { stage: 'exchanged', uid: st.uid, provider, apps: saved.apps, ret: st.ret, exp: now() + CONFIRM_TTL_MS, rt: ex.refreshToken, scopes: ex.scopes, email: ex.email || '' });
+      return back(st.ret, 'ok', c);
     } catch (e) {
-      console.error('connect callback failed', e.code || String(e.message).slice(0, 80));
+      console.error('connect callback failed', e.code || 'error');
       return back(st.ret, 'error');
     }
   }
 
+  // POST /apps/:id/confirm {c}. The caller's Firebase uid must match the uid that started the flow.
+  async function confirm(uid, appId, c) {
+    const def = BY_ID.get(appId);
+    if (!def) throw new ConnectHttpError(404, 'unknown app');
+    if (!ready(def.provider)) throw notConfigured();
+    if (typeof c !== 'string' || !NONCE_RE.test(c)) throw new ConnectHttpError(400, 'bad request');
+    const p = await tokens.takePending(c);
+    if (!p || p.stage !== 'exchanged' || p.ret !== appId || p.provider !== def.provider) throw new ConnectHttpError(410, 'expired');
+    if (p.uid !== uid) throw new ConnectHttpError(403, 'not your connection');
+    if (p.exp < now()) throw new ConnectHttpError(410, 'expired');
+    const rec = clean(await record(uid));
+    const prev = rec[def.provider] || {};
+    const refreshToken = p.rt || (prev.broken ? '' : prev.rt);
+    if (!refreshToken) throw new ConnectHttpError(409, 'reauth');
+    const granted = PROVIDERS[def.provider].appsFromScopes(p.scopes);
+    const apps = [...new Set([...(prev.broken ? [] : prev.apps || []), ...p.apps])].filter((a) => granted.includes(a));
+    rec[def.provider] = { rt: refreshToken, apps, scopes: p.scopes, account: p.email || prev.account || '', lastUsed: prev.lastUsed || {}, connectedAt: now() };
+    await tokens.put(uid, rec);
+    return { state: 'connected', ...(rec[def.provider].account ? { account: rec[def.provider].account } : {}) };
+  }
+
+  // Google can't revoke one scope, so disconnecting any Google app revokes the whole grant. Other Google apps
+  // stay listed as 'reauth' (Sign in again); the UI says so before the owner confirms.
   async function disconnect(uid, appId) {
     const def = BY_ID.get(appId);
     if (!def) throw new ConnectHttpError(404, 'unknown app');
     if (def.linkOnly) throw new ConnectHttpError(400, 'nothing to disconnect');
     if (!ready(def.provider)) throw notConfigured();
-    const rec = await record(uid);
+    const rec = clean(await record(uid));
     const p = rec[def.provider];
+    let others = [];
     if (p) {
-      p.apps = (p.apps || []).filter((a) => a !== def.app);
-      if (!p.apps.length) {
-        // Last app on this provider: revoke the grant at Google, then forget the token.
-        await PROVIDERS[def.provider].revoke(p.rt, fetchImpl);
-        delete rec[def.provider];
+      if (p.rt) {
+        const status = await PROVIDERS[def.provider].revoke(p.rt, fetchImpl);
+        if (status !== 200) console.warn('connector revoke failed', status);
       }
-      if (Object.keys(rec).length) await tokens.put(uid, rec); else await tokens.del(uid);
+      others = (p.apps || []).filter((a) => a !== def.app);
+      if (others.length) rec[def.provider] = { apps: others, broken: true, account: p.account || '', lastUsed: p.lastUsed || {} };
+      else delete rec[def.provider];
     }
-    for (const [id, a] of pending) if (a.uid === uid && a.app === appId) pending.delete(id);
-    return { state: 'connect' };
+    if (Object.keys(rec).length) await tokens.put(uid, rec); else await tokens.del(uid);
+    for (const [id, a] of pending) if (a.uid === uid && (a.app === appId || others.length)) pending.delete(id);
+    const reauth = APP_DEFS.filter((d) => d.provider === def.provider && others.includes(d.app)).map((d) => d.id);
+    return { state: 'connect', ...(reauth.length ? { reauth } : {}) };
   }
 
   // ---- chat integration -------------------------------------------------------------------
@@ -151,7 +208,7 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
   const appIdOf = (name) => (google.TOOLS[name].link ? 'gmail' : APP_DEFS.find((d) => d.provider === 'google' && d.app === google.TOOLS[name].app).id);
 
   async function accessToken(uid) {
-    const rec = await record(uid);
+    const rec = clean(await record(uid));
     const g = rec.google;
     if (!g?.rt || g.broken) throw new google.ConnectorError('revoked', 'Sign in again to finish this.', 409);
     try { return await google.refreshAccess(cfg.google, g.rt, fetchImpl); } catch (e) {
@@ -215,7 +272,7 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
     }
   }
 
-  return { configured: () => ready('google'), listApps, startConnect, callback, disconnect, toolsFor, isTool, handleCall, decide, _pending: pending };
+  return { configured: () => ready('google'), listApps, startConnect, callback, confirm, disconnect, toolsFor, isTool, handleCall, decide, _pending: pending };
 }
 
 export function describe(name, args) {

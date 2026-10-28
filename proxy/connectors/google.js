@@ -26,7 +26,8 @@ export function config(env = process.env) {
 }
 
 export function authUrl(cfg, apps, state) {
-  const scope = apps.flatMap((a) => SCOPES[a] || []);
+  // openid + email (non-sensitive) so we can show which Google account is connected.
+  const scope = ['openid', 'email', ...apps.flatMap((a) => SCOPES[a] || [])];
   const q = new URLSearchParams({
     client_id: cfg.clientId, redirect_uri: cfg.redirectUri, response_type: 'code', scope: scope.join(' '),
     access_type: 'offline', include_granted_scopes: 'true', prompt: 'consent', state,
@@ -47,7 +48,16 @@ async function form(fetchImpl, url, params) {
 export async function exchangeCode(cfg, code, fetchImpl) {
   const r = await form(fetchImpl, TOKEN_URL, { code, client_id: cfg.clientId, client_secret: cfg.clientSecret, redirect_uri: cfg.redirectUri, grant_type: 'authorization_code' });
   if (!r.ok || !r.json.access_token) throw new ConnectorError('exchange', 'Google sign-in did not finish.');
-  return { refreshToken: r.json.refresh_token || '', accessToken: r.json.access_token, scopes: String(r.json.scope || '').split(' ').filter(Boolean) };
+  return { refreshToken: r.json.refresh_token || '', accessToken: r.json.access_token, scopes: String(r.json.scope || '').split(' ').filter(Boolean), email: idTokenEmail(r.json.id_token) };
+}
+
+// The id_token came straight from Google's token endpoint over TLS, so (per OIDC Core 3.1.3.7) its claims can be read
+// without re-checking the signature. We only use the email for display.
+export function idTokenEmail(idToken) {
+  try {
+    const p = JSON.parse(Buffer.from(String(idToken || '').split('.')[1] || '', 'base64url').toString('utf8'));
+    return typeof p.email === 'string' && p.email.length <= 254 && p.email_verified !== false ? p.email : '';
+  } catch { return ''; }
 }
 
 export async function refreshAccess(cfg, refreshToken, fetchImpl) {
@@ -57,9 +67,10 @@ export async function refreshAccess(cfg, refreshToken, fetchImpl) {
   return r.json.access_token;
 }
 
+// Returns the HTTP status (0 on network failure). Callers log the status only.
 export async function revoke(refreshToken, fetchImpl) {
-  if (!refreshToken) return;
-  await form(fetchImpl, REVOKE_URL, { token: refreshToken }).catch(() => {});
+  if (!refreshToken) return 200;
+  try { return (await form(fetchImpl, REVOKE_URL, { token: refreshToken })).status; } catch { return 0; }
 }
 
 // Which apps a granted scope list covers.

@@ -449,6 +449,19 @@ describe('rate limit counter rules', { concurrency: false }, () => {
     }
   });
 
+  test('connectorPending: no client can read, list, write or delete (proxy only)', async () => {
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), 'connectorPending', 'n1'), { data: 'v2.k.x.y.z' });
+    });
+    const owner = testEnv.authenticatedContext(ALICE, { firebase: { sign_in_provider: 'google.com' } }).firestore();
+    for (const d of [owner, db(BOB), db(null)]) {
+      await assertFails(getDoc(doc(d, 'connectorPending', 'n1')));
+      await assertFails(getDocs(collection(d, 'connectorPending')));
+      await assertFails(setDoc(doc(d, 'connectorPending', 'n2'), { data: 'x' }));
+      await assertFails(deleteDoc(doc(d, 'connectorPending', 'n1')));
+    }
+  });
+
   test('threads and messages: clients can never read, list, write or delete (proxy only)', async () => {
     await testEnv.withSecurityRulesDisabled(async (c) => {
       await setDoc(doc(c.firestore(), 'threads', 't1'), { members: [ALICE, BOB], ids: ['h_a', 'h_b'] });

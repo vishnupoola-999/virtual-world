@@ -9,18 +9,23 @@ async function call(user,path,init={}){const t=await user.getIdToken();const r=a
   let j=null;try{j=await r.json();}catch{/* empty */}if(!r.ok){const e=new Error(j?.error||'failed');e.status=r.status;throw e;}return j;}
 export const listApps=u=>call(u,'/apps');
 export const decideAction=(u,id,decision)=>call(u,'/actions/'+encodeURIComponent(id),{method:'POST',body:JSON.stringify({decision})});
+const CK='vw-conn-confirm';
 const STATE={connect:['Connect','c'],connected:['Connected','ok'],reauth:['Sign in again','e'],soon:['Coming soon','w'],connecting:['Connecting…','w'],error:['Try again','e']};
-export function tileHtml(a){const [label,cls]=STATE[a.state]||STATE.soon;return `<button type="button" class="tile" data-app="${esc(a.id)}" data-state="${esc(a.state)}"${a.state==='soon'?' aria-disabled="true"':''}><span class="mk">${MARK[a.id]||esc(a.name[0])}</span><span class="tn">${esc(a.name)}</span><span class="st ${cls}">${label}</span></button>`;}
+export function tileHtml(a){const [label,cls]=STATE[a.state]||STATE.soon;return `<button type="button" class="tile" data-app="${esc(a.id)}" data-state="${esc(a.state)}"${a.state==='soon'?' aria-disabled="true"':''}><span class="mk">${MARK[a.id]||esc(a.name[0])}</span><span class="tn">${esc(a.name)}${a.account&&a.state!=='soon'?`<small>${esc(a.account)}</small>`:''}</span><span class="st ${cls}">${label}</span></button>`;}
 
 // Renders into box (a div in the Me sheet). Hidden when signed out/anonymous or the proxy has no /apps yet.
 export async function renderApps(box,user){if(!box)return;box.hidden=true;if(!user||user.isAnonymous)return;
+  // Finish an OAuth round trip: the proxy only saves the grant once this signed-in user confirms it.
+  let back=null;try{back=JSON.parse(sessionStorage.getItem(CK)||'null');sessionStorage.removeItem(CK);}catch{/* storage blocked */}
+  if(back?.c&&back.app){try{await call(user,'/apps/'+encodeURIComponent(back.app)+'/confirm',{method:'POST',body:JSON.stringify({c:back.c})});buzz([15,40,15]);toast('Connected');}catch{toast("Couldn't connect. Try again.");}}
   let data;try{data=await listApps(user);}catch{return;}
   const apps=Array.isArray(data?.apps)?data.apps:[];if(!apps.length)return;
   const n=apps.filter(a=>a.state==='connected').length;
   box.innerHTML=`<div class="appsHd"><span class="cap">Apps</span><span class="meta">${n} of ${apps.length} connected</span></div><div class="appsList">${apps.map(tileHtml).join('')}</div><div class="appsAsk" hidden></div><p class="meta appsNote">Your agent always asks before it sends, pays or submits.</p>`;
   box.hidden=false;const ask=box.querySelector('.appsAsk');
   for(const b of box.querySelectorAll('.tile'))b.onclick=async()=>{const a=apps.find(x=>x.id===b.dataset.app);if(!a||a.state==='soon'){toast('Coming soon');return;}
-    if(a.state==='connected'){ask.hidden=false;ask.innerHTML=`<p>Disconnect ${esc(a.name)}? Your agent loses access straight away.</p><div class="acts"><button type="button" class="ghost">Cancel</button><button type="button" class="primary">Disconnect</button></div>`;
+    if(a.state==='connected'){ask.hidden=false;const g=apps.filter(x=>x.id!==a.id&&/^g(drive|cal)$/.test(x.id)&&x.state==='connected').map(x=>x.name);
+      ask.innerHTML=`<p>Disconnect ${esc(a.name)}? Your agent loses access straight away.${/^g(drive|cal)$/.test(a.id)&&g.length?` Google removes access for the whole account, so ${esc(g.join(' and '))} will need you to sign in again.`:''}</p><div class="acts"><button type="button" class="ghost">Cancel</button><button type="button" class="primary">Disconnect</button></div>`;
       ask.querySelector('.ghost').onclick=()=>{ask.hidden=true;};
       ask.querySelector('.primary').onclick=async()=>{try{await call(user,'/apps/'+a.id,{method:'DELETE'});toast(`${a.name} disconnected`);}catch{toast("Couldn't disconnect. Try again.");}renderApps(box,user);};return;}
     const st=b.querySelector('.st');st.className='st w';st.textContent='Connecting…';
@@ -30,7 +35,8 @@ export async function renderApps(box,user){if(!box)return;box.hidden=true;if(!us
 // After the OAuth round trip the proxy sends us to #/me?app=<id>&result=ok|error. Returns {app,result} or null.
 export function readReturn(loc=location){const m=/^#\/me\?(.*)$/.exec(loc.hash||'');if(!m)return null;const q=new URLSearchParams(m[1]);
   try{history.replaceState(null,'',loc.pathname+loc.search);}catch{/* ignore */}
-  const r={app:q.get('app')||'',result:q.get('result')==='ok'?'ok':'error'};if(r.result==='ok')buzz([15,40,15]);toast(r.result==='ok'?'Connected':"Couldn't connect. Try again.");return r;}
+  const c=q.get('c')||'';const r={app:q.get('app')||'',result:q.get('result')==='ok'&&/^[A-Za-z0-9_-]{16,40}$/.test(c)?'ok':'error'};
+  if(r.result==='ok'){try{sessionStorage.setItem(CK,JSON.stringify({app:r.app,c}));}catch{/* storage blocked */}toast('Finishing…');}else toast("Couldn't connect. Try again.");return r;}
 
 // In-chat confirm card for one pending action {id, app, kind, title, summary, expiresAt}. Approve runs it once.
 const APP_NAME={gdrive:'Google Drive',gcal:'Google Calendar',gmail:'Gmail'};

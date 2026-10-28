@@ -1,7 +1,7 @@
 # Connect apps: one-time Google setup (Vishnu)
 
 None of this needs billing, a card or the Google Cloud credits. The Drive and Calendar APIs are free at our size.
-Only two scopes, both non-restricted: `drive.file` and `calendar.events`. Gmail needs no setup: the agent only opens a prefilled Gmail compose window.
+Scopes: `drive.file` and `calendar.events` (both non-restricted), plus `openid` and `email` (non-sensitive, only to show which Google account is connected). Gmail needs no setup: the agent only opens a prefilled Gmail compose window.
 About 10 minutes. Use the Google account that owns project **virtual-world-8ac82**.
 
 ## 1. Turn on the two APIs
@@ -16,8 +16,10 @@ Open each link, check the project picker at the top says **virtual-world-8ac82**
 3. Open **Audience**: https://console.cloud.google.com/auth/audience?project=virtual-world-8ac82
    Leave Publishing status on **Testing**. Under **Test users** click **Add users**, add every Google account that will try it (yours, Srilatha's, any testers), Save. Max 100. Only these accounts can connect.
 4. Open **Data access**: https://console.cloud.google.com/auth/scopes?project=virtual-world-8ac82
-   Click **Add or remove scopes**, paste these two into "Manually add scopes", click **Add to table**, then **Update**, then **Save**:
+   Click **Add or remove scopes**, paste these four into "Manually add scopes", click **Add to table**, then **Update**, then **Save**:
    ```
+   openid
+   email
    https://www.googleapis.com/auth/drive.file
    https://www.googleapis.com/auth/calendar.events
    ```
@@ -38,7 +40,7 @@ Open each link, check the project picker at the top says **virtual-world-8ac82**
 2. **Add Environment Variable** three times:
    - `GOOGLE_OAUTH_CLIENT_ID` = the Client ID
    - `GOOGLE_OAUTH_CLIENT_SECRET` = the Client secret
-   - `CONNECTOR_TOKEN_KEY` = a random 32-byte key. Make one at https://generate-random.org/encryption-key-generator (256-bit, Base64) or in a terminal: `openssl rand -base64 32`. Keep it forever; changing it disconnects everyone.
+   - `CONNECTOR_TOKEN_KEY` = a random 32-byte key. Make it in a terminal with `openssl rand -base64 32` and paste the output. Keep it forever; changing it signs everyone out of their apps.
 3. Click **Save, rebuild, and deploy**. `FIREBASE_SERVICE_ACCOUNT` is already set (the token store uses it).
 
 ## 5. Check
