@@ -612,6 +612,12 @@ export function lifeStore(admin) {
       await patch(`connects/${id}`, Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, toValue(v)])), Object.keys(fields), updateTime);
     },
     async getThread(id) { return getDoc(`threads/${id}`); },
+    // chatPrefs/{uid}: {readReceipts}. Server-only (catch-all deny in firestore.rules).
+    async getChatPrefs(uid) { return UID_RE.test(uid) ? getDoc(`chatPrefs/${uid}`) : null; },
+    async setChatPrefs(uid, p) {
+      if (!UID_RE.test(uid)) throw new Error('bad uid');
+      await call(`${base}/chatPrefs/${uid}?updateMask.fieldPaths=readReceipts`, { method: 'PATCH', body: JSON.stringify({ fields: { readReceipts: toValue(!!p.readReceipts) } }) });
+    },
     // Create-only: fails (409) if the thread already exists, so a double accept never seeds twice.
     async createThread(id, t) {
       const fields = Object.fromEntries(Object.entries(t).map(([k, v]) => [k, toValue(v)]));

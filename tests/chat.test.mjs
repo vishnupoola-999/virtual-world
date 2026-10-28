@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { describe, test } from 'node:test';
-import { createServer, chatText, introText, dedupeMeets, threadIdFor } from '../proxy/server.js';
+import { createServer, creatureLookOut, chatText, introText, dedupeMeets, threadIdFor } from '../proxy/server.js';
 import { hashId } from '../proxy/life.js';
 
 const SALT = 'test-salt';
@@ -137,6 +137,63 @@ describe('connect -> private chat', () => {
   });
 });
 
+describe('chat presence and receipts', () => {
+  const setup = (store) => { const prefs = new Map(); store.getChatPrefs = async (u) => prefs.get(u) || null; store.setChatPrefs = async (u, p) => { prefs.set(u, p); }; return prefs; };
+  test('typing: members only, rate limited, other side sees typingUntil', async () => {
+    const store = memStore(); setup(store);
+    await withApi(store, async (call) => {
+      const { json } = await call(BOB, 'POST', '/connect/respond', { connectId: 'c1', action: 'accept' });
+      const tid = json.threadId;
+      assert.equal((await call(EVE, 'POST', `/threads/${tid}/typing`)).status, 404);
+      assert.equal((await call(null, 'POST', `/threads/${tid}/typing`)).status, 401);
+      const r = await call(ALICE, 'POST', `/threads/${tid}/typing`);
+      assert.equal(r.status, 200); assert.ok(r.json.typingUntil > Date.now());
+      assert.equal((await call(ALICE, 'POST', `/threads/${tid}/typing`)).status, 429);
+      assert.equal((await call(BOB, 'GET', `/threads/${tid}/messages`)).json.typingUntil, r.json.typingUntil);
+      assert.equal((await call(ALICE, 'GET', `/threads/${tid}/messages`)).json.typingUntil, 0);
+      store.threads.get(tid).typing[A] = Date.now() - 1;
+      assert.equal((await call(BOB, 'GET', `/threads/${tid}/messages`)).json.typingUntil, 0);
+      await call(ALICE, 'POST', `/threads/${tid}/messages`, { text: 'hi' });
+      assert.equal(store.threads.get(tid).typing[A], 0);
+    });
+  });
+  test('read state gives Sent then Seen; either side turning receipts off hides it for both', async () => {
+    const store = memStore(); setup(store);
+    await withApi(store, async (call) => {
+      const tid = (await call(BOB, 'POST', '/connect/respond', { connectId: 'c1', action: 'accept' })).json.threadId;
+      const m = await call(ALICE, 'POST', `/threads/${tid}/messages`, { text: 'hello there' });
+      assert.equal(m.json.status, 'sent');
+      let g = (await call(ALICE, 'GET', `/threads/${tid}/messages`)).json;
+      assert.equal(g.messages.find((x) => x.from === 'me').status, 'sent'); assert.equal(g.receipts, true);
+      assert.equal(g.messages.find((x) => x.from === 'system').status, undefined);
+      assert.equal((await call(BOB, 'POST', `/threads/${tid}/read`, { upTo: 'x' })).status, 400);
+      assert.equal((await call(EVE, 'POST', `/threads/${tid}/read`, { upTo: m.json.at })).status, 404);
+      const rd = await call(BOB, 'POST', `/threads/${tid}/read`, { upTo: m.json.at });
+      assert.equal(rd.json.readUpTo, m.json.at);
+      assert.equal(store.threads.get(tid).unread[B], 0);
+      g = (await call(ALICE, 'GET', `/threads/${tid}/messages`)).json;
+      assert.equal(g.messages.find((x) => x.from === 'me').status, 'seen'); assert.equal(g.seenUpTo, m.json.at);
+      assert.deepEqual((await call(BOB, 'GET', '/me/chat-settings')).json, { readReceipts: true });
+      assert.equal((await call(BOB, 'POST', '/me/chat-settings', { readReceipts: 'no' })).status, 400);
+      assert.deepEqual((await call(BOB, 'POST', '/me/chat-settings', { readReceipts: false })).json, { readReceipts: false });
+      g = (await call(ALICE, 'GET', `/threads/${tid}/messages`)).json;
+      assert.equal(g.receipts, false); assert.equal(g.seenUpTo, null); assert.equal(g.messages.find((x) => x.from === 'me').status, 'sent');
+      assert.equal((await call(BOB, 'GET', `/threads/${tid}/messages`)).json.receipts, false);
+      noUids(g);
+    });
+  });
+  test('/threads: strict look, metAt, sharedInterests', async () => {
+    const store = memStore(); setup(store);
+    await withApi(store, async (call) => {
+      await call(BOB, 'POST', '/connect/respond', { connectId: 'c1', action: 'accept' });
+      const t = (await call(ALICE, 'GET', '/threads')).json.threads[0];
+      assert.deepEqual(t.with.look, { creature: 'puff', accessory: 'bow' });
+      assert.ok(t.metAt > 0); assert.equal(t.metAt, t.createdAt);
+      assert.deepEqual(t.sharedInterests, ['tech', 'space']);
+    });
+  });
+});
+
 describe('helpers', () => {
   test('chatText', () => {
     assert.equal(chatText('  hi 😀 '), 'hi 😀');
@@ -192,4 +249,9 @@ describe('POST /publish and paged publicAgents', () => {
     assert.deepEqual(out.map((a) => a.id), ['h_1', 'h_2']);
     assert.match(urls[1], /pageToken=p2/);
   });
+});
+
+test('creatureLookOut validates shape and colour', () => {
+  assert.deepEqual(creatureLookOut({ creature: 'blob', accessory: 'none', color: '#00ffaa' }), { creature: 'blob', accessory: 'none', color: '#00ffaa' });
+  for (const bad of [{ creature: 'blob', accessory: 'none', color: '#00FFAA' }, { color: '#fff', emoji: 'x' }, { creature: 'x', accessory: 'none' }, null]) assert.equal(creatureLookOut(bad), null);
 });

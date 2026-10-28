@@ -661,7 +661,7 @@ async function handleConnect(req, res, ctx) {
 // threads/{id}: { members: [uidA, uidB] (sorted, server-only), ids: [h_A, h_B], names: {h_: name}, connectId,
 //   createdAt, lastAt, lastText, lastFromId, unread: {h_: n} }. threads/{id}/messages/{id}: { fromId (h_ or 'system'), text, at }.
 // Clients never touch these (firestore.rules); responses carry only public h_ ids.
-export const CHAT = { maxText: 1000, perMin: 20, perDay: 500, ipBurst: 30, ipWindowMs: 60_000, page: 50, threadsMax: 50 };
+export const CHAT = { typingMs: 5000, typingGapMs: 2000, readGapMs: 1000, maxText: 1000, perMin: 20, perDay: 500, ipBurst: 30, ipWindowMs: 60_000, page: 50, threadsMax: 50 };
 const CONNECT_ID_RE = /^[A-Za-z0-9]{1,64}$/;
 const THREAD_ID_RE = /^t_[0-9a-f]{24}$/;
 
@@ -699,18 +699,21 @@ export function introText(aName, bName, shared) {
   return `${a} and ${b} both like ${list}.`;
 }
 
-function cleanLook(look) {
-  if (!look || typeof look !== 'object' || Array.isArray(look)) return null;
-  const out = {};
-  for (const [k, v] of Object.entries(look).slice(0, 12)) {
-    if (/^[a-zA-Z]{1,20}$/.test(k) && (typeof v === 'string' ? v.length <= 24 : typeof v === 'number' && Number.isFinite(v))) out[k] = v;
-  }
-  return Object.keys(out).length ? out : null;
+// Thread partner look in the creature shape the rules allow: {creature, accessory, color?}; anything else is null.
+const T_CREATURES = ['blob', 'puff', 'sprout', 'pebble', 'drip', 'mallow'];
+const T_ACCESSORIES = ['none', 'glasses', 'beanie', 'tuft', 'headphones', 'bow'];
+export function creatureLookOut(l) {
+  if (!l || typeof l !== 'object' || Array.isArray(l)) return null;
+  if (!Object.keys(l).every((k) => ['creature', 'accessory', 'color'].includes(k))) return null;
+  if (!T_CREATURES.includes(l.creature) || !T_ACCESSORIES.includes(l.accessory)) return null;
+  if ('color' in l && !(typeof l.color === 'string' && /^#[0-9a-f]{6}$/.test(l.color))) return null;
+  return { creature: l.creature, accessory: l.accessory, ...('color' in l ? { color: l.color } : {}) };
 }
+
 
 function publicOf(id, a) {
   const p = publicProfile(a || {});
-  return { id, name: p.name, interests: p.interests, bio: p.bio, look: cleanLook(a?.look) };
+  return { id, name: p.name, interests: p.interests, bio: p.bio, look: creatureLookOut(a?.look) };
 }
 
 function chatStore(ctx) {
@@ -788,12 +791,15 @@ async function handleThreads(req, res, ctx) {
   const { uid } = await chatUser(req, ctx);
   const s = chatStore(ctx);
   const myId = hashId(uid, ctx.lifeSalt);
+  const meAgent = await agentByPublicId(ctx, myId).catch(() => null);
+  const myInterests = publicProfile(meAgent || {}).interests;
   const rows = (await s.listThreads(uid, CHAT.threadsMax)).sort((a, b) => (Number(b.lastAt) || 0) - (Number(a.lastAt) || 0));
   const threads = await Promise.all(rows.map(async (t) => {
     const otherId = (t.ids || []).find((x) => x !== myId) || null;
     const other = otherId ? await agentByPublicId(ctx, otherId) : null;
     const withP = publicOf(otherId, other || { name: t.names?.[otherId] });
-    return { id: t.id, with: withP, createdAt: Number(t.createdAt) || 0,
+    return { id: t.id, with: withP, createdAt: Number(t.createdAt) || 0, metAt: Number(t.createdAt) || 0,
+      sharedInterests: withP.interests.filter((x) => myInterests.includes(x)),
       last: t.lastAt ? { text: String(t.lastText || '').slice(0, 140), from: t.lastFromId === 'system' ? 'system' : t.lastFromId === myId ? 'me' : 'them', at: Number(t.lastAt) || 0 } : null,
       unread: Math.max(0, Number(t.unread?.[myId]) || 0) };
   }));
@@ -809,7 +815,14 @@ async function handleMessages(req, res, ctx, url, id) {
     const after = Math.max(0, Math.floor(Number(url.searchParams.get('after'))) || 0);
     const msgs = await s.listMessages(id, after, CHAT.page);
     if (Number(t.unread?.[myId]) > 0) await s.updateThread(id, { [`unread.${myId}`]: 0 }).catch(() => {});
-    sendJson(res, 200, { threadId: id, messages: msgs.map((m) => messageOut(m, myId)), more: msgs.length === CHAT.page });
+    const otherId = (t.ids || []).find((x) => x !== myId);
+    const otherUid = (t.members || []).find((x) => x !== uid);
+    const receipts = await receiptsOn(ctx, uid, otherUid);
+    const seenUpTo = receipts && otherId ? Math.max(0, Number(t.read?.[otherId]) || 0) : null;
+    const typingUntil = otherId && Number(t.typing?.[otherId]) > Date.now() ? Number(t.typing[otherId]) : 0;
+    sendJson(res, 200, { threadId: id, typingUntil, receipts, seenUpTo,
+      messages: msgs.map((m) => { const o = messageOut(m, myId); if (o.from === 'me') o.status = seenUpTo != null && o.at <= seenUpTo ? 'seen' : 'sent'; return o; }),
+      more: msgs.length === CHAT.page });
     return;
   }
   const now = Date.now();
@@ -821,8 +834,64 @@ async function handleMessages(req, res, ctx, url, id) {
   const otherId = (t.ids || []).find((x) => x !== myId);
   const msgId = await s.addMessage(id, { fromId: myId, text, at: now });
   await s.updateThread(id, { lastAt: now, lastText: text.slice(0, 140), lastFromId: myId,
-    ...(otherId ? { [`unread.${otherId}`]: Math.min(999, (Number(t.unread?.[otherId]) || 0) + 1) } : {}), [`unread.${myId}`]: 0 });
-  sendJson(res, 201, messageOut({ id: msgId, fromId: myId, text, at: now }, myId));
+    ...(otherId ? { [`unread.${otherId}`]: Math.min(999, (Number(t.unread?.[otherId]) || 0) + 1) } : {}), [`unread.${myId}`]: 0,
+    [`typing.${myId}`]: 0, [`read.${myId}`]: now });
+  sendJson(res, 201, { ...messageOut({ id: msgId, fromId: myId, text, at: now }, myId), status: 'sent' });
+}
+
+// Read receipts are mutual: if either person turned them off, neither sees "Seen". Default on.
+async function receiptsOn(ctx, uidA, uidB) {
+  const get = ctx.lifeStore.getChatPrefs;
+  if (!get) return true;
+  const [a, b] = await Promise.all([uidA, uidB].map((u) => (u ? get(u).catch(() => null) : null)));
+  return a?.readReceipts !== false && b?.readReceipts !== false;
+}
+
+// POST /threads/:id/typing: members only, at most once per 2 s per thread; expires after 5 s.
+async function handleTyping(req, res, ctx, id) {
+  req.resume();
+  const { uid } = await chatUser(req, ctx);
+  const s = chatStore(ctx);
+  const now = Date.now();
+  const t = await memberThread(ctx, uid, id);
+  if (!allowHit(ctx.chatUidHits, `t|${uid}|${id}`, 1, CHAT.typingGapMs, now)) throw new HttpError(429, 'slow down');
+  const myId = hashId(uid, ctx.lifeSalt);
+  const until = now + CHAT.typingMs;
+  await s.updateThread(t.id || id, { [`typing.${myId}`]: until });
+  sendJson(res, 200, { typingUntil: until });
+}
+
+// POST /threads/:id/read {upTo}: marks messages up to that time as read (monotonic, clamped to now).
+async function handleRead(req, res, ctx, id) {
+  const { uid } = await chatUser(req, ctx);
+  const s = chatStore(ctx);
+  const body = await readJson(req);
+  const upTo = Math.floor(Number(body.upTo));
+  if (!Number.isFinite(upTo) || upTo < 0) throw new HttpError(400, 'invalid upTo');
+  const now = Date.now();
+  const t = await memberThread(ctx, uid, id);
+  if (!allowHit(ctx.chatUidHits, `r|${uid}|${id}`, 1, CHAT.readGapMs, now)) throw new HttpError(429, 'slow down');
+  const myId = hashId(uid, ctx.lifeSalt);
+  const next = Math.max(Number(t.read?.[myId]) || 0, Math.min(upTo, now));
+  await s.updateThread(id, { [`read.${myId}`]: next, [`unread.${myId}`]: 0 });
+  sendJson(res, 200, { readUpTo: next });
+}
+
+// GET/POST /me/chat-settings {readReceipts: bool}. Stored server-side in chatPrefs/{uid} (clients denied by the catch-all rule).
+async function handleChatSettings(req, res, ctx) {
+  const { uid } = await chatUser(req, ctx);
+  const s = ctx.lifeStore;
+  if (!s?.getChatPrefs || !s.setChatPrefs) throw new HttpError(503, 'settings not configured');
+  if (req.method === 'POST') {
+    const body = await readJson(req);
+    if (typeof body.readReceipts !== 'boolean') throw new HttpError(400, 'readReceipts must be boolean');
+    if (!allowHit(ctx.chatUidHits, `s|${uid}`, 10, 60_000, Date.now())) throw new HttpError(429, 'slow down');
+    await s.setChatPrefs(uid, { readReceipts: body.readReceipts });
+    sendJson(res, 200, { readReceipts: body.readReceipts });
+    return;
+  }
+  const p = await s.getChatPrefs(uid).catch(() => null);
+  sendJson(res, 200, { readReceipts: p?.readReceipts !== false });
 }
 
 // ---- POST /publish: write or refresh the caller's own publicAgents card right after they save their agent ----
@@ -995,6 +1064,15 @@ export function createServer(options = {}) {
       const tm = url.pathname.match(/^\/threads\/([^/]{1,64})\/messages$/);
       if (tm && (req.method === 'GET' || req.method === 'POST')) {
         await handleMessages(req, res, ctx, url, tm[1]);
+        return;
+      }
+      const tx = url.pathname.match(/^\/threads\/([^/]{1,64})\/(typing|read)$/);
+      if (tx && req.method === 'POST') {
+        await (tx[2] === 'typing' ? handleTyping(req, res, ctx, tx[1]) : handleRead(req, res, ctx, tx[1]));
+        return;
+      }
+      if (url.pathname === '/me/chat-settings' && (req.method === 'GET' || req.method === 'POST')) {
+        await handleChatSettings(req, res, ctx);
         return;
       }
       if (req.method === 'GET' && url.pathname === '/threads') {
