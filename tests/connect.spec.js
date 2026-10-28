@@ -3,6 +3,7 @@
 // SSE is driven through a fetch stub so a test can hold a stream open mid-reply.
 import { test, expect } from '@playwright/test';
 const SHOTS = globalThis.process?.env.CX_SHOTS;
+test.use({ timezoneId: 'Asia/Kolkata' }); // times in cards (13:42) are local
 test.use({ viewport: { width: 360, height: 780 }, deviceScaleFactor: 3 });
 const H = 3600e3;
 const APPS = () => [
@@ -102,7 +103,7 @@ test('2 connect sheet: plain-words lists, Connect -> Connecting… + consent tab
   await sh.locator('.primary').click();
   await expect(sh.locator('.primary')).toHaveText('Connecting…'); await expect(sh.locator('.primary')).toBeDisabled();
   await expect(page.locator('#meApps .tile[data-app="gcal"] .st')).toHaveText('Connecting…');
-  expect(await page.evaluate(() => globalThis.__opened)).toEqual(['https://accounts.example.com/consent?app=gcal']);
+  await expect.poll(() => page.evaluate(() => globalThis.__opened)).toEqual(['https://accounts.example.com/consent?app=gcal']);
   await page.evaluate(() => { location.hash = '#/me?app=gcal&result=error'; });
   await expect(sh.locator('.cxErr')).toHaveText("Couldn't connect Calendar. Try again."); await expect(sh.locator('.primary')).toHaveText('Try again');
   await expect(page.locator('#meApps .tile[data-app="gcal"] .st')).toHaveText('Try again');
