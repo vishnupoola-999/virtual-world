@@ -658,6 +658,12 @@ export function lifeStore(admin) {
       const d = await call(`${base}/threads/${threadId}/messages`, { method: 'POST', body: JSON.stringify({ fields }) });
       return d.name.split('/').pop();
     },
+    async getMessage(threadId, msgId) { return /^[A-Za-z0-9]{1,40}$/.test(msgId) ? getDoc(`threads/${threadId}/messages/${msgId}`) : null; },
+    // hearts.{h_}: true per person; off removes the key (field in mask, absent in body). Server-only (threads rules deny clients).
+    async setHeart(threadId, msgId, who, on) {
+      if (!/^[A-Za-z0-9]{1,40}$/.test(msgId) || !/^h_[0-9a-f]{20}$/.test(who)) throw new Error('bad id');
+      await patch(`threads/${threadId}/messages/${msgId}`, on ? { hearts: { mapValue: { fields: { [who]: toValue(true) } } } } : {}, [`hearts.${who}`]);
+    },
     // Oldest first, strictly after `after` (ms). Without `after`, the newest n, returned oldest first.
     async listMessages(threadId, after = 0, n = 50) {
       const q = { from: [{ collectionId: 'messages' }], limit: n };
