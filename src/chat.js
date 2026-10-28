@@ -11,6 +11,7 @@ import {chat as chatApi, continueChat, stopChat, normAction} from './connect-api
 // Connected-app reads ({name, app, text}): on screen only, never in hist or memory.
 const readOuts = (list) => (Array.isArray(list) ? list : []).map((r) => String(r?.text || '')).filter(Boolean).join('\n');
 import {streamBubble} from './stream-ui.js';
+import {appMeta} from './connect.js';
 
 const googleTools = createGoogleTools({ requestAccess: requestGoogleAccess, confirm: confirmAction, apiEnabled: () => toolsApiEnabled(currentUser()) });
 
@@ -51,28 +52,30 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
     d.append(body);
     return { d, body };
   };
-  // Plain links for link-outs (done.links); opened only when tapped. Never saved to hist or memory.
+  // Link-outs (done.links) as rows (Diggy link-rows): app letter tile, label, arrow. Opened only when tapped; never saved.
+  const ARROW = '<svg class="cxArrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>';
   const linkRow = (body, links) => {
     if (!body || !links?.length) return;
     const box = document.createElement('div');
     box.className = 'agent-links';
     for (const l of links) {
       const a = document.createElement('a');
-      a.className = 'agent-link';
-      a.href = l.url;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.textContent = l.label;
+      a.className = 'cxLink';
+      a.href = l.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      const mk = document.createElement('span'); mk.className = 'mk sm'; mk.setAttribute('aria-hidden', 'true'); mk.textContent = appMeta(l.app)?.mk || (l.name || l.label).trim().charAt(0).toUpperCase();
+      const t = document.createElement('span'); t.className = 'cxLinkT'; t.textContent = l.label;
+      a.append(mk, t); a.insertAdjacentHTML('beforeend', ARROW);
       box.append(a);
       if (l.mailto) {
         const m = document.createElement('a');
-        m.className = 'agent-link alt';
+        m.className = 'cxLink ghost';
         m.href = l.mailto;
         m.textContent = 'Use my mail app';
         box.append(m);
       }
     }
     body.append(box);
+    body.closest('.msg')?.classList.add('hasLinks'); // rows span the chat width, not the bubble column
   };
   const actions = (body, text) => {
     if (!String(text || '').trim()) return; // only under a real agent reply

@@ -276,3 +276,31 @@ test('6 stopped, cut off, failed, rate limited: partial kept, one line each, Con
   await expect(page.locator('#chatLog .cxStream', { hasText: "Couldn't reach" })).toHaveCount(0);
   await expect(page.locator('#chatLog .cxStream').last().locator('.agent-text')).toHaveText('Try Toit for dinner.');
 });
+
+test('7 link rows (done.links): 48px rows with letter tile, label, arrow; mail-app ghost row; tools row below; https/mailto only', async ({ page }) => {
+  const s = server(); await boot(page, s, { hist: HIST.slice(0, 2) }); await openChat(page);
+  await page.evaluate(() => { globalThis.__sse.mode = 'stream'; });
+  await say(page, 'Email Pooja about Sunday and put it in my calendar');
+  await page.evaluate(() => { globalThis.__ssePush('token', { t: 'Here are both, ready for you to check and send.' });
+    globalThis.__ssePush('done', { messageId: 'm-1', links: [{ app: 'gmail', name: 'Gmail', label: 'Open email to Pooja in Gmail', url: 'https://mail.google.com/mail/?view=cm&to=pooja@example.com', mailto: 'mailto:pooja@example.com' },
+      { app: 'gcal', name: 'Calendar', label: 'Add Planetarium to Calendar', url: 'https://calendar.google.com/calendar/render?action=TEMPLATE' },
+      { app: 'x', label: 'bad', url: 'javascript:alert(1)' }] }); globalThis.__sse.ctl.close(); });
+  const rows = page.locator('#chatLog .cxLink:not(.ghost)'), ghost = page.locator('#chatLog .cxLink.ghost');
+  await expect(rows).toHaveCount(2); await expect(ghost).toHaveCount(1);
+  await expect(rows.locator('.mk')).toHaveText(['M', 'C']); await expect(rows.locator('.cxLinkT')).toHaveText(['Open email to Pooja in Gmail', 'Add Planetarium to Calendar']);
+  await expect(ghost).toHaveText('Use my mail app'); await expect(ghost).toHaveAttribute('href', 'mailto:pooja@example.com');
+  const m = await page.evaluate(() => {
+    const st = (e) => getComputedStyle(e), r = (e) => e.getBoundingClientRect();
+    const [a, b] = [...document.querySelectorAll('#chatLog .cxLink:not(.ghost)')], g = document.querySelector('#chatLog .cxLink.ghost'), bub = a.closest('.mbody').querySelector('.agent-text');
+    const t = a.querySelector('.cxLinkT'), mk = a.querySelector('.mk'), ar = a.querySelector('.cxArrow'), tools = a.closest('.mbody').querySelector('.actions');
+    return { h: [r(a).height, r(b).height, r(g).height].map(Math.round), bg: [st(a).backgroundColor, st(g).backgroundColor], rad: st(a).borderRadius, left: Math.round(r(a).left - r(bub).left),
+      full: Math.round(r(a).width) === Math.round(a.closest('.agent-links').getBoundingClientRect().width), gap: Math.round(r(g).top - r(a).bottom) >= 0 && Math.round(r(b).top - r(g).bottom),
+      label: [st(t).fontSize, st(t).fontWeight, st(t).color, st(a).textDecorationLine], ghost: [st(g).fontSize, st(g).fontWeight, st(g).color],
+      mk: [r(mk).width, r(mk).height], arrow: [st(ar).color, Math.round(r(a).right - r(ar).right) <= 16], toolsBelow: !!tools && r(tools).top >= r(b).bottom,
+      noBlur: [st(a).backdropFilter, st(a).filter], tr: st(a).transitionProperty };
+  });
+  expect(m).toEqual({ h: [48, 48, 40], bg: ['rgb(22, 24, 31)', 'rgba(0, 0, 0, 0)'], rad: '12px', left: 0, full: true, gap: 8, label: ['15px', '500', 'rgb(255, 255, 255)', 'none'], ghost: ['14px', '500', 'rgb(255, 255, 255)'],
+    mk: [24, 24], arrow: ['rgb(138, 144, 160)', true], toolsBelow: true, noBlur: ['none', 'none'], tr: 'transform' });
+  expect(await page.evaluate(() => globalThis.__opened || [])).toEqual([]); // nothing opens without a tap
+  await shot(page, '7-link-rows');
+});

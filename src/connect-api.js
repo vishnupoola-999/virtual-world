@@ -114,6 +114,7 @@ export const ERROR_REASONS = ['cut_off', 'failed', 'rate_limited'];
 // confirm cards. Only https:// urls and mailto: fallbacks get through.
 export function normLinks(list) {
   return (Array.isArray(list) ? list : []).slice(0, 5).map((l) => ({
+    app: typeof l?.app === 'string' ? l.app : '', name: String(l?.name || '').slice(0, 40),
     label: String(l?.label || '').slice(0, 120),
     url: typeof l?.url === 'string' && /^https:\/\//.test(l.url) ? l.url : '',
     mailto: typeof l?.mailto === 'string' && /^mailto:/i.test(l.mailto) ? l.mailto : '',

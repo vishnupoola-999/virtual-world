@@ -222,3 +222,6 @@ Each stream ends with exactly one `done` or `error` event. If the stream ends wi
 **Continue:** `POST /agent/chat/:messageId/continue` with an empty body. It works only for your own `stopped` or `cut_off` reply within 15 minutes, otherwise it returns 404. It streams a new reply (new `X-Message-Id`) that carries on from the partial. Append its tokens to the stopped bubble.
 
 **Stored replies:** `GET /agent/chat/:messageId` returns `{ messageId, text, partial? }` (`partial` is `stopped` or `cut_off`) for 15 minutes, owner only. Replies are kept in memory on the proxy and are lost on restart. Partial replies never feed the memory refresh. Only a full `done` reply updates memory, as `/chat` does.
+
+## Link rows (2026-10-28)
+Link-outs from done.links render as rows under the reply, spanning the chat width from the bubble's left edge: 48px, #16181F, 12px radius, 8px apart; 24px app letter tile, 15px/500 white label (ellipsis), #8A90A0 arrow at the right. The mailto fallback is a 40px ghost row (no background, 14px/500 white) under the Gmail row, its text aligned with the label. Only https and mailto links render; nothing opens without a tap. No blur, press feedback is a transform.
