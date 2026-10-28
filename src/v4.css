@@ -78,8 +78,10 @@ body.v4 #sheet[data-cur=me] #sheetHead b{visibility:hidden}
 @keyframes v4Rise{from{opacity:0;transform:translateY(12px) scale(.92)}to{opacity:1;transform:none}}
 .mst{margin:4px 6px 0;color:var(--tx-3);font:400 11px/1 Inter,system-ui,sans-serif}.mst.fail{color:#ff6b6b}.mst .retry{background:none;border:0;padding:0;min-height:0;height:auto;color:#fff;font:600 11px/1 Inter,system-ui,sans-serif;text-decoration:underline}
 .rcpt{list-style:none;align-self:flex-end;display:flex;align-items:center;gap:4px;margin:4px 4px 0;color:var(--tx-3);font:400 11px/1 Inter,system-ui,sans-serif}
-.rx{position:absolute;right:-6px;bottom:-10px;width:22px;height:22px;border-radius:11px;background:var(--s1);border:2px solid var(--bg);display:grid;place-items:center}
-.rx.pop{animation:v4Pop 160ms var(--e4) both}@keyframes v4Pop{from{transform:scale(.4);opacity:0}to{transform:none;opacity:1}}
+.rx{position:absolute;bottom:-9px;min-width:18px;height:18px;padding:0 3px;border-radius:9px;background:#16181F;box-shadow:0 0 0 2px var(--bg);display:inline-flex;align-items:center;justify-content:center;gap:2px;color:#fff;line-height:1}
+.msg.me .rx{right:-4px}.msg.them .rx{left:-4px} /* sender's bottom corner */
+.rx svg{width:11px;height:11px}.rx.mine{color:#7B7CFF}.msg:has(.rx){margin-bottom:10px}.rx b{font:600 11px/1 Inter,system-ui,sans-serif;color:#B7BCC8}.rx.n{padding:0 5px}
+.rx.pop{animation:v4Heart 250ms cubic-bezier(.2,.8,.2,1) both}@keyframes v4Heart{0%{transform:scale(0)}60%{transform:scale(1.2)}100%{transform:scale(1)}} /* transform only */
 .dmTyping{display:flex;gap:4px;align-self:flex-start;margin:0 12px 8px;padding:12px 14px;border-radius:18px;background:var(--s2);width:max-content}.dmTyping[hidden]{display:none}
 .dmTyping i{width:6px;height:6px;border-radius:3px;background:#C9CEDA;animation:v4Dot 900ms ease-in-out infinite}.dmTyping i:nth-child(2){animation-delay:150ms}.dmTyping i:nth-child(3){animation-delay:300ms}
 @keyframes v4Dot{0%,100%{opacity:.3}50%{opacity:1}}
@@ -131,7 +133,7 @@ body.v4 #sheet[data-cur=me] #sheetHead b{visibility:hidden}
 @keyframes v4Up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){
   #dmView,#v4Conn,#v4Arrive,.scrimV4,.v4Sheet{transition:opacity 150ms linear!important;transform:none!important}
-  .msg.rise,.rx.pop,#v4Today,.bob img,#v4Conn .pair .l,#v4Conn .pair .r,.dmTyping i{animation:v4Fade 150ms linear both!important}
+  .msg.rise,#v4Today,.bob img,#v4Conn .pair .l,#v4Conn .pair .r,.dmTyping i{animation:v4Fade 150ms linear both!important}
   #v4Arrive .prog::after{animation:none}
   @keyframes v4Fade{from{opacity:0}to{opacity:1}}}
 body.v4 .frSide .udot,body.v4 #tabs .udot{position:static;box-shadow:none}
@@ -154,3 +156,5 @@ body.v4 #sheet .body{padding-bottom:calc(var(--tabH) + 16px + env(safe-area-inse
 #v4Me .meTools{margin-bottom:16px} /* 4: 16px between the tools row and the tab pill */
 .dmTyping{display:none!important} /* 5: header "typing…" is the only indicator */
 :root{--tabH:56px}
+
+@media (prefers-reduced-motion:reduce){.rx.pop{animation:none}}
