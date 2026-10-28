@@ -73,11 +73,10 @@ test('feed and agent chats: no "(town)", aligned rows, staggered', async ({ page
   expect(new Set(h.map(Math.round)).size).toBe(1);
   await openSec(page, 'agentchats');
   await page.evaluate(() => globalThis.__vw.town.loadActivity(globalThis.__fakeUser));
-  await expect(page.locator('#agentChats')).toContainText('Log', { timeout: 10_000 });
+  await expect(page.locator('#agentChats')).toContainText(/All caught up|No chats yet/, { timeout: 10_000 }); // v4: no Log section
   await page.waitForTimeout(600);
   await shot(page, 'agent-chats');
   await expect(page.locator('#agentChats')).not.toContainText('(town)');
-  await expect(page.locator('#agentChats')).toContainText('Met Arjun');
 });
 
 test('PR #45 fields (optional): partner offset and colour place the meet partner; nearby[] town characters drawn without pills', async ({ page }) => {
