@@ -178,3 +178,12 @@ Diggy review (2026-10-28): no "You" pill under your own character; the map tilt 
 
 ## Server reactions (2026-10-28)
 Double-tap a bubble to toggle your heart. The heart pops in (scale 0 to 1.2 to 1 over 250ms, transform only; no animation with reduced motion) and settles as an 18px badge on a #16181F chip over the bottom corner on the sender's side. Filled accent (#7B7CFF) when you hearted it, white when only the other person did; the count shows when more than one. The change is optimistic and rolls back if the server refuses (429 shows "Too many hearts"). Counts come from `reactions:{heart,mine}` on each message. If the react endpoint answers 404/405 before any server reaction is seen, hearts stay on this device (`vw-rx`); once the server answers, that old store is deleted. Hearts on older messages refresh when the chat is reopened, since polling only fetches newer messages.
+
+## Connect apps API (Connect v1, as built)
+Spec: design/connect-v1-spec.md (Diggy). App ids: gdrive, gcal, gmail, notion, spotify (Notion/Spotify are listed as `soon` until their providers exist).
+- `GET /apps` -> `{configured, apps:[{id, name, state:'connect'|'connected'|'reauth'|'soon', account?, lastUsed?:{at, summary}, scopes:{read[], do[], never[]}}]}`. Client-only states: `connecting` (after the tap) and `error` (connect failed).
+- `POST /apps/:id/connect` -> `{authUrl}` (Google consent, incremental scopes). Callback returns the browser to `/#/me?app=:id&result=ok|error`.
+- `DELETE /apps/:id` -> `{state:'connect'}`.
+- Chat reply (`POST /chat`, later the SSE `action` event) carries `actions[]`; a connected-app action is `{id:'act_…', app, kind:'write', title, summary, expiresAt, state:'pending'}`, and reads come as `toolResults:[{name, app, text, error?}]` (shown, not saved).
+- `POST /actions/:id {decision:'approve'|'cancel'}` -> `{state:'done'|'cancelled'|'error'|'reauth'|'expired', app, result?:{summary, at, link?}, error?}`. Idempotent: approving a done action returns done again without re-running. Requests expire after 15 min. The card shows `working` locally while the call runs.
+- UI: Me → Apps tiles (48px #16181F, 32px mark letter, state chip), inline disconnect confirm, and an in-chat confirm card (Cancel ghost / Approve white) with done, cancelled, error, reauth and expired lines. Minimal port; Diggy's full app sheet comes later.

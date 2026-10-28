@@ -5,6 +5,7 @@ import {loadMessages, addMessage, trimMessages, MAX_MESSAGES, requestGoogleAcces
 import {createGoogleTools, composeReply, TOOL_MESSAGES} from './google-tools.js';
 import {reviewCalendarTurn} from './calendarWhen.js';
 import {confirmAction} from './ui/confirmAction.js';
+import {actionCard,isServerAction} from './connections.js';
 
 import {toolsApiEnabled} from './tools-config.js';
 
@@ -403,7 +404,11 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
       const reviewed = reviewCalendarTurn({ userText: lastUser || '', actions, reply, now: Date.now(), timeZone });
       actions = reviewed.actions;
       reply = reviewed.reply;
-      let ephemeral = '';
+      // Connect v1: connected-app actions wait in the proxy; the card's Approve runs them (POST /actions/:id).
+      const serverActions = actions.filter(isServerAction);
+      actions = actions.filter((a) => !isServerAction(a));
+      const readOuts = (Array.isArray(payload.toolResults) ? payload.toolResults : []).map((r) => String(r?.text || '')).filter(Boolean);
+      let ephemeral = readOuts.join('\n');
       if (actions.length) {
         // Agent tools: each action goes through google-tools.js, which asks confirmAction() before any write.
         pending.remove();
@@ -412,9 +417,11 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
           try { results.push({ name: action?.name, text: await googleTools.run(action) }); }
           catch (err) { results.push({ name: 'error', text: err?.message || TOOL_MESSAGES.failed }); }
         }
-        ({ persist: reply, ephemeral } = composeReply(reply, results));
+        const out = composeReply(reply, results);
+        reply = out.persist;
+        ephemeral = [ephemeral, out.ephemeral].filter(Boolean).join('\n');
       }
-      if (!reply && !ephemeral) { fail(0); return; }
+      if (!reply && !ephemeral && !serverActions.length) { fail(0); return; }
       pending.remove();
       for (const old of log.querySelectorAll('.msg.retry')) old.remove();
       status('ok');
@@ -425,6 +432,8 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent}) {
       }
       // Calendar listings: on screen only, never in hist, localStorage, Firestore or later prompts.
       if (ephemeral) add('assistant', ephemeral, 'ephemeral');
+      for (const a of serverActions) log.append(actionCard(a, currentUser));
+      if (serverActions.length) log.scrollTop = log.scrollHeight;
       showMe();
       save();
     } catch (err) {

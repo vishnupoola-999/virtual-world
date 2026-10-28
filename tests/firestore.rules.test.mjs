@@ -435,6 +435,20 @@ describe('rate limit counter rules', { concurrency: false }, () => {
     }
   });
 
+  test('connectorTokens: even the owner can never read, list, write or delete (proxy only)', async () => {
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), 'connectorTokens', ALICE), { data: 'v1.x.y.z' });
+    });
+    const owner = testEnv.authenticatedContext(ALICE, { firebase: { sign_in_provider: 'google.com' } }).firestore();
+    for (const d of [owner, db(ALICE), db(BOB), db(null)]) {
+      await assertFails(getDoc(doc(d, 'connectorTokens', ALICE)));
+      await assertFails(getDocs(collection(d, 'connectorTokens')));
+      await assertFails(setDoc(doc(d, 'connectorTokens', ALICE), { data: 'x' }));
+      await assertFails(setDoc(doc(d, 'connectorTokens', BOB), { data: 'x' }));
+      await assertFails(deleteDoc(doc(d, 'connectorTokens', ALICE)));
+    }
+  });
+
   test('threads and messages: clients can never read, list, write or delete (proxy only)', async () => {
     await testEnv.withSecurityRulesDisabled(async (c) => {
       await setDoc(doc(c.firestore(), 'threads', 't1'), { members: [ALICE, BOB], ids: ['h_a', 'h_b'] });

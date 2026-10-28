@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
 import { EMOJI_RE, cleanInterests, publicProfile, publicCard, scrub, isTown, stripTown, townByPublicId, townCharacter, offsetFor, nearbyTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
+import { createConnectors, ConnectHttpError } from './connectors/index.js';
 import { calendarToolContext, reviewCalendarTurn, sanitizeZone } from '../src/calendarWhen.js';
 
 const DEFAULT_PROJECT_ID = 'virtual-world-8ac82';
@@ -372,7 +373,7 @@ function applyCors(req, res) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Max-Age', '600');
   }
   return ok;
@@ -491,6 +492,17 @@ async function handleChat(req, res, ctx) {
   if (!allowHit(ctx.globalHits, 'hour', LIMITS.globalPerHour, 3_600_000, now)) throw new HttpError(429, 'rate limited');
   if (!allowHit(ctx.globalHits, 'day', LIMITS.globalPerDay, 86_400_000, now)) throw new HttpError(429, 'rate limited');
   const model = MODEL_RE.test(ctx.model) ? ctx.model : DEFAULT_MODEL;
+  // Connected apps add their own tools. A connected app replaces the link-out tool that overlaps it.
+  let tools = TOOL_DECLARATIONS, connected = [];
+  if (prepared.tools && ctx.connectors) {
+    const c = await ctx.connectors.toolsFor(uid);
+    connected = c.apps;
+    if (c.declarations.length) {
+      const drop = new Set([...(connected.includes('calendar') ? ['list_events', 'add_event'] : []), ...(connected.includes('gmail') ? ['draft_email'] : [])]);
+      tools = [{ functionDeclarations: [...TOOL_DECLARATIONS[0].functionDeclarations.filter((d) => !drop.has(d.name)), ...c.declarations] }];
+      prepared.system += ' Connected apps: ' + connected.join(', ') + '. Drafts are never sent. Anything you create waits for the owner to tap Approve.';
+    }
+  }
   let upstream;
   try {
     upstream = await ctx.fetchImpl(
@@ -502,7 +514,7 @@ async function handleChat(req, res, ctx) {
           systemInstruction: { parts: [{ text: prepared.system }] },
           contents: prepared.contents,
           generationConfig: prepared.generationConfig,
-          ...(prepared.tools ? { tools: TOOL_DECLARATIONS } : {}),
+          ...(prepared.tools ? { tools } : {}),
         }),
         signal: AbortSignal.timeout(50_000),
       },
@@ -531,11 +543,23 @@ async function handleChat(req, res, ctx) {
     text = reviewed.reply;
     actions = reviewed.actions;
   }
-  if (!text && !(actions && actions.length)) {
+  // Connector calls: reads run now (results go to the screen only, never back to the model or memory);
+  // writes become pending actions the owner approves with POST /actions/:id.
+  const connectorActions = [], toolResults = [];
+  if (prepared.tools && ctx.connectors && connected.length) {
+    const calls = (payload?.candidates?.[0]?.content?.parts || []).map((p) => p?.functionCall).filter((c) => c && ctx.connectors.isTool(c.name)).slice(0, 3);
+    for (const call of calls) {
+      const out = await ctx.connectors.handleCall(uid, call, prepared.timeZone || 'UTC');
+      if (out?.action) connectorActions.push(out.action);
+      if (out?.result) toolResults.push(out.result);
+    }
+    if (connectorActions.length) actions = [...(actions || []), ...connectorActions];
+  }
+  if (!text && !(actions && actions.length) && !toolResults.length) {
     console.error('gemini empty reply', model, payload.candidates?.[0]?.finishReason || payload.promptFeedback?.blockReason || 'none');
     throw new HttpError(502, 'empty reply');
   }
-  sendJson(res, 200, { choices: [{ message: { role: 'assistant', content: text } }], ...(prepared.tools ? { actions } : {}) });
+  sendJson(res, 200, { choices: [{ message: { role: 'assistant', content: text } }], ...(prepared.tools ? { actions } : {}), ...(toolResults.length ? { toolResults } : {}) });
   if (ctx.memory && text) {
     const turn = (ctx.turns.get(uid) || 0) + 1;
     ctx.turns.set(uid, turn);
@@ -1065,6 +1089,39 @@ async function handleTick(req, res, ctx) {
   }
 }
 
+// Connect v1 (docs/DESIGN.md "Connect apps API"). Returns true when it handled the request.
+async function handleApps(req, res, ctx, url) {
+  const c = ctx.connectors;
+  const cb = url.pathname.match(/^\/connect\/([a-z]{1,20})\/callback$/);
+  if (cb && req.method === 'GET') {
+    // Browser redirect from Google. No Firebase token here; the signed state carries the uid.
+    const to = c ? await c.callback(cb[1], url.searchParams) : 'https://vishnupoola-999.github.io/virtual-world/#/me?result=error';
+    res.statusCode = 302; res.setHeader('Location', to); res.setHeader('Cache-Control', 'no-store'); res.end();
+    return true;
+  }
+  const am = url.pathname.match(/^\/apps\/([a-z]{1,20})(\/connect)?$/);
+  const ac = url.pathname.match(/^\/actions\/(act_[0-9a-f]{24})$/);
+  const list = url.pathname === '/apps' && req.method === 'GET';
+  if (!list && !(am && ((am[2] && req.method === 'POST') || (!am[2] && req.method === 'DELETE'))) && !(ac && req.method === 'POST')) return false;
+  if (!allowHit(ctx.connectHits, clientIp(req), 30, 60_000, Date.now())) throw new HttpError(429, 'rate limited');
+  const { uid, provider } = await requireUser(req, ctx.verifyIdToken);
+  if (provider === 'anonymous') throw new HttpError(403, 'sign in required');
+  try {
+    if (list) { sendJson(res, 200, { configured: !!c?.configured(), apps: c ? await c.listApps(uid) : [] }); return true; }
+    if (!c) throw new HttpError(503, 'not configured');
+    if (ac) {
+      const body = await readJson(req);
+      sendJson(res, 200, await c.decide(uid, ac[1], body.decision));
+      return true;
+    }
+    sendJson(res, 200, am[2] ? await c.startConnect(uid, am[1]) : await c.disconnect(uid, am[1]));
+    return true;
+  } catch (e) {
+    if (e instanceof ConnectHttpError) throw new HttpError(e.status, e.message);
+    throw e;
+  }
+}
+
 export function createServer(options = {}) {
   const fetchImpl = options.fetchImpl || fetch;
   // One admin client per process, shared by memory and the uid rate limiter.
@@ -1099,7 +1156,9 @@ export function createServer(options = {}) {
     chatUidHits: new Map(),
     publishIpHits: new Map(),
     publishUidHits: new Map(),
+    connectHits: new Map(),
   };
+  ctx.connectors = options.connectors !== undefined ? options.connectors : createConnectors({ admin, fetchImpl });
   return http.createServer(async (req, res) => {
     const originOk = applyCors(req, res);
     try {
@@ -1142,6 +1201,9 @@ export function createServer(options = {}) {
       if (url.pathname === '/me/chat-settings' && (req.method === 'GET' || req.method === 'POST')) {
         await handleChatSettings(req, res, ctx);
         return;
+      }
+      if (url.pathname === '/apps' || url.pathname.startsWith('/apps/') || url.pathname.startsWith('/actions/') || url.pathname.startsWith('/connect/')) {
+        if (await handleApps(req, res, ctx, url)) return;
       }
       if (req.method === 'GET' && url.pathname === '/threads') {
         await handleThreads(req, res, ctx);

@@ -4,6 +4,7 @@ import {getChatSettings,setChatSettings,avatar,fillAvatars,lookOf,interestsOf} f
 import {toast} from './ui.js';
 import {BODY_SWATCHES,cleanColor,toLook} from './character-data.js';
 import {lastVisit,markVisit} from './away.js';
+import {renderApps,readReturn} from './connections.js';
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const REDUCE=()=>typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -87,6 +88,7 @@ export function setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAg
       +`<div class="capLbl">Colour</div><div class="colRow" id="meCol" role="radiogroup" aria-label="Body colour"><button type="button" role="radio" class="swc def" data-col="" aria-label="Default colour"></button>${BODY_SWATCHES.map((c,i)=>`<button type="button" role="radio" class="swc" data-col="${c}" style="--c:${c}" aria-label="Colour ${i+1}"></button>`).join('')}<label class="swc cust" aria-label="More colours"><input type="color" value="${l.color||'#a99bff'}" aria-label="More colours"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="5" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="19" cy="12" r="1.6" fill="currentColor"/></svg></label></div>`
       +(wk?`<div class="week"><b>This week</b><small>${esc(wk)}</small></div>`:'')
       +`<button type="button" class="primary" id="meEdit">Edit my agent</button><button type="button" class="ghost" id="meTalk">Talk to ${esc(a.name||'my agent')}</button>`
+      +`<div id="meApps" hidden></div>`
       +`<div class="capLbl">Privacy</div><div class="privRow" id="mePriv" hidden><div><b>Read receipts</b><small>When off, neither of you sees Seen.</small></div><button type="button" role="switch" class="sw" id="meRR" aria-checked="true" aria-label="Read receipts"><i></i></button></div>`
       +`<div class="meTools"><button type="button" data-go="family">Family</button><button type="button" data-go="layers">Layers</button><button type="button" data-go="search">Search</button><button type="button" data-go="account">Account</button></div>`;
     fillAvatars(box);const row=$('meCol');const paint=()=>{const c=toLook(getAgent()?.look).color||null;for(const b of row.querySelectorAll('.swc[data-col]'))b.classList.toggle('on',(b.dataset.col||null)===c),b.setAttribute('aria-checked',String((b.dataset.col||null)===c));const cu=row.querySelector('.cust');const custom=!!c&&!BODY_SWATCHES.includes(c);cu.classList.toggle('on',custom);if(custom)cu.style.setProperty('--c',c);};paint();
@@ -98,7 +100,11 @@ export function setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAg
     // Privacy & read receipts (GET/POST /me/chat-settings). Hidden when signed out or the endpoint is missing.
     const u=getUser()||hudU,pr=$('mePriv'),rr=$('meRR');if(u&&!u.isAnonymous)getChatSettings(u).then(j=>{if(typeof j?.readReceipts!=='boolean')return;rr.setAttribute('aria-checked',String(j.readReceipts));pr.hidden=false;pr.previousElementSibling.hidden=false;}).catch(()=>{});
     pr.previousElementSibling.hidden=true;
+    // Apps (Connect v1): hidden until GET /apps answers; Notion/Spotify show Coming soon.
+    if(u&&!u.isAnonymous)renderApps($('meApps'),u);
     rr.onclick=async()=>{const on=rr.getAttribute('aria-checked')!=='true';rr.setAttribute('aria-checked',String(on));rr.disabled=true;
       try{const j=await setChatSettings(getUser()||hudU,on);rr.setAttribute('aria-checked',String(j?.readReceipts??on));}catch{rr.setAttribute('aria-checked',String(!on));toast("Couldn't save. Try again.");}rr.disabled=false;};}
+  // Back from Google consent (#/me?app=&result=): open Me so the tile shows the new state.
+  if(readReturn())setTimeout(()=>{tabs.set('world');openSheet('me');renderMe();sel('me');},600);
   status();setTimeout(refreshHud,1500);setInterval(()=>{if(!document.hidden)refreshHud();},60000);
   return {arrive,connected,renderMe,refreshHud,today,status,sel,forget:()=>{hudU=null;}};}

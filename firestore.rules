@@ -110,6 +110,11 @@ service cloud.firestore {
         allow read, write: if false;
       }
     }
+    // App connections (Connect v1): encrypted OAuth refresh tokens per uid. Proxy only (admin credentials);
+    // no client may read, list or write them, not even the owner.
+    match /connectorTokens/{uid} {
+      allow read, write: if false;
+    }
     match /{document=**} { allow read, write: if false; }
   }
 }
