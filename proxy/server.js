@@ -20,7 +20,7 @@
 // 6 requests/min per IP, 60 chats/hour and 600/day globally, 200 output tokens.
 const FIRESTORE_DB = encodeURIComponent(process.env.FIRESTORE_DATABASE_ID || 'default');
 import http from 'node:http';
-import { createHash, createPublicKey, createSign, createVerify, X509Certificate } from 'node:crypto';
+import { createHash, randomBytes, createPublicKey, createSign, createVerify, X509Certificate } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
@@ -510,18 +510,48 @@ async function flights(url, fetchImpl) {
   return body;
 }
 
-// SSE helpers for POST /chat/stream. Event format is documented in docs/DESIGN.md ("Streaming chat").
+// Streaming owner chat (POST /agent/chat with Accept: text/event-stream, alias POST /chat/stream).
+// Events: token {t} · action {id, app, kind, summary, expiresAt} · done {messageId, text, partial?} ·
+// error {code: cut_off|failed|rate_limited, message, messageId?, text?, partial?}. See docs/DESIGN.md.
+export const STREAM = { keepMs: 15 * 60_000, keepMax: 2000, actionTtlMs: 15 * 60_000, continuePrompt: 'Continue your last reply exactly where it stopped. Do not repeat anything or start over.' };
+
 function sse(res, event, data) {
-  if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  if (!res.writableEnded && !res.destroyed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+function sseHead(res, status = 200) {
+  if (!res.headersSent) res.writeHead(status, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no', Connection: 'keep-alive' });
+}
+// Errors before any token, in stream mode: 429 -> rate_limited, upstream trouble -> failed. Client errors stay JSON.
+export function streamErrorCode(status) {
+  if (status === 429) return 'rate_limited';
+  if (status >= 500) return 'failed';
+  return null;
 }
 
-// Reads Gemini's alt=sse stream, forwards visible text as `delta` events, and returns one merged payload
-// shaped like a generateContent response so the normal reply checks run on the full reply.
-export async function relayStream(res, upstream) {
-  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no', Connection: 'keep-alive' });
-  sse(res, 'start', {});
+// SWE's pending-action shape. Today's tool calls (email + calendar) map onto it.
+const ACTION_APPS = { send_email: ['gmail', 'send'], draft_email: ['gmail', 'write'], add_event: ['gcal', 'write'], create_event: ['gcal', 'write'], move_event: ['gcal', 'write'], list_events: ['gcal', 'read'] };
+export function pendingAction(a, now = Date.now()) {
+  const [app, kind] = ACTION_APPS[a.name] || ['gcal', 'write'];
+  const g = a.args || {};
+  const summary = a.name === 'send_email' ? `Send email to ${g.to}: ${g.subject || '(no subject)'}`
+    : a.name === 'draft_email' ? `Draft email to ${g.to}: ${g.subject || '(no subject)'}`
+      : a.name === 'list_events' ? `Check your calendar for the next ${g.days} days`
+        : `${g.title || 'Event'} · ${g.start || ''}`;
+  return { id: 'act_' + randomBytes(9).toString('hex'), app, kind, summary: summary.slice(0, 240), expiresAt: now + STREAM.actionTtlMs };
+}
+
+function rememberReply(ctx, id, entry) {
+  const now = Date.now();
+  for (const [k, v] of ctx.replies) if (now - v.at > STREAM.keepMs || ctx.replies.size > STREAM.keepMax) ctx.replies.delete(k); else break;
+  ctx.replies.set(id, { ...entry, at: now });
+}
+
+// Reads Gemini's alt=sse stream, forwards visible text as `token` events, and returns one merged payload
+// shaped like a generateContent response. A client abort or upstream drop ends it with `broken` set.
+export async function relayStream(res, upstream, onText = () => {}) {
+  sseHead(res);
   const parts = [];
-  let finishReason, promptFeedback, buf = '';
+  let finishReason, promptFeedback, buf = '', broken = null;
   const decoder = new TextDecoder();
   const take = (line) => {
     if (!line.startsWith('data:')) return;
@@ -532,20 +562,42 @@ export async function relayStream(res, upstream) {
     if (c?.finishReason) finishReason = c.finishReason;
     for (const part of c?.content?.parts || []) {
       parts.push(part);
-      if (!part.thought && typeof part.text === 'string' && part.text) sse(res, 'delta', { text: part.text });
+      if (!part.thought && typeof part.text === 'string' && part.text) { onText(part.text); sse(res, 'token', { t: part.text }); }
     }
   };
-  for await (const chunk of upstream.body) {
-    buf += decoder.decode(chunk, { stream: true });
-    let i;
-    while ((i = buf.indexOf('\n')) >= 0) { take(buf.slice(0, i).replace(/\r$/, '')); buf = buf.slice(i + 1); }
+  try {
+    for await (const chunk of upstream.body) {
+      buf += decoder.decode(chunk, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) { take(buf.slice(0, i).replace(/\r$/, '')); buf = buf.slice(i + 1); }
+    }
+    take(buf.trim());
+  } catch (error) {
+    broken = error?.name === 'AbortError' || error?.name === 'TimeoutError' ? 'aborted' : 'dropped';
   }
-  take(buf.trim());
-  // parseModelReply joins the text parts into one reply.
-  return { candidates: [{ finishReason, content: { parts } }], promptFeedback };
+  return { candidates: [{ finishReason, content: { parts } }], promptFeedback, broken };
 }
 
-async function handleChat(req, res, ctx, stream = false) {
+// POST /agent/chat/:id/stop: ends the caller's own in-flight stream, keeping the partial reply.
+async function handleStop(req, res, ctx, id) {
+  const { uid } = await requireUser(req, ctx.verifyIdToken);
+  req.resume();
+  const live = ctx.live.get(id);
+  if (!live || live.uid !== uid) throw new HttpError(404, 'not found');
+  live.stopped = true;
+  live.ctrl.abort();
+  sendJson(res, 200, { messageId: id, partial: 'stopped' });
+}
+
+// GET /agent/chat/:id: the stored final or partial reply (owner only, kept 15 min).
+async function handleGetReply(req, res, ctx, id) {
+  const { uid } = await requireUser(req, ctx.verifyIdToken);
+  const r = ctx.replies.get(id);
+  if (!r || r.uid !== uid) throw new HttpError(404, 'not found');
+  sendJson(res, 200, { messageId: id, text: r.text, ...(r.partial ? { partial: r.partial } : {}) });
+}
+
+async function handleChat(req, res, ctx, stream = false, continueId = '') {
   const declared = Number(req.headers['content-length']);
   if (Number.isFinite(declared) && declared > LIMITS.body) throw new HttpError(413, 'too big');
   const now = Date.now();
@@ -555,9 +607,16 @@ async function handleChat(req, res, ctx, stream = false) {
   const raw = await readBody(req);
   let body;
   try {
-    body = JSON.parse(raw);
+    body = JSON.parse(raw || '{}');
   } catch {
     throw new HttpError(400, 'bad request');
+  }
+  // Continue: the stored partial becomes the last model turn, then a fixed "continue" user turn.
+  const prior = continueId ? ctx.replies.get(continueId) : null;
+  if (continueId && (!prior || prior.uid !== uid || !prior.partial)) throw new HttpError(404, 'not found');
+  if (prior) {
+    body = { agent: prior.agent, tools: prior.tools, timeZone: prior.timeZone, messages: [...prior.messages,
+      { role: 'assistant', content: prior.text.slice(0, LIMITS.message) }, { role: 'user', content: STREAM.continuePrompt }] };
   }
   prepareChat(body); // validate before any memory lookup
   let memory = '', life = '';
@@ -582,6 +641,13 @@ async function handleChat(req, res, ctx, stream = false) {
   const chain = [primary, ...CHAT_FALLBACKS, MODEL_RE.test(ctx.model) ? ctx.model : DEFAULT_MODEL]
     .filter((m, i, a) => a.indexOf(m) === i);
   let model, upstream, payload;
+  const messageId = stream ? 'm_' + randomBytes(9).toString('hex') : '';
+  const ctrl = new AbortController();
+  const live = { uid, ctrl, stopped: false, text: '' };
+  if (stream) {
+    ctx.live.set(messageId, live);
+    res.on('close', () => { ctx.live.delete(messageId); if (!res.writableFinished) { live.stopped = true; ctrl.abort(); } });
+  }
   for (const candidate of chain) {
     model = candidate;
     try {
@@ -596,7 +662,7 @@ async function handleChat(req, res, ctx, stream = false) {
             generationConfig: chatGenerationConfig(model),
             ...(prepared.tools ? { tools: TOOL_DECLARATIONS } : {}),
           }),
-          signal: AbortSignal.timeout(50_000),
+          signal: AbortSignal.any([AbortSignal.timeout(50_000), ctrl.signal]),
         },
       );
     } catch {
@@ -616,12 +682,22 @@ async function handleChat(req, res, ctx, stream = false) {
   }
   if (!upstream.ok) throw new HttpError(502, 'upstream unavailable');
   if (ctx.chatModel !== model) ctx.chatModel = model; // remember the first model that worked
+  // Saved replies carry the request so a stopped one can be continued.
+  const keep = (text, partial) => rememberReply(ctx, messageId, { uid, text, partial, agent: body.agent, tools: body.tools, timeZone: body.timeZone,
+    messages: (Array.isArray(body.messages) ? body.messages : []).slice(-LIMITS.messages) });
   if (stream) {
-    try {
-      payload = await relayStream(res, upstream);
-    } catch {
-      console.error('gemini stream broke', model);
-      sse(res, 'error', { error: 'upstream unavailable' });
+    // The id is known before the first token, so the app can call /stop. Exposed to the browser via CORS.
+    res.setHeader('X-Message-Id', messageId);
+    res.setHeader('Access-Control-Expose-Headers', 'X-Message-Id');
+    payload = await relayStream(res, upstream, (t) => { live.text += t; });
+    ctx.live.delete(messageId);
+    if (payload.broken) {
+      // Stopped by the client (abort or /stop) or the upstream dropped. Partial replies never reach memory.
+      const partial = live.stopped ? 'stopped' : 'cut_off';
+      keep(live.text, partial);
+      console.warn('chat stream ended early', model, partial);
+      if (partial === 'stopped') sse(res, 'done', { messageId, text: live.text, partial });
+      else sse(res, 'error', { code: 'failed', message: 'The reply was cut off.', messageId, text: live.text, partial });
       res.end();
       return;
     }
@@ -637,6 +713,14 @@ async function handleChat(req, res, ctx, stream = false) {
     actions = reviewed.actions;
   }
   const finish = payload.candidates?.[0]?.finishReason;
+  if (stream && finish === 'MAX_TOKENS') {
+    const partial = parseModelReply(payload).text;
+    keep(partial, 'cut_off');
+    console.warn('gemini cut reply', model, 'stream');
+    sse(res, 'error', { code: 'cut_off', message: 'The reply got too long and stopped.', messageId, text: partial, partial: 'cut_off' });
+    res.end();
+    return;
+  }
   if (finish === 'MAX_TOKENS') {
     console.warn('gemini cut reply', model, text ? 'partial' : 'empty');
     text = text ? trimCutReply(text) : 'Sorry, I ran out of room thinking about that one. Could you ask a smaller part of it?';
@@ -644,14 +728,20 @@ async function handleChat(req, res, ctx, stream = false) {
   if (!text && !(actions && actions.length)) {
     console.error('gemini empty reply', model, payload.candidates?.[0]?.finishReason || payload.promptFeedback?.blockReason || 'none');
     if (!stream) throw new HttpError(502, 'empty reply');
-    sse(res, 'error', { error: 'empty reply' });
+    sse(res, 'error', { code: 'failed', message: 'No reply came back.', messageId });
     res.end();
     return;
   }
   if (stream) {
     // `done.text` is the final reply (trimmed on MAX_TOKENS, reviewed for calendar turns). The client replaces the
     // streamed bubble with it.
-    sse(res, 'done', { text, cut: finish === 'MAX_TOKENS', ...(prepared.tools ? { actions } : {}) });
+    const now2 = Date.now();
+    const pending = (actions || []).map((a) => ({ ...pendingAction(a, now2), call: a }));
+    for (const p of pending) sse(res, 'action', { id: p.id, app: p.app, kind: p.kind, summary: p.summary, expiresAt: p.expiresAt });
+    keep(text, undefined);
+    // `done.text` is the final reply (reviewed on calendar turns); the client replaces the streamed bubble with it.
+    // `actions` pairs each action event id with today's tool call so the app can still run it after Approve.
+    sse(res, 'done', { messageId, text, ...(pending.length ? { actions: pending.map((p) => ({ id: p.id, ...p.call })) } : {}) });
     res.end();
   } else {
     sendJson(res, 200, { choices: [{ message: { role: 'assistant', content: text } }], ...(prepared.tools ? { actions } : {}) });
@@ -1185,6 +1275,23 @@ async function handleTick(req, res, ctx) {
   }
 }
 
+// Stream mode wraps handleChat so rate limits and upstream failures before the first token arrive as an
+// SSE `error` event (with the real HTTP status); 400/401/403/413 stay JSON.
+async function streamChat(req, res, ctx, continueId) {
+  const started = Date.now();
+  try {
+    await handleChat(req, res, ctx, true, continueId);
+    console.log('chat stream ok', res.statusCode, Date.now() - started, 'ms');
+  } catch (error) {
+    const code = error instanceof HttpError ? streamErrorCode(error.statusCode) : null;
+    if (!code || res.headersSent) throw error;
+    req.resume();
+    sseHead(res, error.statusCode);
+    sse(res, 'error', { code, message: code === 'rate_limited' ? 'Too many messages. Try again in a minute.' : "Couldn't reach your agent." });
+    res.end();
+  }
+}
+
 export function createServer(options = {}) {
   const fetchImpl = options.fetchImpl || fetch;
   // One admin client per process, shared by memory and the uid rate limiter.
@@ -1200,6 +1307,8 @@ export function createServer(options = {}) {
     uidHits,
     globalHits: new Map(),
     turns: new Map(),
+    live: new Map(),
+    replies: new Map(),
     admin,
     rateLimiter: options.rateLimiter || createUidRateLimiter({
       admin,
@@ -1268,6 +1377,16 @@ export function createServer(options = {}) {
         await handleThreads(req, res, ctx);
         return;
       }
+      const replyPath = url.pathname.match(/^\/agent\/chat\/(m_[0-9a-f]{18})(\/stop|\/continue)?$/);
+      if (replyPath && (req.method === 'POST' || req.method === 'GET')) {
+        if (!originOk) throw new HttpError(403, 'origin not allowed');
+        const [, id, verb] = replyPath;
+        if (req.method === 'GET' && !verb) await handleGetReply(req, res, ctx, id);
+        else if (req.method === 'POST' && verb === '/stop') await handleStop(req, res, ctx, id);
+        else if (req.method === 'POST' && verb === '/continue') await streamChat(req, res, ctx, id);
+        else sendJson(res, 404, { error: 'not found' });
+        return;
+      }
       if (req.method === 'GET') {
         res.statusCode = 200;
         res.end('ok');
@@ -1289,11 +1408,9 @@ export function createServer(options = {}) {
         await handleTick(req, res, ctx);
         return;
       }
-      if (req.method === 'POST' && url.pathname === '/chat/stream') {
+      if (req.method === 'POST' && (url.pathname === '/chat/stream' || url.pathname === '/agent/chat')) {
         if (!originOk) throw new HttpError(403, 'origin not allowed');
-        const started = Date.now();
-        await handleChat(req, res, ctx, true);
-        console.log('chat stream ok', res.statusCode, Date.now() - started, 'ms');
+        await streamChat(req, res, ctx, '');
         return;
       }
       if (req.method !== 'POST' || url.pathname !== '/chat') {

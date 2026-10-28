@@ -188,17 +188,23 @@ Spec: Diggy's connect-v1. Server shapes from Buildy (#62, draft) sit behind src/
 - Review pass (2026-10-28, #64): agent chat is full-height like a person chat (no tab pill, Back in the header); last item clears the input by 12px; retry lines are 14px with 44px targets; Jump chip 12px above the input (it overlays scrolled content by nature). Built to SWE's "Connect apps API" in #63: Gmail is always on with no sign-in and only opens a Gmail compose (or mailto) after Approve; a return with `c` is confirmed via POST /apps/:id/confirm before the tile says Connected (410/403 = "Couldn't connect"); revoking one Google app shows the other as Sign in again.
 - Final pass (2026-10-28, #64): Jump to latest sits at the right edge over a static fade behind the input bar (no blur, opacity only), shown only while scrolled up; card Try again matches Continue / Tap to retry (14px/500 white, 44px).
 
-## Streaming chat (POST /chat/stream)
+## Streaming chat (POST /agent/chat)
 
-This is the same request as `POST /chat`: the same Firebase `Authorization: Bearer <idToken>` header, the same JSON body (`agent`, `messages`, optional `tools`/`timeZone`) and the same rate limits. `POST /chat` stays as it is and is the fallback.
+This is the backend for Diggy's connect-v1 spec, §5 and §6. `POST /agent/chat` (`/chat/stream` is an alias) takes the same body as `POST /chat` (`agent`, `messages`, optional `tools`/`timeZone`), the same Firebase `Authorization: Bearer <idToken>` header and the same rate limits. Send `Accept: text/event-stream`. `POST /chat` is unchanged and remains the fallback.
 
-Errors before streaming starts (401, 403, 413, 429, 400, 502 upstream) come back as plain JSON `{ "error": "..." }` with that status code, exactly like `/chat`. Otherwise the response is `200` with `Content-Type: text/event-stream`. Each event is `event: <name>\ndata: <json>\n\n`:
+**Response:** `Content-Type: text/event-stream`. The `X-Message-Id: m_…` header arrives before the first token, so Stop works straight away. It is exposed to the browser through CORS. Events are sent as `event: <name>\ndata: <json>\n\n`:
 
-| event | data | meaning |
+| event | data | UI |
 |---|---|---|
-| `start` | `{}` | The model is answering. Turn the typing dots into an empty reply bubble. |
-| `delta` | `{ "text": "..." }` | The next piece of visible text. Append it to the bubble (fade the words in). Thinking text is never sent. |
-| `done` | `{ "text": "...", "cut": false, "actions"?: [...] }` | Final reply. **Replace** the bubble with `text`, because it may differ from the deltas: it is trimmed with a "say go on" note when `cut` is true, and reviewed on calendar (`tools`) turns. `actions` is only present when `tools: true` and matches `/chat`'s `actions`. |
-| `error` | `{ "error": "empty reply" \| "upstream unavailable" }` | The stream failed after starting. Drop the partial bubble and show the usual retry state. |
+| `token` | `{ "t": "..." }` | Append to the bubble, flushing whole words. The first one replaces the dots. Thinking text is never sent. |
+| `action` | `{ id, app, kind, summary, expiresAt }` | SWE's pending-action shape. Show the confirm card (§4). `app`: `gmail` or `gcal` today. `kind`: `send`, `write`, or `read` (calendar look-up). `expiresAt` is ms, 15 min out. Sent after the last token and before `done`. |
+| `done` | `{ messageId, text, actions?, partial? }` | Finish: remove the caret and **replace** the bubble with `text`, since calendar turns are reviewed server-side. `actions[i]` is `{ id, name, args, confirm }`, with the same `id` as its `action` event, so the existing calendar and Gmail code can run it after Approve. `partial: "stopped"` means Stop was tapped, so show "Stopped · **Continue**". |
+| `error` | `{ code, message, messageId?, text?, partial? }` | `code` is `cut_off` (reply hit the length limit; `text` is the partial, so keep it and show "Reply cut off · Tap to retry"), `failed` (upstream dropped mid-reply with `partial: "cut_off"`, or no reply at all), or `rate_limited`. |
 
-Exactly one of `done` or `error` ends the stream. The server updates the agent's memory from the full reply after `done`, the same way `/chat` does. EventSource can't POST, so read the stream with `fetch()` plus `response.body.getReader()`. If the request fails or the endpoint returns 404, fall back to `/chat`.
+Each stream ends with exactly one `done` or `error` event. If the stream ends without either, it was a network drop, so treat it as §6 "Reply cut off". A `failed` or `rate_limited` before any token comes with the real HTTP status (502 or 429) and still uses the SSE body. 400, 401, 403 and 413 stay JSON `{ "error": "..." }`, as on `/chat`. EventSource can't POST, so read the stream with `fetch()` and `response.body.getReader()`.
+
+**Stop:** abort the fetch (`AbortController`), or call `POST /agent/chat/:messageId/stop`, which also ends the open stream with `done {partial: "stopped"}`. Either way the server aborts the Gemini call and stores the partial as `stopped`.
+
+**Continue:** `POST /agent/chat/:messageId/continue` with an empty body. It works only for your own `stopped` or `cut_off` reply within 15 minutes, otherwise it returns 404. It streams a new reply (new `X-Message-Id`) that carries on from the partial. Append its tokens to the stopped bubble.
+
+**Stored replies:** `GET /agent/chat/:messageId` returns `{ messageId, text, partial? }` (`partial` is `stopped` or `cut_off`) for 15 minutes, owner only. Replies are kept in memory on the proxy and are lost on restart. Partial replies never feed the memory refresh. Only a full `done` reply updates memory, as `/chat` does.
