@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { describe, test } from 'node:test';
 import { createServer, connectText, CONNECT } from '../proxy/server.js';
 import {
-  cooldownFor, pickTown, stripTown, townLook, nearbyTown, offsetFor, shiftLatLng, shardOf, publicCard, maxCallsFromEnv, TOWN_AGENTS,
+  cooldownFor, pickTown, stripTown, townLook, nearbyTown, offsetFor, shiftLatLng, shardOf, publicCard, cleanLook, maxCallsFromEnv, TOWN_AGENTS,
   SAFETY_SETTINGS, geminiLlm, makeStatus, lifeStore, lifeSalt, LIFE, capAllows, checkTickSecret, cleanInterests, countAction, dayKey, parseConversation, parseDecision,
   pickMatch, placeNear, runTick, shouldAct, similarity, hashId, scrub, safeLine, decidePrompt, conversationPrompt, publicProfile, parseNote, notePrompt, NOTE_MAX,
 } from '../proxy/life.js';
@@ -390,6 +390,15 @@ describe('life v2: reliable world (#39)', () => {
     assert.deepEqual(store.meets[0].shared, ['tech', 'science']);
     const all = JSON.stringify([store.pub, store.meets]);
     for (const leak of ['SECRETLINE', 'REAL_NAME', 'SECRET_MEMORY', '17.123456', '"a"', 'uid']) assert.ok(!all.includes(leak), leak);
+  });
+  test('publicCard carries a cleaned creature look, dropping invalid ones', () => {
+    const card = (look) => publicCard({ uid: 'x', name: 'X', interests: [], lat: 1, lon: 1, look }, null, NOW).look;
+    assert.deepEqual(card({ creature: 'puff', accessory: 'bow' }), { creature: 'puff', accessory: 'bow' });
+    assert.deepEqual(card({ creature: 'drip', accessory: 'none', color: '#a1b2c3' }), { creature: 'drip', accessory: 'none', color: '#a1b2c3' });
+    for (const bad of [{ creature: 'drip', accessory: 'none', color: '#A1B2C3' }, { creature: 'drip', accessory: 'none', color: 'red' },
+      { creature: 'drip', accessory: 'none', color: '#fff' }, { creature: 'dragon', accessory: 'none' }, { creature: 'blob' },
+      { creature: 'blob', accessory: 'none', extra: 1 }, { color: '#ffffff', emoji: 'x' }, null, 'blob', []]) assert.equal(card(bad), undefined, JSON.stringify(bad));
+    assert.equal(cleanLook({ creature: 'blob', accessory: 'none', color: 5 }), null);
   });
   test('publicCard rounds location to ~1 km', () => {
     const c = publicCard({ uid: 'x', name: 'X', interests: ['tech'], lat: 17.123456, lon: 78.654321 }, null, NOW);
