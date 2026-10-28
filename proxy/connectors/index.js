@@ -102,7 +102,7 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
     return APP_DEFS.map((d) => {
       const state = appState(d, rec);
       const used = rec[d.provider]?.lastUsed?.[d.app];
-      return { id: d.id, name: d.name, state, ...(rec[d.provider]?.account && state !== 'connect' ? { account: rec[d.provider].account } : {}), ...(used ? { lastUsed: used } : {}), scopes: d.scopes };
+      return { id: d.id, name: d.name, state, ...(rec[d.provider]?.account && state === 'connected' ? { email: rec[d.provider].account } : {}), ...(used ? { lastUsed: used } : {}), scopes: d.scopes };
     });
   }
 
@@ -124,7 +124,7 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
   // Browser redirect from Google. Consumes the state nonce (single use), exchanges the code, and parks the result
   // under a new confirm id. Nothing is saved to the user's record until the signed-in app calls confirm().
   async function callback(provider, query) {
-    const back = (appId, result, c) => `${APP_RETURN}#/me?app=${encodeURIComponent(appId || '')}&result=${result}${c ? `&c=${c}` : ''}`;
+    const back = (appId, result, nonce) => `${APP_RETURN}?connect=${encodeURIComponent(appId || '')}${result === 'ok' ? `&nonce=${nonce}` : '&result=error'}#/me`;
     if (!ready(provider)) return back('', 'error');
     const st = verifyState(key, query.get('state'), now());
     if (!st || st.provider !== provider || !BY_ID.has(st.ret)) return back('', 'error');
@@ -146,8 +146,8 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
     }
   }
 
-  // POST /apps/:id/confirm {c}. The caller's Firebase uid must match the uid that started the flow.
-  async function confirm(uid, appId, c) {
+  // POST /apps/:id/confirm {nonce}. The caller's Firebase uid must match the uid that started the flow.
+  async function confirm(uid, appId, c) { // c = the confirm nonce from the redirect
     const def = BY_ID.get(appId);
     if (!def) throw new ConnectHttpError(404, 'unknown app');
     if (!ready(def.provider)) throw notConfigured();
@@ -164,7 +164,7 @@ export function createConnectors({ env = process.env, admin = null, store, fetch
     const apps = [...new Set([...(prev.broken ? [] : prev.apps || []), ...p.apps])].filter((a) => granted.includes(a));
     rec[def.provider] = { rt: refreshToken, apps, scopes: p.scopes, account: p.email || prev.account || '', lastUsed: prev.lastUsed || {}, connectedAt: now() };
     await tokens.put(uid, rec);
-    return { state: 'connected', ...(rec[def.provider].account ? { account: rec[def.provider].account } : {}) };
+    return { state: 'connected', ...(rec[def.provider].account ? { email: rec[def.provider].account } : {}) };
   }
 
   // Google can't revoke one scope, so disconnecting any Google app revokes the whole grant. Other Google apps

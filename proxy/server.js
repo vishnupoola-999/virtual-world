@@ -1096,7 +1096,7 @@ async function handleApps(req, res, ctx, url) {
   const cb = url.pathname.match(/^\/connect\/([a-z]{1,20})\/callback$/);
   if (cb && req.method === 'GET') {
     // Browser redirect from Google. No Firebase token here; the signed state carries the uid.
-    const to = c ? await c.callback(cb[1], url.searchParams) : 'https://vishnupoola-999.github.io/virtual-world/#/me?result=error';
+    const to = c ? await c.callback(cb[1], url.searchParams) : 'https://vishnupoola-999.github.io/virtual-world/?connect=&result=error#/me';
     res.statusCode = 302; res.setHeader('Location', to); res.setHeader('Cache-Control', 'no-store'); res.end();
     return true;
   }
@@ -1117,7 +1117,7 @@ async function handleApps(req, res, ctx, url) {
     }
     if (am[2] === '/confirm') {
       const body = await readJson(req);
-      sendJson(res, 200, await c.confirm(uid, am[1], body.c));
+      sendJson(res, 200, await c.confirm(uid, am[1], body.nonce));
       return true;
     }
     sendJson(res, 200, am[2] ? await c.startConnect(uid, am[1]) : await c.disconnect(uid, am[1]));

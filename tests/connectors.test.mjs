@@ -100,7 +100,7 @@ function harness() {
 async function connect(c, uid, app) {
   const st = new URL((await c.startConnect(uid, app)).authUrl).searchParams.get('state');
   const back = await c.callback('google', new URLSearchParams({ state: st, code: 'C' }));
-  const cid = new URLSearchParams(back.split('#/me?')[1]).get('c');
+  const cid = new URL(back).searchParams.get('nonce');
   return c.confirm(uid, app, cid);
 }
 
@@ -117,12 +117,12 @@ test('connect flow: start, callback stores record, list, disconnect revokes; Gma
   const state = new URL(url).searchParams.get('state');
   assert.deepEqual(new URL(url).searchParams.get('scope').split(' ').slice(0, 2), ['openid', 'email']);
   const back = await c.callback('google', new URLSearchParams({ state, code: 'CODE' }));
-  assert.match(back, /#\/me\?app=gcal&result=ok&c=[A-Za-z0-9_-]{24}$/);
+  assert.match(back, /\/virtual-world\/\?connect=gcal&nonce=[A-Za-z0-9_-]{24}#\/me$/);
   assert.equal(docs.has('u1'), false, 'callback must not store tokens');
-  const cid = new URLSearchParams(back.split('#/me?')[1]).get('c');
-  assert.deepEqual(await c.confirm('u1', 'gcal', cid), { state: 'connected', account: 'vishnu@example.com' });
+  const cid = new URL(back).searchParams.get('nonce');
+  assert.deepEqual(await c.confirm('u1', 'gcal', cid), { state: 'connected', email: 'vishnu@example.com' });
   assert.equal(docs.get('u1').google.rt, 'RT1');
-  assert.equal((await c.listApps('u1')).find((a) => a.id === 'gcal').account, 'vishnu@example.com');
+  assert.equal((await c.listApps('u1')).find((a) => a.id === 'gcal').email, 'vishnu@example.com');
   const apps = await c.listApps('u1');
   assert.equal(apps.find((a) => a.id === 'gcal').state, 'connected');
   assert.equal(apps.find((a) => a.id === 'gdrive').state, 'connect');
@@ -247,9 +247,9 @@ test('login CSRF: state is single use, confirm needs the same uid, unconfirmed g
   const { c, docs, pend, tick } = harness();
   const st = new URL((await c.startConnect('u1', 'gcal')).authUrl).searchParams.get('state');
   const first = await c.callback('google', new URLSearchParams({ state: st, code: 'C' }));
-  assert.match(first, /result=ok/);
-  assert.match(await c.callback('google', new URLSearchParams({ state: st, code: 'C2' })), /result=error$/, 'reused state rejected');
-  const cid = new URLSearchParams(first.split('#/me?')[1]).get('c');
+  assert.match(first, /nonce=/);
+  assert.match(await c.callback('google', new URLSearchParams({ state: st, code: 'C2' })), /result=error#\/me$/, 'reused state rejected');
+  const cid = new URL(first).searchParams.get('nonce');
   // Attacker's grant landing in a victim's app: the victim's uid does not match.
   await assert.rejects(c.confirm('victim', 'gcal', cid), (e) => e.status === 403);
   assert.equal(docs.has('victim'), false);
@@ -259,16 +259,16 @@ test('login CSRF: state is single use, confirm needs the same uid, unconfirmed g
   const st2 = new URL((await c.startConnect('u1', 'gcal')).authUrl).searchParams.get('state');
   const b2 = await c.callback('google', new URLSearchParams({ state: st2, code: 'C' }));
   tick(11 * 60_000);
-  await assert.rejects(c.confirm('u1', 'gcal', new URLSearchParams(b2.split('#/me?')[1]).get('c')), (e) => e.status === 410);
+  await assert.rejects(c.confirm('u1', 'gcal', new URL(b2).searchParams.get('nonce')), (e) => e.status === 410);
   assert.equal(docs.has('u1'), false);
   // Expired state nonce rejected at callback.
   const st3 = new URL((await c.startConnect('u1', 'gcal')).authUrl).searchParams.get('state');
   tick(11 * 60_000);
-  assert.match(await c.callback('google', new URLSearchParams({ state: st3, code: 'C' })), /result=error$/);
+  assert.match(await c.callback('google', new URLSearchParams({ state: st3, code: 'C' })), /result=error#\/me$/);
   // A validly signed state whose nonce was never stored (or was already consumed) is rejected.
   pend.clear();
   const unstored = signState(KEY, { uid: 'u1', provider: 'google', apps: ['calendar'], ret: 'gcal' }, 1_000_000 + 22 * 60_000);
-  assert.match(await c.callback('google', new URLSearchParams({ state: unstored, code: 'C' })), /result=error$/);
+  assert.match(await c.callback('google', new URLSearchParams({ state: unstored, code: 'C' })), /result=error#\/me$/);
 });
 
 test('disconnect one Google app revokes the grant and marks the others reauth', async () => {

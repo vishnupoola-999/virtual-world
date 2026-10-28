@@ -1,7 +1,10 @@
+// TEMPORARY minimal UI, self-contained so it can be deleted when Buildy Design's full Apps UI (#64) lands:
+// remove this file, connections.css, their two tags in index.html, the sw.js entries and the hook in chat.js.
 // Connect v1 (design/connect-v1-spec.md, docs/DESIGN.md "Connect apps API"): Apps section in Me + in-chat confirm card.
 // Tokens never touch the browser. The proxy keeps them; this file only shows state and sends taps.
 import {API} from './threads.js';
 import {toast} from './ui.js';
+import {currentUser} from './firebase.js';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const buzz=p=>{try{navigator.vibrate?.(p);}catch{/* no haptics */}};
 const MARK={gdrive:'D',gcal:'C',gmail:'M',notion:'N',spotify:'S'};
@@ -11,13 +14,13 @@ export const listApps=u=>call(u,'/apps');
 export const decideAction=(u,id,decision)=>call(u,'/actions/'+encodeURIComponent(id),{method:'POST',body:JSON.stringify({decision})});
 const CK='vw-conn-confirm';
 const STATE={connect:['Connect','c'],connected:['Connected','ok'],reauth:['Sign in again','e'],soon:['Coming soon','w'],connecting:['Connecting…','w'],error:['Try again','e']};
-export function tileHtml(a){const [label,cls]=STATE[a.state]||STATE.soon;return `<button type="button" class="tile" data-app="${esc(a.id)}" data-state="${esc(a.state)}"${a.state==='soon'?' aria-disabled="true"':''}><span class="mk">${MARK[a.id]||esc(a.name[0])}</span><span class="tn">${esc(a.name)}${a.account&&a.state!=='soon'?`<small>${esc(a.account)}</small>`:''}</span><span class="st ${cls}">${label}</span></button>`;}
+export function tileHtml(a){const [label,cls]=STATE[a.state]||STATE.soon;return `<button type="button" class="tile" data-app="${esc(a.id)}" data-state="${esc(a.state)}"${a.state==='soon'?' aria-disabled="true"':''}><span class="mk">${MARK[a.id]||esc(a.name[0])}</span><span class="tn">${esc(a.name)}${a.email&&a.state!=='soon'?`<small>${esc(a.email)}</small>`:''}</span><span class="st ${cls}">${label}</span></button>`;}
 
 // Renders into box (a div in the Me sheet). Hidden when signed out/anonymous or the proxy has no /apps yet.
 export async function renderApps(box,user){if(!box)return;box.hidden=true;if(!user||user.isAnonymous)return;
   // Finish an OAuth round trip: the proxy only saves the grant once this signed-in user confirms it.
   let back=null;try{back=JSON.parse(sessionStorage.getItem(CK)||'null');sessionStorage.removeItem(CK);}catch{/* storage blocked */}
-  if(back?.c&&back.app){try{await call(user,'/apps/'+encodeURIComponent(back.app)+'/confirm',{method:'POST',body:JSON.stringify({c:back.c})});buzz([15,40,15]);toast('Connected');}catch{toast("Couldn't connect. Try again.");}}
+  if(back?.nonce&&back.app){try{await call(user,'/apps/'+encodeURIComponent(back.app)+'/confirm',{method:'POST',body:JSON.stringify({nonce:back.nonce})});buzz([15,40,15]);toast('Connected');}catch{toast("Couldn't connect. Try again.");}}
   let data;try{data=await listApps(user);}catch{return;}
   const apps=Array.isArray(data?.apps)?data.apps:[];if(!apps.length)return;
   const n=apps.filter(a=>a.state==='connected').length;
@@ -32,11 +35,12 @@ export async function renderApps(box,user){if(!box)return;box.hidden=true;if(!us
     try{const j=await call(user,'/apps/'+a.id+'/connect',{method:'POST'});if(j?.authUrl&&/^https:\/\/accounts\.google\.com\//.test(j.authUrl))location.href=j.authUrl;else throw new Error('no url');}
     catch(e){st.className='st e';st.textContent=e.status===503?'Coming soon':'Try again';}};}
 
-// After the OAuth round trip the proxy sends us to #/me?app=<id>&result=ok|error. Returns {app,result} or null.
-export function readReturn(loc=location){const m=/^#\/me\?(.*)$/.exec(loc.hash||'');if(!m)return null;const q=new URLSearchParams(m[1]);
-  try{history.replaceState(null,'',loc.pathname+loc.search);}catch{/* ignore */}
-  const c=q.get('c')||'';const r={app:q.get('app')||'',result:q.get('result')==='ok'&&/^[A-Za-z0-9_-]{16,40}$/.test(c)?'ok':'error'};
-  if(r.result==='ok'){try{sessionStorage.setItem(CK,JSON.stringify({app:r.app,c}));}catch{/* storage blocked */}toast('Finishing…');}else toast("Couldn't connect. Try again.");return r;}
+// After the OAuth round trip the proxy sends us to ?connect=<app>&nonce=<n>#/me (or ?connect=<app>&result=error#/me).
+// The nonce is kept for POST /apps/:id/confirm, which renderApps sends once the signed-in user is known.
+export function readReturn(loc=location){const q=new URLSearchParams(loc.search||'');const app=q.get('connect');if(!app)return null;
+  try{history.replaceState(null,'',loc.pathname+(loc.hash||''));}catch{/* ignore */}
+  const nonce=q.get('nonce')||'';const ok=/^[A-Za-z0-9_-]{16,40}$/.test(nonce)&&q.get('result')!=='error';
+  if(ok){try{sessionStorage.setItem(CK,JSON.stringify({app,nonce}));}catch{/* storage blocked */}toast('Finishing…');}else toast("Couldn't connect. Try again.");return {app,result:ok?'ok':'error'};}
 
 // In-chat confirm card for one pending action {id, app, kind, title, summary, expiresAt}. Approve runs it once.
 const APP_NAME={gdrive:'Google Drive',gcal:'Google Calendar',gmail:'Gmail'};
@@ -64,3 +68,12 @@ export function actionCard(action,getUser,now=()=>Date.now()){const d=document.c
     else{res.hidden=false;res.className='res e';res.textContent="Couldn't do it. Nothing went out. Tap Approve to try again.";}};
   no.onclick=()=>go('cancel');yes.onclick=()=>go('approve');return d;}
 export const isServerAction=a=>typeof a?.id==='string'&&/^act_[0-9a-f]{24}$/.test(a.id);
+
+// Self-install: watch the Me sheet (#v4Me, rendered by v4.js) and add the Apps box before Privacy. No edits to v4.js.
+export function install(doc=document){const me=doc.getElementById('v4Me');if(!me)return;
+  const put=()=>{if(me.querySelector('#meApps'))return;const u=currentUser();if(!u||u.isAnonymous)return;
+    const anchor=[...me.querySelectorAll('.capLbl')].find(n=>n.textContent==='Privacy');if(!anchor)return;
+    const box=doc.createElement('div');box.id='meApps';box.hidden=true;anchor.before(box);renderApps(box,u);};
+  new MutationObserver(put).observe(me,{childList:true});put();
+  if(readReturn())setTimeout(()=>doc.getElementById('tabMe')?.click(),800);}
+if(typeof document!=='undefined'&&!globalThis.__vwNoConnInstall){if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>install());else install();}
