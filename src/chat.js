@@ -50,6 +50,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
     return { d, body };
   };
   const actions = (body, text) => {
+    if (!String(text || '').trim()) return; // only under a real agent reply
     const row = document.createElement('div');
     row.className = 'actions';
     const mk = (label, svg, fn) => {

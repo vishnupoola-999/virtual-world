@@ -28,8 +28,8 @@ export function streamBubble({ log, view = log.closest('section') || document.bo
   const near = () => log.scrollHeight - log.scrollTop - log.clientHeight <= FOLLOW_PX;
   let chip = view.querySelector('.cxJump');
   if (!chip) { chip = document.createElement('button'); chip.type = 'button'; chip.className = 'cxJump'; chip.hidden = true; chip.innerHTML = '<span aria-hidden="true">↓</span> Jump to latest'; view.append(chip); }
-  // 16px above the input bar, wherever the bar sits on this phone.
-  const place = () => { const bar = view.querySelector('form, .composer'); if (bar) chip.style.bottom = Math.round(innerHeight - bar.getBoundingClientRect().top + 16) + 'px'; };
+  // 12px above the input bar, wherever the bar sits on this phone.
+  const place = () => { const bar = view.querySelector('form, .composer'); if (bar) chip.style.bottom = Math.round(innerHeight - bar.getBoundingClientRect().top + 12) + 'px'; };
   const showChip = (on) => { if (on === !chip.hidden) return; if (on) place(); chip.hidden = !on; if (on) requestAnimationFrame(() => chip.classList.add('on')); else chip.classList.remove('on'); };
   chip.onclick = () => { follow = true; log.scrollTop = log.scrollHeight; showChip(false); };
   const onScroll = () => { if (ended && !chip.hidden && near()) { showChip(false); return; } if (near()) { follow = true; showChip(false); } else { follow = false; if (!ended) showChip(true); } };

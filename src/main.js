@@ -68,7 +68,9 @@ tabs=setupTabs({map,hero,onSwitch:t=>{flt.pause(t==='chat');famL0.pause(t==='cha
 window.__vw.tabs=tabs;window.__vw.openSheet=openSheet;
 // Onboarding for new users (?onb=0 skips it, for tests and debugging). Returning users go straight to Chat.
 const noOnb=new URLSearchParams(location.search).get('onb')==='0';
-const goChat=()=>{if(chat.open()){closeSheet();tabs.set('chat');}};
+let chatFrom=null;const goChat=()=>{chatFrom=document.querySelector('#tabs [aria-selected=true]')?.id||null;if(chat.open()){closeSheet();tabs.set('chat');}};
+// Agent chat hides the tab pill (like a person chat): Back returns to where it was opened from.
+{const b=$('chatBack');if(b)b.onclick=()=>{tabs.set('world');const f=chatFrom&&chatFrom!=='tabWorld'?$(chatFrom):null;chatFrom=null;f?.click();};}
 const ob=setupOnboarding(map,{onCreated:(a,saved)=>window.__vw.agent.adopt(a,saved),
   onInterests:p=>window.__vw.agent.setProfile(p),
   onDone:w=>{if(w==='move'){tabs.set('world');window.__vw.agent.startMove('onboarding');}else goChat();},

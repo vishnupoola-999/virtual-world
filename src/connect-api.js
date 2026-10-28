@@ -3,7 +3,9 @@
 // a 404/405 (or a network error) marks it missing for the session and callers hide the UI / fall back.
 const BASE = 'https://virtual-world-ai.onrender.com';
 export const APP_IDS = ['gdrive', 'gcal', 'gmail', 'notion', 'spotify'];
-export const APP_STATES = ['none', 'connecting', 'connected', 'expired', 'error'];
+export const APP_STATES = ['none', 'connecting', 'connected', 'expired', 'error', 'soon'];
+// SWE #63 server names -> client states ('connect' = not connected, 'reauth' = sign-in expired / revoked / wrong key).
+const SERVER_STATE = { connect: 'none', reauth: 'expired' };
 export const ACTION_STATES = ['working', 'done', 'cancelled', 'error', 'reauth', 'expired'];
 const missing = new Set();
 export const isMissing = (k) => missing.has(k);
@@ -29,7 +31,8 @@ export const normApp = (a) => {
   if (!a || !APP_IDS.includes(a.id)) return null;
   const s = a.scopes || {};
   const arr = (x) => (Array.isArray(x) ? x.filter((v) => typeof v === 'string' && v.trim()).slice(0, 6) : []);
-  return { id: a.id, name: String(a.name || ''), state: APP_STATES.includes(a.state) ? a.state : 'none', account: typeof a.account === 'string' ? a.account : '',
+  return { id: a.id, name: String(a.name || ''), state: a.id === 'gmail' ? 'connected' : SERVER_STATE[a.state] || (APP_STATES.includes(a.state) ? a.state : 'none'), // Gmail has no sign-in: always on (#63)
+    account: typeof a.account === 'string' ? a.account : typeof a.email === 'string' ? a.email : '',
     lastUsed: a.lastUsed && Number.isFinite(+a.lastUsed.at) ? { at: +a.lastUsed.at, summary: String(a.lastUsed.summary || '') } : null,
     scopes: { read: arr(s.read), do: arr(s.do), never: arr(s.never) } };
 };
@@ -49,7 +52,20 @@ export async function connectApp(user, id) {
   if (typeof url !== 'string' || !/^https:\/\//.test(url)) throw new Error('no consent url');
   return url;
 }
-export const disconnectApp = (user, id) => call(user, `/apps/${encodeURIComponent(id)}`, { method: 'DELETE', key: 'disconnect' });
+// DELETE /apps/:id -> {state, reauth?:[ids]} (revoking one Google app revokes the whole grant).
+export async function disconnectApp(user, id) {
+  if (id === 'gmail') throw new Error('gmail has no sign-in');
+  const j = await call(user, `/apps/${encodeURIComponent(id)}`, { method: 'DELETE', key: 'disconnect' });
+  return { reauth: Array.isArray(j?.reauth) ? j.reauth.filter((x) => APP_IDS.includes(x)) : [] };
+}
+// POST /apps/:id/confirm {c} after the OAuth return: only now is the grant saved (#63). 403/410 -> throws.
+// Returns null when the endpoint is not there (then the GET /apps state is the only truth).
+export async function confirmApp(user, id, c) {
+  try {
+    const j = await call(user, `/apps/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: { c, nonce: c }, key: 'confirm' });
+    return { state: SERVER_STATE[j?.state] || j?.state || 'none', account: typeof j?.account === 'string' ? j.account : typeof j?.email === 'string' ? j.email : '' };
+  } catch (e) { if (e.missing) return null; throw e; }
+}
 
 // A pending action: {id, app, kind, summary, expiresAt} (+ optional title). Anything else is not a connect action.
 export const KINDS = ['send', 'pay', 'submit', 'write'];
@@ -63,7 +79,8 @@ export function normAction(a) {
 export async function decide(user, id, decision) {
   if (decision !== 'approve' && decision !== 'cancel') throw new Error('bad decision');
   const j = await call(user, `/actions/${encodeURIComponent(id)}`, { method: 'POST', body: { decision }, key: 'actions' });
-  return { state: ACTION_STATES.includes(j?.state) ? j.state : 'error', result: j?.result && typeof j.result === 'object' ? { summary: String(j.result.summary || ''), at: +j.result.at || Date.now() } : null };
+  return { state: ACTION_STATES.includes(j?.state) ? j.state : 'error', result: j?.result && typeof j.result === 'object' ? { summary: String(j.result.summary || ''), at: +j.result.at || Date.now(),
+    link: typeof j.result.link === 'string' && /^https:\/\//.test(j.result.link) ? j.result.link : '', mailto: typeof j.result.mailto === 'string' && /^mailto:/i.test(j.result.mailto) ? j.result.mailto : '' } : null };
 }
 
 // SSE: "event: x\ndata: {...}\n\n". Incremental parser; returns complete events, keeps the tail.

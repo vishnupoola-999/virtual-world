@@ -51,10 +51,18 @@
 .cxStream .tok{animation:cxTok 120ms linear both}@keyframes cxTok{from{opacity:0}}
 .cxStream .caret{display:inline-block;width:2px;height:16px;background:#F2F4F8;opacity:.7;vertical-align:-3px;margin-left:2px;border-radius:1px;animation:cxCaret 1s steps(1) infinite}
 @keyframes cxCaret{50%{opacity:.3}}
-.cxLine{font-size:12px;color:#8A90A0;margin:6px 0 0 4px}.cxLine.e{color:#FF8A6B}
-.cxLine button{background:none;border:0;padding:0;color:#F2F4F8;font:500 12px/1 Inter,system-ui,sans-serif;min-height:24px}
+.cxLine{display:flex;align-items:center;gap:4px;font:500 14px/20px Inter,system-ui,sans-serif;color:#8A90A0;margin:0 0 0 4px;min-height:44px}.cxLine.e{color:#FF8A6B}
+.cxLine button{background:none;border:0;padding:0 8px;margin:0 -8px;color:#fff;font:500 14px/20px Inter,system-ui,sans-serif;height:44px;min-height:44px} /* 44px hit area, same type as the label */
 .cxJump{position:absolute;left:50%;bottom:88px;z-index:5;height:32px;padding:0 14px;border-radius:16px;background:#fff;color:#07080C;border:0;font:600 13px/1 Inter,system-ui,sans-serif;display:flex;align-items:center;gap:4px;opacity:0;transform:translate(-50%,8px);transition:opacity 160ms linear,transform 160ms ease}
 .cxJump.on{opacity:1;transform:translate(-50%,0)}.cxJump[hidden]{display:none}
 .cxStop{width:40px;height:40px;border-radius:20px;background:#fff;border:0;display:flex;align-items:center;justify-content:center;flex:none}#chatF .cxStop i{display:block;flex:none;width:12px;height:12px;border-radius:2px;background:#07080C}.cxStop[hidden]{display:none}
 @media (prefers-reduced-motion:reduce){.cxStream .tok{animation:none}.cxStream .caret{animation:none}.st.pulse{animation:none}.cxDots i{animation-duration:150ms}#cxSheet,#cxScrim,.cxJump,.cxCard{transition-duration:150ms}}
 #chatLog .msg.user{background:#2B3A66;color:#F2F4F8;border-radius:18px 18px 6px 18px;max-width:250px}
+/* Diggy #64 review: agent chat is full-height like a person chat (no tab pill); last item clears the input by 12px. */
+body[data-tab=chat] #tabs{display:none}
+body[data-tab=chat] #chatF{bottom:calc(12px + env(safe-area-inset-bottom))}
+body[data-tab=chat] #chatLog{padding-bottom:calc(var(--input-h) + 24px + env(safe-area-inset-bottom))}
+#chatView .head .chatBack{flex:none;width:40px;height:40px;margin:0 -4px 0 -8px;border:0;background:none;color:#F2F4F8;border-radius:50%;display:grid;place-items:center}
+.tile .tn small.acct{display:block;margin-top:3px;font:400 12px/1.2 Inter,system-ui,sans-serif;color:#8A90A0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile .tn{min-width:0}.tile[disabled]{opacity:.55}
+.cxCard .cxOpen{margin-top:10px}.cxCard .cxMailto{display:inline-block;margin-top:4px;height:44px;line-height:44px;color:#F2F4F8;font:500 14px/44px Inter,system-ui,sans-serif;text-decoration:none}

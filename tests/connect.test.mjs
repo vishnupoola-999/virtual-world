@@ -40,7 +40,11 @@ test('decide: only approve|cancel; /actions 404 marks actions missing', async ()
   resetDetection();
   const calls = [];
   const r = await withFetch(() => decide(U, 'a 1', 'approve'), async (u, o) => { calls.push([u, o.method, o.body]); return res(200, { state: 'done', result: { summary: 'Added', at: 9 } }); });
-  assert.deepEqual(r, { state: 'done', result: { summary: 'Added', at: 9 } });
+  assert.deepEqual(r, { state: 'done', result: { summary: 'Added', at: 9, link: '', mailto: '' } });
+  const g = await withFetch(() => decide(U, 'g', 'approve'), async () => res(200, { state: 'done', result: { summary: 's', at: 1, link: 'https://mail.google.com/x', mailto: 'mailto:p@e.com' } }));
+  assert.deepEqual([g.result.link, g.result.mailto], ['https://mail.google.com/x', 'mailto:p@e.com']);
+  const bad = await withFetch(() => decide(U, 'g', 'approve'), async () => res(200, { state: 'done', result: { link: 'javascript:alert(1)', mailto: 'https://x' } }));
+  assert.deepEqual([bad.result.link, bad.result.mailto], ['', '']);
   assert.deepEqual(calls, [['https://virtual-world-ai.onrender.com/actions/a%201', 'POST', '{"decision":"approve"}']]);
   await assert.rejects(withFetch(() => decide(U, 'a', 'cancel'), async () => res(404, {}))); assert.equal(isMissing('actions'), true);
 });
@@ -94,4 +98,18 @@ test('markup: tiles, sheet copy, card states, escaping', () => {
   assert.match(cardHtml(a, 'expired'), /This request expired. Ask again./); assert.doesNotMatch(cardHtml(a, 'expired'), /button/);
   assert.match(cardHtml({ ...a, app: 'gcal', title: 'Add event to Calendar' }, 'done', { result: { summary: 'Added', at: Date.parse('2026-10-28T13:42:00') } }), /Added · 13:42/);
   assert.equal(ago(Date.now() - 2 * 3600e3), '2 hours ago');
+});
+
+test('#63 apps: server states map (connect/reauth/soon), Gmail always on, account|email; confirm {c}; 404 confirm => null', async () => {
+  const { normApp, confirmApp, disconnectApp } = await import('../src/connect-api.js');
+  assert.equal(normApp({ id: 'notion', state: 'connect' }).state, 'none'); assert.equal(normApp({ id: 'gcal', state: 'reauth' }).state, 'expired');
+  assert.equal(normApp({ id: 'spotify', state: 'soon' }).state, 'soon'); assert.equal(normApp({ id: 'gmail', state: 'connect' }).state, 'connected');
+  assert.equal(normApp({ id: 'gcal', state: 'connected', email: 'a@b.c' }).account, 'a@b.c');
+  resetDetection(); const calls = [];
+  const r = await withFetch(() => confirmApp(U, 'gcal', 'c1'), async (u, o) => { calls.push([u, o.body]); return res(200, { state: 'connected', account: 'a@b.c' }); });
+  assert.deepEqual(r, { state: 'connected', account: 'a@b.c' }); assert.equal(calls[0][0], 'https://virtual-world-ai.onrender.com/apps/gcal/confirm'); assert.equal(JSON.parse(calls[0][1]).c, 'c1');
+  await assert.rejects(withFetch(() => confirmApp(U, 'gcal', 'old'), async () => res(410, { error: 'gone' })));
+  assert.equal(await withFetch(() => confirmApp(U, 'gcal', 'c'), async () => res(404, {})), null);
+  await assert.rejects(disconnectApp(U, 'gmail'));
+  assert.deepEqual(await withFetch(() => disconnectApp(U, 'gcal'), async () => res(200, { state: 'connect', reauth: ['gdrive', 'evil'] })), { reauth: ['gdrive'] });
 });
