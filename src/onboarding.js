@@ -45,7 +45,7 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
       const c=map.getCenter();map.jumpTo({center:[c.lng+6*dt,c.lat]});};globeRaf=requestAnimationFrame(f);}
   function stopGlobe(){cancelAnimationFrame(globeRaf);globeRaf=0;}
   function s1(){chrome(1,{skip:'Skip intro'});startGlobe();
-    body.append(el('div','onbBottom',`<span class="cap">Virtual World</span><h1>Your agent is waiting to be <em>born.</em></h1><p>It lives where you live, makes friends, and gets things done for you.</p><button class="primary big" id="onbGo">Get started</button><button class="ghost" id="onbHave" type="button">I already have an agent</button>`));
+    body.append(el('div','onbBottom',`<span class="cap">Virtual World</span><h1>Your agent is waiting to be <em>born.</em></h1><p>It lives where you live, makes friends, and gets things done for you.</p><button class="primary big" id="onbGo">Get started</button><button class="ghost" id="onbHave" type="button">I already have an agent</button><p class="onbLegal">Virtual World is a 3D map where your AI agent lives, meets friends and, with your OK, helps with Google Drive, Calendar and Gmail. <a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms</a></p>`));
     $('onbGo').onclick=()=>show(2);$('onbHave').onclick=()=>show(2);}
 
   // ---- 2. sign in (then the system location prompt, no explainer)
