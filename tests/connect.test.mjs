@@ -35,7 +35,7 @@ test('feature detection: 404/405/HTML/network on /apps => null (hide Apps), reme
   const list = await withFetch(() => listApps(U), async () => res(200, [{ id: 'spotify', state: 'expired' }, { id: 'gdrive', state: 'connected' }]));
   assert.deepEqual(list.map((a) => a.id), ['gdrive', 'spotify']); // spec order
 });
-test('decide: only approve|cancel; /actions 404 marks actions missing', async () => {
+test('decide: only approve|cancel; /actions/:id 404 expires that action only', async () => {
   await assert.rejects(decide(U, 'a', 'yes'));
   resetDetection();
   const calls = [];
@@ -46,7 +46,8 @@ test('decide: only approve|cancel; /actions 404 marks actions missing', async ()
   const bad = await withFetch(() => decide(U, 'g', 'approve'), async () => res(200, { state: 'done', result: { link: 'javascript:alert(1)', mailto: 'https://x' } }));
   assert.deepEqual([bad.result.link, bad.result.mailto], ['', '']);
   assert.deepEqual(calls, [['https://virtual-world-ai.onrender.com/actions/a%201', 'POST', '{"decision":"approve"}']]);
-  await assert.rejects(withFetch(() => decide(U, 'a', 'cancel'), async () => res(404, {}))); assert.equal(isMissing('actions'), true);
+  assert.deepEqual(await withFetch(() => decide(U, 'a', 'cancel'), async () => res(404, {})), { state: 'expired', result: null }); assert.equal(isMissing('actions'), false);
+  assert.equal((await withFetch(() => decide(U, 'b', 'approve'), async () => res(200, { state: 'done' }))).state, 'done'); // the next action still calls the server
 });
 test('connectApp: only an https consent URL is accepted', async () => {
   resetDetection();

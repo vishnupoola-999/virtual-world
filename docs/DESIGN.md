@@ -222,3 +222,6 @@ Each stream ends with exactly one `done` or `error` event. If the stream ends wi
 **Continue:** `POST /agent/chat/:messageId/continue` with an empty body. It works only for your own `stopped` or `cut_off` reply within 15 minutes, otherwise it returns 404. It streams a new reply (new `X-Message-Id`) that carries on from the partial. Append its tokens to the stopped bubble.
 
 **Stored replies:** `GET /agent/chat/:messageId` returns `{ messageId, text, partial? }` (`partial` is `stopped` or `cut_off`) for 15 minutes, owner only. Replies are kept in memory on the proxy and are lost on restart. Partial replies never feed the memory refresh. Only a full `done` reply updates memory, as `/chat` does.
+
+## Action 404 (2026-10-28)
+A 404 from POST /actions/:id means that one action is unknown or gone (expired, already cleared, server restart): the card shows the expired state with no buttons. It is not an endpoint-missing signal, so other and later confirm cards keep working. GET /apps detection is unchanged (no /apps = no Apps section and no cards). Several cards from one reply appear in server order.
