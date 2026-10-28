@@ -59,7 +59,7 @@ test('chat: POST /agent/chat SSE (X-Message-Id, tokens, actions, done); error.co
   const toks = [], acts = [], seen = [];
   const r = await withFetch(() => chat(U, {}, { onStart: (id) => seen.push(id), onToken: (t) => toks.push(t), onAction: (a) => acts.push(a.id) }), async (u, o) => { seen.push(u); assert.match(o.headers.Accept, /text\/event-stream/);
     return sse(['event: token\ndata: {"t":"Hi "}\n\nevent: action\ndata: {"id":"x","app":"gcal","kind":"write","summary":"s","expiresAt":1}\n\nevent: token\ndata: {"t":"there"}\n\nevent: done\ndata: {"messageId":"m","text":"Hi there","actions":[{"id":"y","app":"gmail","kind":"send","summary":"s","expiresAt":1}]}\n\n'], 'm'); });
-  assert.deepEqual([seen, toks, acts, r], [['https://virtual-world-ai.onrender.com/agent/chat', 'm'], ['Hi ', 'there'], ['x', 'y'], { stream: true, done: true, messageId: 'm', text: 'Hi there' }]);
+  assert.deepEqual([seen, toks, acts, r], [['https://virtual-world-ai.onrender.com/agent/chat', 'm'], ['Hi ', 'there'], ['x', 'y'], { stream: true, done: true, messageId: 'm', text: 'Hi there', links: [], toolResults: [] }]);
   const cut = await withFetch(() => chat(U, {}), async () => sse(['event: token\ndata: {"t":"Hi"}\n\n'])); assert.equal(cut.error, 'cut_off');
   for (const code of ['cut_off', 'failed', 'rate_limited']) assert.equal((await withFetch(() => chat(U, {}), async () => sse([`event: error\ndata: {"code":"${code}","message":"m"}\n\n`]))).error, code);
   assert.equal((await withFetch(() => chat(U, {}), async () => sse(['event: error\ndata: {"code":"boom"}\n\n']))).error, 'failed');
@@ -112,4 +112,11 @@ test('#63 apps: server states map (connect/reauth/soon), Gmail always on, accoun
   assert.equal(await withFetch(() => confirmApp(U, 'gcal', 'c'), async () => res(404, {})), null);
   await assert.rejects(disconnectApp(U, 'gmail'));
   assert.deepEqual(await withFetch(() => disconnectApp(U, 'gcal'), async () => res(200, { state: 'connect', reauth: ['gdrive', 'evil'] })), { reauth: ['gdrive'] });
+});
+
+test('normLinks: done.links keeps https urls and mailto fallbacks only', async () => {
+  const { normLinks } = await import('../src/connect-api.js');
+  assert.deepEqual(normLinks([{ label: 'Open in Gmail', url: 'https://mail.google.com/mail/?view=cm', mailto: 'mailto:a@b.c' }, { label: 'bad', url: 'javascript:alert(1)' }, { label: 'bad2', url: 'https://x', mailto: 'javascript:1' }, null]),
+    [{ label: 'Open in Gmail', url: 'https://mail.google.com/mail/?view=cm', mailto: 'mailto:a@b.c' }, { label: 'bad2', url: 'https://x', mailto: '' }]);
+  assert.deepEqual(normLinks('nope'), []);
 });

@@ -51,6 +51,29 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
     d.append(body);
     return { d, body };
   };
+  // Plain links for link-outs (done.links); opened only when tapped. Never saved to hist or memory.
+  const linkRow = (body, links) => {
+    if (!body || !links?.length) return;
+    const box = document.createElement('div');
+    box.className = 'agent-links';
+    for (const l of links) {
+      const a = document.createElement('a');
+      a.className = 'agent-link';
+      a.href = l.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.textContent = l.label;
+      box.append(a);
+      if (l.mailto) {
+        const m = document.createElement('a');
+        m.className = 'agent-link alt';
+        m.href = l.mailto;
+        m.textContent = 'Use my mail app';
+        box.append(m);
+      }
+    }
+    body.append(box);
+  };
   const actions = (body, text) => {
     if (!String(text || '').trim()) return; // only under a real agent reply
     const row = document.createElement('div');
@@ -393,13 +416,13 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
       // Stop closes the stream (abort) and tells the server, which saves the partial reply.
       streaming = { stop: () => { stopped = true; ctrl.abort(); if (messageId) stopChat(tokenUser, messageId); } };
       sync();
-      let doneReads = '';
+      let doneReads = '', doneLinks = [];
       const handlers = {
         signal: ctrl.signal,
         onStart: (id) => { messageId = id; },
         onToken: (t) => { if (!gotToken) { gotToken = true; status('ok'); sub('replying…'); hero.state('talking'); } sb.push(t); },
         onAction: (a) => onAction(a, sb.el),
-        onDone: (e) => { messageId = e.messageId || messageId; doneReads = readOuts(e.toolResults); if (!sb.started && e.text) sb.push(e.text); },
+        onDone: (e) => { messageId = e.messageId || messageId; doneReads = readOuts(e.toolResults); doneLinks = e.links || []; if (!sb.started && e.text) sb.push(e.text); },
       };
       const res = opts.contId ? await continueChat(tokenUser, opts.contId, handlers) : await chatApi(tokenUser, body, handlers);
       if (res.stream) {
@@ -417,6 +440,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
         if (!full.trim()) { fail('failed'); return; }
         const whole = full;
         remember('assistant', whole.slice(0, 2000));
+        linkRow(sb.el.querySelector('.mbody'), doneLinks);
         actions(sb.el.querySelector('.mbody'), whole);
         if (doneReads) add('assistant', doneReads, 'ephemeral');
         hero.state('talking');
