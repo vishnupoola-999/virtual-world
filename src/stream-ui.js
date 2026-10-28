@@ -29,8 +29,17 @@ export function streamBubble({ log, view = log.closest('section') || document.bo
   let chip = view.querySelector('.cxJump');
   if (!chip) { chip = document.createElement('button'); chip.type = 'button'; chip.className = 'cxJump'; chip.hidden = true; chip.innerHTML = '<span aria-hidden="true">↓</span> Jump to latest'; view.append(chip); }
   // 12px above the input bar, wherever the bar sits on this phone.
-  const place = () => { const bar = view.querySelector('form, .composer'); if (bar) chip.style.bottom = Math.round(innerHeight - bar.getBoundingClientRect().top + 12) + 'px'; };
-  const showChip = (on) => { if (on === !chip.hidden) return; if (on) place(); chip.hidden = !on; if (on) requestAnimationFrame(() => chip.classList.add('on')); else chip.classList.remove('on'); };
+  let fade = view.querySelector('.cxFade');
+  if (!fade) { fade = document.createElement('div'); fade.className = 'cxFade'; fade.setAttribute('aria-hidden', 'true'); view.append(fade); }
+  const place = () => { const bar = view.querySelector('form, .composer'); if (!bar) return; const vb = view.getBoundingClientRect().bottom, off = Math.round(vb - bar.getBoundingClientRect().top);
+    chip.style.bottom = off + 12 + 'px'; fade.style.setProperty('--cxBar', off + 'px'); };
+  let hideT = 0;
+  // Shown only while scrolled up; fades out (opacity) once back at the bottom.
+  const showChip = (on) => {
+    clearTimeout(hideT);
+    if (on) { if (chip.classList.contains('on')) return; place(); chip.hidden = false; requestAnimationFrame(() => { chip.classList.add('on'); fade.classList.add('on'); }); return; }
+    if (chip.hidden) return; chip.classList.remove('on'); fade.classList.remove('on'); hideT = setTimeout(() => { chip.hidden = true; }, 200);
+  };
   chip.onclick = () => { follow = true; log.scrollTop = log.scrollHeight; showChip(false); };
   const onScroll = () => { if (ended && !chip.hidden && near()) { showChip(false); return; } if (near()) { follow = true; showChip(false); } else { follow = false; if (!ended) showChip(true); } };
   log.addEventListener('scroll', onScroll, { passive: true });

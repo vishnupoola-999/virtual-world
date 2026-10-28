@@ -39,7 +39,7 @@
 .cxCard button{font:600 15px/1 Inter,system-ui,sans-serif;border:0;border-radius:22px;height:44px}
 .cxCard .primary{background:#fff;color:#07080C}.cxCard .ghost{background:#20232C;color:#B7BCC8;font-weight:500}
 .cxCard button:disabled{opacity:.7}
-.cxCard .cxRetry{display:block;background:none;color:#fff;height:36px;padding:0;font-weight:500;margin-top:4px;text-align:left}
+#chatLog .cxCard button.cxRetry{display:block;background:none;border:0;color:#fff;height:44px;min-height:44px;padding:0 8px;margin:0 -8px;font:500 14px/20px Inter,system-ui,sans-serif;text-align:left}
 .cxCard .primary.sm{display:block;width:100%;height:40px;font-size:14px;border-radius:20px}
 .cxCard .meta{margin:0}
 /* Streaming reply: bubble per spec (agent bubble #16181F, max 264) */
@@ -53,10 +53,10 @@
 @keyframes cxCaret{50%{opacity:.3}}
 .cxLine{display:flex;align-items:center;gap:4px;font:500 14px/20px Inter,system-ui,sans-serif;color:#8A90A0;margin:0 0 0 4px;min-height:44px}.cxLine.e{color:#FF8A6B}
 .cxLine button{background:none;border:0;padding:0 8px;margin:0 -8px;color:#fff;font:500 14px/20px Inter,system-ui,sans-serif;height:44px;min-height:44px} /* 44px hit area, same type as the label */
-.cxJump{position:absolute;left:50%;bottom:88px;z-index:5;height:32px;padding:0 14px;border-radius:16px;background:#fff;color:#07080C;border:0;font:600 13px/1 Inter,system-ui,sans-serif;display:flex;align-items:center;gap:4px;opacity:0;transform:translate(-50%,8px);transition:opacity 160ms linear,transform 160ms ease}
-.cxJump.on{opacity:1;transform:translate(-50%,0)}.cxJump[hidden]{display:none}
+.cxJump{position:absolute;right:16px;left:auto;bottom:88px;z-index:5;height:32px;padding:0 14px;border-radius:16px;background:#fff;color:#07080C;border:0;font:600 13px/1 Inter,system-ui,sans-serif;display:flex;align-items:center;gap:4px;opacity:0;transform:translateY(8px);transition:opacity 160ms linear,transform 160ms ease}
+.cxJump.on{opacity:1;transform:none}.cxJump[hidden]{display:none}
 .cxStop{width:40px;height:40px;border-radius:20px;background:#fff;border:0;display:flex;align-items:center;justify-content:center;flex:none}#chatF .cxStop i{display:block;flex:none;width:12px;height:12px;border-radius:2px;background:#07080C}.cxStop[hidden]{display:none}
-@media (prefers-reduced-motion:reduce){.cxStream .tok{animation:none}.cxStream .caret{animation:none}.st.pulse{animation:none}.cxDots i{animation-duration:150ms}#cxSheet,#cxScrim,.cxJump,.cxCard{transition-duration:150ms}}
+@media (prefers-reduced-motion:reduce){.cxStream .tok{animation:none}.cxStream .caret{animation:none}.st.pulse{animation:none}.cxDots i{animation-duration:150ms}#cxSheet,#cxScrim,.cxJump,.cxFade,.cxCard{transition-duration:150ms}}
 #chatLog .msg.user{background:#2B3A66;color:#F2F4F8;border-radius:18px 18px 6px 18px;max-width:250px}
 /* Diggy #64 review: agent chat is full-height like a person chat (no tab pill); last item clears the input by 12px. */
 body[data-tab=chat] #tabs{display:none}
@@ -66,3 +66,7 @@ body[data-tab=chat] #chatLog{padding-bottom:calc(var(--input-h) + 24px + env(saf
 .tile .tn small.acct{display:block;margin-top:3px;font:400 12px/1.2 Inter,system-ui,sans-serif;color:#8A90A0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tile .tn{min-width:0}.tile[disabled]{opacity:.55}
 .cxCard .cxOpen{margin-top:10px}.cxCard .cxMailto{display:inline-block;margin-top:4px;height:44px;line-height:44px;color:#F2F4F8;font:500 14px/44px Inter,system-ui,sans-serif;text-decoration:none}
+/* Static fade behind the input bar + Jump chip (no blur): solid #07080C under the bar, then 72px to transparent above it. Opacity only. */
+.cxFade{position:absolute;left:0;right:0;bottom:0;z-index:1;pointer-events:none;opacity:0;transition:opacity 160ms linear;
+ background:linear-gradient(to top,#07080C 0,#07080C var(--cxBar,76px),rgba(7,8,12,0) calc(var(--cxBar,76px) + 72px));height:calc(var(--cxBar,76px) + 72px)}
+.cxFade.on{opacity:1}

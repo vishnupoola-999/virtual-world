@@ -1,4 +1,4 @@
-/* global window, document, location, getComputedStyle */
+/* global window, document, location, getComputedStyle, NodeFilter */
 // connect-v1: Me -> Apps, app sheet, confirm cards, streaming replies. Backend mocked (shapes are unconfirmed);
 // SSE is driven through a fetch stub so a test can hold a stream open mid-reply.
 import { test, expect } from '@playwright/test';
@@ -164,6 +164,7 @@ test('4 confirm cards: needs OK, done, error + Try again, sign-in expired; one A
   await card('c2').locator('.cxYes').dblclick(); await expect(card('c2').locator('.meta')).toHaveText('✓ Added · 13:42'); await expect(card('c2').locator('.cap')).toHaveText('Calendar');
   expect(s.decisions.filter((d) => d[0] === 'c2')).toEqual([['c2', 'approve']]); // second tap ignored
   await card('c3').locator('.cxYes').click(); await expect(card('c3').locator('.meta')).toHaveText("Couldn't send. Nothing went out."); await expect(card('c3').locator('.cxRetry')).toHaveText('Try again');
+  expect(await card('c3').locator('.cxRetry').evaluate((b) => { const c = getComputedStyle(b); return [c.color, c.fontSize, c.fontWeight, b.getBoundingClientRect().height]; })).toEqual(['rgb(255, 255, 255)', '14px', '500', 44]);
   await card('c4').locator('.cxYes').click(); await expect(card('c4').locator('.cap')).toHaveText('Spotify · sign-in expired'); await expect(card('c4').locator('.cxReauth')).toHaveText('Sign in again');
   await page.locator('#chatLog').evaluate((l) => { l.scrollTop = l.scrollHeight; });
   await shot(page, '4-confirm-card');
@@ -210,8 +211,25 @@ test('5 streaming: dots then words with caret, replying…, Stop button, follow 
   await expect(page.locator('.cxJump')).toBeVisible(); await expect(page.locator('.cxJump')).toHaveText('↓ Jump to latest');
   // Chip sits 12px above the input bar.
   await expect.poll(() => page.evaluate(() => Math.round(document.getElementById('chatF').getBoundingClientRect().top - document.querySelector('.cxJump').getBoundingClientRect().bottom))).toBe(12);
+  // Right edge, 16px in; static fade (no blur) behind the bar + chip, starting above the chip.
+  await expect.poll(() => page.evaluate(() => { const c = document.querySelector('.cxJump').getBoundingClientRect(), f = document.querySelector('.cxFade'), fs = getComputedStyle(f), r = f.getBoundingClientRect();
+    return [Math.round(globalThis.innerWidth - c.right), fs.opacity, fs.backdropFilter, fs.filter, r.top < c.top - 8, Math.round(r.bottom) === Math.round(document.getElementById('chatView').getBoundingClientRect().bottom), fs.pointerEvents]; }))
+    .toEqual([16, '1', 'none', 'none', true, true, 'none']);
 
+  // Shot: nearest scroll-up (>48px) where the chip covers no glyphs (it may sit over the fade or bubble padding).
+  await page.locator('#chatLog').evaluate((l) => {
+    const chip = document.querySelector('.cxJump'), max = l.scrollHeight - l.clientHeight;
+    const clear = () => { const c = chip.getBoundingClientRect(), w = document.createTreeWalker(l, NodeFilter.SHOW_TEXT); let n;
+      while ((n = w.nextNode())) { const rg = document.createRange(); rg.selectNodeContents(n); for (const r of rg.getClientRects()) if (r.right > c.left && r.left < c.right && r.bottom > c.top && r.top < c.bottom) return false; } return true; };
+    for (let y = max - 50; y > max - 400 && y > 0; y -= 2) { l.scrollTop = y; if (clear()) break; }
+    l.dispatchEvent(new Event('scroll'));
+  });
   await shot(page, '5-streaming');
+  // Back at the bottom by scrolling: both fade out with opacity, then the chip is hidden.
+  await page.locator('#chatLog').evaluate((l) => { l.scrollTop = l.scrollHeight; l.dispatchEvent(new Event('scroll')); });
+  await expect.poll(() => page.evaluate(() => [getComputedStyle(document.querySelector('.cxJump')).opacity, getComputedStyle(document.querySelector('.cxFade')).opacity])).toEqual(['0', '0']);
+  await expect(page.locator('.cxJump')).toBeHidden();
+  await page.locator('#chatLog').evaluate((l) => { l.scrollTop = Math.max(0, l.scrollTop - 52); l.dispatchEvent(new Event('scroll')); }); await expect(page.locator('.cxJump')).toBeVisible();
   await page.locator('.cxJump').click(); await expect(page.locator('.cxJump')).toBeHidden();
   await page.evaluate(() => { globalThis.__ssePush('token', { t: 'walk away.' }); globalThis.__ssePush('done', { messageId: 'm1' }); globalThis.__sse.ctl.close(); });
   await expect(b.locator('.agent-text')).toHaveText(/short walk away\.$/); await expect(b.locator('.caret')).toHaveCount(0);
