@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sseParser, normAction, normApp, listApps, decide, chat, continueChat, connectApp, isMissing, resetDetection } from '../src/connect-api.js';
-import { takeWords, RETRY_LINES } from '../src/stream-ui.js';
+import { takeWords, RETRY_LINES, finalText } from '../src/stream-ui.js';
 import { appsHtml, sheetHtml, cardHtml, stateChip, ago } from '../src/connect.js';
 
 const U = { getIdToken: async () => 'tok' };
@@ -35,7 +35,7 @@ test('feature detection: 404/405/HTML/network on /apps => null (hide Apps), reme
   const list = await withFetch(() => listApps(U), async () => res(200, [{ id: 'spotify', state: 'expired' }, { id: 'gdrive', state: 'connected' }]));
   assert.deepEqual(list.map((a) => a.id), ['gdrive', 'spotify']); // spec order
 });
-test('decide: only approve|cancel; /actions 404 marks actions missing', async () => {
+test('decide: only approve|cancel; /actions/:id 404 expires that action only', async () => {
   await assert.rejects(decide(U, 'a', 'yes'));
   resetDetection();
   const calls = [];
@@ -46,7 +46,8 @@ test('decide: only approve|cancel; /actions 404 marks actions missing', async ()
   const bad = await withFetch(() => decide(U, 'g', 'approve'), async () => res(200, { state: 'done', result: { link: 'javascript:alert(1)', mailto: 'https://x' } }));
   assert.deepEqual([bad.result.link, bad.result.mailto], ['', '']);
   assert.deepEqual(calls, [['https://virtual-world-ai.onrender.com/actions/a%201', 'POST', '{"decision":"approve"}']]);
-  await assert.rejects(withFetch(() => decide(U, 'a', 'cancel'), async () => res(404, {}))); assert.equal(isMissing('actions'), true);
+  assert.deepEqual(await withFetch(() => decide(U, 'a', 'cancel'), async () => res(404, {})), { state: 'expired', result: null }); assert.equal(isMissing('actions'), false);
+  assert.equal((await withFetch(() => decide(U, 'b', 'approve'), async () => res(200, { state: 'done' }))).state, 'done'); // the next action still calls the server
 });
 test('connectApp: only an https consent URL is accepted', async () => {
   resetDetection();
@@ -59,7 +60,7 @@ test('chat: POST /agent/chat SSE (X-Message-Id, tokens, actions, done); error.co
   const toks = [], acts = [], seen = [];
   const r = await withFetch(() => chat(U, {}, { onStart: (id) => seen.push(id), onToken: (t) => toks.push(t), onAction: (a) => acts.push(a.id) }), async (u, o) => { seen.push(u); assert.match(o.headers.Accept, /text\/event-stream/);
     return sse(['event: token\ndata: {"t":"Hi "}\n\nevent: action\ndata: {"id":"x","app":"gcal","kind":"write","summary":"s","expiresAt":1}\n\nevent: token\ndata: {"t":"there"}\n\nevent: done\ndata: {"messageId":"m","text":"Hi there","actions":[{"id":"y","app":"gmail","kind":"send","summary":"s","expiresAt":1}]}\n\n'], 'm'); });
-  assert.deepEqual([seen, toks, acts, r], [['https://virtual-world-ai.onrender.com/agent/chat', 'm'], ['Hi ', 'there'], ['x', 'y'], { stream: true, done: true, messageId: 'm', text: 'Hi there' }]);
+  assert.deepEqual([seen, toks, acts, r], [['https://virtual-world-ai.onrender.com/agent/chat', 'm'], ['Hi ', 'there'], ['x', 'y'], { stream: true, done: true, messageId: 'm', text: 'Hi there', links: [], toolResults: [] }]);
   const cut = await withFetch(() => chat(U, {}), async () => sse(['event: token\ndata: {"t":"Hi"}\n\n'])); assert.equal(cut.error, 'cut_off');
   for (const code of ['cut_off', 'failed', 'rate_limited']) assert.equal((await withFetch(() => chat(U, {}), async () => sse([`event: error\ndata: {"code":"${code}","message":"m"}\n\n`]))).error, code);
   assert.equal((await withFetch(() => chat(U, {}), async () => sse(['event: error\ndata: {"code":"boom"}\n\n']))).error, 'failed');
@@ -112,4 +113,18 @@ test('#63 apps: server states map (connect/reauth/soon), Gmail always on, accoun
   assert.equal(await withFetch(() => confirmApp(U, 'gcal', 'c'), async () => res(404, {})), null);
   await assert.rejects(disconnectApp(U, 'gmail'));
   assert.deepEqual(await withFetch(() => disconnectApp(U, 'gcal'), async () => res(200, { state: 'connect', reauth: ['gdrive', 'evil'] })), { reauth: ['gdrive'] });
+});
+
+test('normLinks: done.links keeps https urls and mailto fallbacks only', async () => {
+  const { normLinks } = await import('../src/connect-api.js');
+  assert.deepEqual(normLinks([{ app: 'gmail', name: 'Gmail', label: 'Open in Gmail', url: 'https://mail.google.com/mail/?view=cm', mailto: 'mailto:a@b.c' }, { label: 'bad', url: 'javascript:alert(1)' }, { label: 'bad2', url: 'https://x', mailto: 'javascript:1' }, null]),
+    [{ app: 'gmail', name: 'Gmail', label: 'Open in Gmail', url: 'https://mail.google.com/mail/?view=cm', mailto: 'mailto:a@b.c' }, { app: '', name: '', label: 'bad2', url: 'https://x', mailto: '' }]);
+  assert.deepEqual(normLinks('nope'), []);
+});
+
+test('stream-ui: done.text replaces the streamed text when it differs', () => {
+  assert.equal(finalText('Lunch is at 1pm on Friday.', 'Lunch is at 1pm on Friday, 30 Oct.'), 'Lunch is at 1pm on Friday, 30 Oct.');
+  assert.equal(finalText('Same.', 'Same.'), 'Same.');
+  assert.equal(finalText('Kept.', null), 'Kept.');
+  assert.equal(finalText('Kept.', '  '), 'Kept.');
 });

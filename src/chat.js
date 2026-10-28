@@ -11,6 +11,7 @@ import {chat as chatApi, continueChat, stopChat, normAction} from './connect-api
 // Connected-app reads ({name, app, text}): on screen only, never in hist or memory.
 const readOuts = (list) => (Array.isArray(list) ? list : []).map((r) => String(r?.text || '')).filter(Boolean).join('\n');
 import {streamBubble} from './stream-ui.js';
+import {appMeta} from './connect.js';
 
 const googleTools = createGoogleTools({ requestAccess: requestGoogleAccess, confirm: confirmAction, apiEnabled: () => toolsApiEnabled(currentUser()) });
 
@@ -50,6 +51,30 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
     body.className = 'mbody';
     d.append(body);
     return { d, body };
+  };
+  // Link-outs (done.links) as rows (Diggy link-rows): app letter tile, label, arrow. Opened only when tapped; never saved.
+  const ARROW = '<svg class="cxArrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>';
+  const linkRow = (body, links) => {
+    if (!body || !links?.length) return;
+    const box = document.createElement('div');
+    box.className = 'agent-links';
+    for (const l of links) {
+      const a = document.createElement('a');
+      a.className = 'cxLink';
+      a.href = l.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      const mk = document.createElement('span'); mk.className = 'mk sm'; mk.setAttribute('aria-hidden', 'true'); mk.textContent = appMeta(l.app)?.mk || (l.name || l.label).trim().charAt(0).toUpperCase();
+      const t = document.createElement('span'); t.className = 'cxLinkT'; t.textContent = l.label;
+      a.append(mk, t); a.insertAdjacentHTML('beforeend', ARROW);
+      box.append(a);
+      if (l.mailto) {
+        const m = document.createElement('a');
+        m.className = 'cxLink ghost';
+        m.href = l.mailto;
+        m.textContent = 'Use my mail app';
+        box.append(m);
+      }
+    }
+    body.append(box);
   };
   const actions = (body, text) => {
     if (!String(text || '').trim()) return; // only under a real agent reply
@@ -393,13 +418,13 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
       // Stop closes the stream (abort) and tells the server, which saves the partial reply.
       streaming = { stop: () => { stopped = true; ctrl.abort(); if (messageId) stopChat(tokenUser, messageId); } };
       sync();
-      let doneReads = '';
+      let doneReads = '', doneLinks = [], doneText = null;
       const handlers = {
         signal: ctrl.signal,
         onStart: (id) => { messageId = id; },
         onToken: (t) => { if (!gotToken) { gotToken = true; status('ok'); sub('replying…'); hero.state('talking'); } sb.push(t); },
         onAction: (a) => onAction(a, sb.el),
-        onDone: (e) => { messageId = e.messageId || messageId; doneReads = readOuts(e.toolResults); if (!sb.started && e.text) sb.push(e.text); },
+        onDone: (e) => { messageId = e.messageId || messageId; doneReads = readOuts(e.toolResults); doneLinks = e.links || []; doneText = typeof e.text === 'string' ? e.text : null; if (!sb.started && e.text) sb.push(e.text); },
       };
       const res = opts.contId ? await continueChat(tokenUser, opts.contId, handlers) : await chatApi(tokenUser, body, handlers);
       if (res.stream) {
@@ -413,10 +438,11 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
           return;
         }
         if (res.error) { fail(res.error); return; }
-        const full = sb.finish();
+        const full = sb.finish(opts.contId ? null : doneText); // a continue's done.text is only the new part
         if (!full.trim()) { fail('failed'); return; }
         const whole = full;
         remember('assistant', whole.slice(0, 2000));
+        linkRow(sb.el.querySelector('.mbody'), doneLinks);
         actions(sb.el.querySelector('.mbody'), whole);
         if (doneReads) add('assistant', doneReads, 'ephemeral');
         hero.state('talking');
@@ -459,7 +485,7 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
         remember('assistant', reply.slice(0, 2000));
         last = await stream(reply);
       }
-      for (const a of connectActs) onAction(a, last);
+      { let at = last; for (const a of connectActs) { onAction(a, at); const el = log.querySelector(`.cxCard[data-action="${CSS.escape(normAction(a)?.id || "")}"]`); if (el) at = el; } } // keep server order
       // Calendar listings: on screen only, never in hist, localStorage, Firestore or later prompts.
       if (ephemeral) add('assistant', ephemeral, 'ephemeral');
       showMe();

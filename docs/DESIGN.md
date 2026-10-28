@@ -212,7 +212,7 @@ This is the backend for Diggy's connect-v1 spec, §5 and §6. `POST /agent/chat`
 |---|---|---|
 | `token` | `{ "t": "..." }` | Append to the bubble, flushing whole words. The first one replaces the dots. Thinking text is never sent. |
 | `action` | `{ id, app, kind, summary, expiresAt }` | SWE's pending-action shape. Show the confirm card (§4). `app`: `gmail` or `gcal` today. `kind`: `send`, `write`, or `read` (calendar look-up). `expiresAt` is ms, 15 min out. Sent after the last token and before `done`. |
-| `done` | `{ messageId, text, actions?, partial? }` | Finish: remove the caret and **replace** the bubble with `text`, since calendar turns are reviewed server-side. `actions[i]` is `{ id, name, args, confirm }`, with the same `id` as its `action` event, so the existing calendar and Gmail code can run it after Approve. `partial: "stopped"` means Stop was tapped, so show "Stopped · **Continue**". |
+| `done` | `{ messageId, text, links?, toolResults?, partial? }` — `links: [{app,name,label,url,mailto?}]` are link-outs the server can't run (Gmail compose, Calendar template); show them as plain links, never as confirm cards. Real connected-app actions arrive only as `action` events. | Finish: remove the caret and **replace** the bubble with `text`. `partial: \"stopped\"` means Stop was tapped, so show \"Stopped · **Continue**\". |
 | `error` | `{ code, message, messageId?, text?, partial? }` | `code` is `cut_off` (reply hit the length limit; `text` is the partial, so keep it and show "Reply cut off · Tap to retry"), `failed` (upstream dropped mid-reply with `partial: "cut_off"`, or no reply at all), or `rate_limited`. |
 
 Each stream ends with exactly one `done` or `error` event. If the stream ends without either, it was a network drop, so treat it as §6 "Reply cut off". A `failed` or `rate_limited` before any token comes with the real HTTP status (502 or 429) and still uses the SSE body. 400, 401, 403 and 413 stay JSON `{ "error": "..." }`, as on `/chat`. EventSource can't POST, so read the stream with `fetch()` and `response.body.getReader()`.
@@ -222,3 +222,11 @@ Each stream ends with exactly one `done` or `error` event. If the stream ends wi
 **Continue:** `POST /agent/chat/:messageId/continue` with an empty body. It works only for your own `stopped` or `cut_off` reply within 15 minutes, otherwise it returns 404. It streams a new reply (new `X-Message-Id`) that carries on from the partial. Append its tokens to the stopped bubble.
 
 **Stored replies:** `GET /agent/chat/:messageId` returns `{ messageId, text, partial? }` (`partial` is `stopped` or `cut_off`) for 15 minutes, owner only. Replies are kept in memory on the proxy and are lost on restart. Partial replies never feed the memory refresh. Only a full `done` reply updates memory, as `/chat` does.
+
+## Action 404 (2026-10-28)
+A 404 from POST /actions/:id means that one action is unknown or gone (expired, already cleared, server restart): the card shows the expired state with no buttons. It is not an endpoint-missing signal, so other and later confirm cards keep working. GET /apps detection is unchanged (no /apps = no Apps section and no cards). Several cards from one reply appear in server order.
+Expired cards dim their title to #8A90A0.
+
+## Link rows (2026-10-28)
+Link-outs from done.links render as rows under the reply, spanning the chat width from the bubble's left edge: 48px, #16181F, 12px radius, 8px apart; 24px app letter tile, 15px/500 white label (ellipsis), #8A90A0 arrow at the right. The mailto fallback is a 40px ghost row (no background, 14px/500 white) under the Gmail row, its text aligned with the label. Only https and mailto links render; nothing opens without a tap. No blur, press feedback is a transform.
+Only the link rows span the chat width; the reply bubble above them keeps the normal bubble width.
