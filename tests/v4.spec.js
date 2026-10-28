@@ -20,7 +20,7 @@ function server({ presence = false, reactions = false } = {}) {
       { id: 'm9', kind: 'meet', withId: 'h_a', withName: 'Arjun', shared: ['space', 'cricket', 'robotics'], at: ago(60 * 3) }],
     incoming: [{ id: 'c1', fromAgentId: 'h_a', fromName: 'Arjun', text: 'Builds rockets out of bottles. You\'d get along.', meetId: 'm9', createdAt: ago(10), status: 'pending' }],
     outgoing: [{ id: 'o1', toAgentId: 'h_b', status: 'accepted', threadId: 't_b', createdAt: ago(80) }, { id: 'o2', toAgentId: 'h_m', status: 'declined', createdAt: ago(60 * 25) }] },
-    threads: [{ id: 't_p', with: { id: 'h_p', name: 'Pooja', interests: ['space', 'music', 'books'], look: { creature: 'drip', accessory: 'none' } }, createdAt: ago(60 * 48), last: { text: 'Haha the telescope one was mine', from: 'them', at: ago(2) }, unread: 1, ...(presence ? { metAt: ago(60 * 49), sharedInterests: ['space', 'music'] } : {}) },
+    threads: [{ id: 't_p', with: { id: 'h_p', name: 'Pooja', interests: ['space', 'music', 'books'], look: { creature: 'drip', accessory: 'none' } }, createdAt: ago(60 * 48), last: { text: 'Haha the telescope one was mine', from: 'them', at: ago(2) }, unread: 1, ...(presence || reactions ? { metAt: ago(60 * 49), sharedInterests: ['space', 'music'] } : {}) /* Chat API v4 thread fields; #59 implies #57 is live */ },
       { id: 't_d', with: { id: 'h_d', name: 'Dad', interests: ['cricket'], look: null }, createdAt: ago(60 * 24 * 9), last: { text: 'Calling you after dinner', from: 'me', at: ago(60) }, unread: 0 }],
     msgs: { t_p: [{ id: 'a', from: 'system', text: 'Your agents met in Koramangala. Pooja and you both like space and music.', at: ago(60 * 48) },
       { id: 'b', from: 'them', text: 'Did you see the Saturn photo your agent sent mine?', at: ago(20) }, { id: 'c', from: 'them', text: 'It looked so real', at: ago(19) },
@@ -167,7 +167,8 @@ test('7 Me: hero, interests, colour row, This week (real), one primary', async (
 const RX_SHOTS = globalThis.process?.env.RX_SHOTS;
 const rxShot = async (page, n) => { if (RX_SHOTS) { await page.waitForTimeout(500); await page.screenshot({ path: `${RX_SHOTS}/${n}.png` }); } };
 async function openPooja(page, s) { await boot(page, s); await chats(page); await page.locator('.fr[data-thread="t_p"] .frBtn').click();
-  const v = page.locator('#dmView'); await expect(v.locator('.msg')).toHaveCount(3); await expect(v.locator('.dmPair img[src]')).toHaveCount(2, { timeout: 15_000 }); return v; }
+  const v = page.locator('#dmView'); await expect(v.locator('.msg')).toHaveCount(3); await expect(v.locator('.dmPair img[src]')).toHaveCount(2, { timeout: 15_000 });
+  await expect(v.locator('.dmMet')).toHaveText('Met 2 days ago · Both like space, music'); return v; }
 const rxOf = (v, id) => v.locator(`.msg[data-id="${id}"] .rx`);
 
 test('reactions: server hearts, optimistic toggle, sender-side badge, accent only when mine', async ({ page }) => {
@@ -204,5 +205,6 @@ test('reactions: roll back on failure, 429 copy, their-bubble shot', async ({ pa
   await expect(v.locator('.dmNote')).toContainText('Too many hearts'); await expect(rxOf(v, 'c')).toHaveCount(0);
   s.rxFail = 0; await v.locator('.msg[data-id="b"] p').dblclick(); await expect(rxOf(v, 'b')).toHaveClass(/mine/);
   await expect.poll(() => s.rx.b?.mine).toBe(true); await expect(v.locator('.dmNote')).toHaveText('');
+  await expect(v.locator('.dmMet')).toHaveText('Met 2 days ago · Both like space, music'); // survives polls and reaction merges
   await page.waitForTimeout(400); await rxShot(page, '3-their-bubble');
 });
