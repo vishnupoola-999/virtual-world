@@ -19,6 +19,9 @@ test('colour row: Default + 8 presets + More + picker under Extra; selection rin
   const row = page.locator('#lkCol'); await expect(row.locator('.swc')).toHaveCount(10); await expect(row.locator('input[type=color]')).toHaveCount(1);
   const extraBox = await page.locator('#lkAcc').boundingBox(), colBox = await row.boundingBox(); expect(colBox.y).toBeGreaterThan(extraBox.y + extraBox.height - 1);
   await expect(row.locator('.swc.def')).toHaveAttribute('aria-checked', 'true');
+  // Diggy: one row, never wraps; 44px tap targets; scrolls sideways inside the sheet.
+  const geo = await row.evaluate((r) => ({ tops: [...new Set([...r.children].map((c) => Math.round(c.getBoundingClientRect().top)))].length, w: r.clientWidth, sw: r.scrollWidth, sz: [...r.children].map((c) => Math.round(c.getBoundingClientRect().width)), ox: globalThis.getComputedStyle(r).overflowX }));
+  expect(geo.tops).toBe(1); expect(geo.sw).toBeGreaterThan(geo.w); expect(geo.ox).toBe('auto'); for (const z of geo.sz) expect(z).toBe(44);
   await row.locator('.swc[data-col="#ff8fab"]').click();
   await expect(row.locator('.swc[data-col="#ff8fab"]')).toHaveClass(/on/); await expect(row.locator('.swc.def')).toHaveAttribute('aria-checked', 'false');
   await page.waitForFunction(() => [...globalThis.document.querySelectorAll('#lkBase img')].every((i) => i.src.startsWith('data:')), null, { timeout: 15_000 });

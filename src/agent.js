@@ -86,7 +86,9 @@ function lookEditor(onChange){let creature=null,acc='none',color=null;
     $('lkMore').hidden=!creature;onChange(value());}
   for(const b of $('lkBase').querySelectorAll('button'))b.onclick=()=>{creature=b.dataset.creature;paint();};
   for(const b of accBox.querySelectorAll('button'))b.onclick=()=>{acc=b.dataset.acc;paint();};
-  const setCol=c=>{const n=cleanColor(c);if(n===color)return;color=n;paint();thumbsFor();};
+  // Keep the selected swatch in view in the sideways-scrolling row (horizontal only, never scrolls the sheet).
+  const reveal=()=>{const on=colBox.querySelector('.on');if(!on)return;const l=on.offsetLeft-colBox.offsetLeft,r=l+on.offsetWidth+24;if(l<colBox.scrollLeft)colBox.scrollLeft=l;else if(r>colBox.scrollLeft+colBox.clientWidth)colBox.scrollLeft=r-colBox.clientWidth;};
+  const setCol=c=>{const n=cleanColor(c);if(n===color)return;color=n;paint();reveal();thumbsFor();};
   for(const b of colBox.querySelectorAll('button'))b.onclick=()=>setCol(b.dataset.col);
   pick.oninput=()=>setCol(pick.value);
   let shown=false;const showThumbs=()=>{if(shown)return;shown=true;import('./cards3d.js').then(m=>{const t=m.cardThumbs();for(const b of $('lkBase').querySelectorAll('button')){const img=b.querySelector('img');if(t[b.dataset.creature])img.src=t[b.dataset.creature];}if(color)thumbsFor();}).catch(e=>console.warn('picker thumbs',e?.message));};
@@ -94,5 +96,5 @@ function lookEditor(onChange){let creature=null,acc='none',color=null;
   function value(){return creature?sanitize({creature,accessory:acc,color}):null;}
   return {value,picked:()=>!!creature,load(look,name){creature=null;acc='none';const was=color;color=null;
     if(look){const l=toLook(look,name);creature=l.creature;acc=l.accessory;color=l.color||null;}
-    paint();if(was!==color)thumbsFor();}};}
+    paint();requestAnimationFrame(reveal);if(was!==color)thumbsFor();}};}
 // three.js (~267 KB gz) is only fetched once there is an agent to draw and the map is zoomed in far enough to see it (perf audit #2).

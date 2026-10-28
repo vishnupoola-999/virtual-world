@@ -121,13 +121,18 @@ button.danger,#liveBtn.on{background:rgba(255,90,106,.12);border:1px solid rgba(
 .accRow button{min-height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--border);background:var(--sheet);color:inherit;font:inherit;font-size:13px;transition:border-color .15s,opacity .15s}
 .accRow button.on{border-color:var(--acc-line);box-shadow:0 0 0 1px var(--acc-line)}
 #lkMore .lkRow .accRow{margin:0}
-/* Body colour row (design/body-colour): 32px swatches, the same accent ring as the Extra chips when selected. */
-.colRow{display:flex;flex-wrap:wrap;gap:8px}
-.swc{position:relative;width:32px;height:32px;min-height:0;padding:0;border-radius:50%;border:1px solid var(--border);background:var(--c,#2a2f3b);color:var(--tx);display:grid;place-items:center;cursor:pointer;transition:transform .15s,opacity .15s;box-sizing:border-box}
+/* Body colour row (design/body-colour): one row that scrolls sideways (Diggy). 36px swatches with a 10px visual gap; each
+   button is 44px (4px padding each side, so gap 2px + 8px padding = 10px) for the tap target. Right edge fades out with an opacity mask, no blur. */
+.colRow{display:flex;flex-wrap:nowrap;gap:2px;margin:0 -4px;padding:0 20px 0 0;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scrollbar-width:none;
+  -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 24px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 24px),transparent);min-width:0;flex:1 1 100%;max-width:calc(100% + 8px)}
+.colRow::-webkit-scrollbar{display:none}
+.swc{position:relative;flex:none;width:44px;height:44px;min-height:0;padding:0;border:0;border-radius:50%;background:none;color:var(--tx);display:grid;place-items:center;cursor:pointer;scroll-snap-align:start;transition:transform .15s;box-sizing:border-box}
+.swc::before{content:'';position:absolute;inset:4px;border-radius:50%;background:var(--c,#2a2f3b);border:1px solid var(--border);box-sizing:border-box;transition:opacity .15s}
 .swc:active{transform:scale(.92)}
-.swc.on{box-shadow:0 0 0 2px var(--sheet),0 0 0 4px var(--acc-line);border-color:transparent}
-.swc.def{background:conic-gradient(#6e9bff 0 16.6%,#a98bff 0 33.3%,#4fd69c 0 50%,#ff8a6b 0 66.6%,#ffc24a 0 83.3%,#45c8d8 0)}
-.swc.cust{background:var(--c,var(--sheet));border-style:dashed}.swc.cust.on{border-style:solid}
+.swc.on::before{box-shadow:0 0 0 2px var(--sheet),0 0 0 4px var(--acc-line);border-color:transparent}
+.swc.def::before{background:conic-gradient(#6e9bff 0 16.6%,#a98bff 0 33.3%,#4fd69c 0 50%,#ff8a6b 0 66.6%,#ffc24a 0 83.3%,#45c8d8 0)}
+.swc.cust::before{background:var(--c,var(--sheet));border-style:dashed}.swc.cust.on::before{border-style:solid}
+.swc svg{position:relative}
 .swc.cust input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;border:0;padding:0}
 .swc.cust.on svg{opacity:0}
 @media (prefers-reduced-motion:reduce){.swc{transition:none}}
