@@ -164,3 +164,6 @@ All endpoints need a non-anonymous Firebase ID token; non-members get 404. Uids 
 - `POST /threads/:id/read {upTo: ms}` → `{ readUpTo }`. Monotonic, clamped to now; also zeroes your unread. Max once per second per thread.
 - `GET /me/chat-settings` → `{ readReceipts }` (default true). `POST /me/chat-settings {readReceipts: bool}` → same. Receipts are mutual: if either person turns them off, both get `receipts:false, seenUpTo:null` and own messages stay `sent`.
 Storage: `threads/{id}.typing.{h_}`, `threads/{id}.read.{h_}`, `chatPrefs/{uid}` — all server-only (existing threads rule + catch-all deny), so no rules deploy needed.
+
+## Body colour (2026-10-28)
+My agent > Colour, right under Extra: a Default swatch (the creature's own colour, shown as a six-colour wheel), eight hand-picked cute colours and a dashed More swatch (three dots) that opens the native colour picker for any colour. Selected swatch gets the accent ring used by the Extra chips. Only the body material changes, so shading, outline, eyes, mouth and accessories stay. Saved as look.color (#rrggbb); missing or invalid falls back to the creature colour. 36px swatches (44px tap targets) in one row that scrolls sideways with scroll-snap, no scrollbar and a 24px opacity fade on the right; the selected swatch is scrolled into view. Transform/opacity only.

@@ -7,7 +7,11 @@ export const ACC_LABEL = {none:'None',glasses:'Glasses',beanie:'Beanie',tuft:'Tu
 export const isCreature = (c) => CREATURES.includes(c);
 export const isCreatureLook = (l) => !!l && typeof l === 'object' && isCreature(l.creature);
 // The only shape ever saved: exactly {creature, accessory}.
-export function sanitize(l){return {creature:isCreature(l?.creature)?l.creature:'blob',accessory:ACCESSORIES.includes(l?.accessory)?l.accessory:'none'};}
+// Optional body colour (design/body-colour): look.color '#rrggbb'; missing or invalid means the creature's own colour.
+export const cleanColor=c=>typeof c==='string'&&/^#[0-9a-f]{6}$/i.test(c)?c.toLowerCase():null;
+export function sanitize(l){const o={creature:isCreature(l?.creature)?l.creature:'blob',accessory:ACCESSORIES.includes(l?.accessory)?l.accessory:'none'};const c=cleanColor(l?.color);if(c)o.color=c;return o;}
+// Diggy: eight hand-picked cute colours first; anything else lives behind More (native picker).
+export const BODY_SWATCHES=['#ff8fab','#ff9e7a','#ffd36e','#9be27a','#5ed6c0','#7cc7ff','#a99bff','#f2f2f7'];
 export const defaultLook = (creature='blob') => sanitize({creature});
 
 const HEX=/^#[0-9a-f]{6}$/i;

@@ -123,11 +123,12 @@ export function createCharacter(look=defaultLook()){
   let cur=null,T=null,bodyG=null,mouth=null,state='idle',t=0;const phase=(seq++*1.37)%7,seed=(seq*.71)%5;
   function build(){disposeGroup(group);group.clear();T=typeData(cur.creature);
     const root=new THREE.Group();root.scale.setScalar(SCALE);group.add(root);bodyG=new THREE.Group();root.add(bodyG);
-    bodyG.add(new THREE.Mesh(T.geo,T.mat));T.def.extra(bodyG,T.mat);
+    const bm=cur.color?toon(cur.color):T.mat; // body colour only: eyes, mouth and accessories keep their own materials
+    bodyG.add(new THREE.Mesh(T.geo,bm));T.def.extra(bodyG,bm);
     T.eyes.forEach(e=>{const m=new THREE.Mesh(G('eye-'+cur.creature,()=>new THREE.PlaneGeometry(T.ed,T.ed*1.12)),T.eyeMat);m.position.copy(e.p);m.lookAt(e.look);m.renderOrder=2;bodyG.add(m);});
     mouth=new THREE.Mesh(G('mouth-'+cur.creature,()=>new THREE.PlaneGeometry(T.mw,T.mw*.5)),T.mouthMat);mouth.position.copy(T.mouth.p);mouth.lookAt(T.mouth.look);mouth.renderOrder=2;bodyG.add(mouth);
-    if(cur.accessory!=='none')addAcc(bodyG,cur.accessory,T);}
-  function setLook(l){const prev=cur;cur=toLook(l);if(!prev||prev.creature!==cur.creature||prev.accessory!==cur.accessory)build();}
+    if(cur.accessory!=='none')addAcc(bodyG,cur.accessory,{...T,mat:bm});}
+  function setLook(l){const prev=cur;cur=toLook(l);if(!prev||prev.creature!==cur.creature||prev.accessory!==cur.accessory||prev.color!==cur.color)build();}
   function play(name){state=name==='wave'?'happy':name;t=0;}
   // One happy hop: anticipation squash, airborne stretch, landing squash. p in 0..1.
   function hop(p,H){if(p<.16){return [0,1-.20*Math.sin(p/.16*Math.PI)];}if(p<.74){const q=(p-.16)/.58;return [H*4*q*(1-q),1+.13*Math.sin(q*Math.PI)*(1-q*.6)];}return [0,1-.22*Math.sin((p-.74)/.26*Math.PI)];}
