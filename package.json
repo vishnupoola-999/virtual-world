@@ -7,7 +7,7 @@
     "test": "npm run test:proxy",
     "lint": "eslint .",
     "test:smoke": "playwright test",
-    "test:proxy": "node --test tests/proxy.test.mjs tests/rate-limit.test.mjs tests/life.test.mjs tests/tools.test.mjs tests/calendarWhen.test.mjs tests/town.test.mjs tests/creatures.test.mjs tests/ambient.test.mjs tests/crisp.test.mjs tests/chat.test.mjs tests/worth-dedupe.test.mjs tests/threads.test.mjs tests/colour.test.mjs tests/chat-model.test.mjs tests/connect.test.mjs",
+    "test:proxy": "node --test tests/proxy.test.mjs tests/rate-limit.test.mjs tests/life.test.mjs tests/tools.test.mjs tests/calendarWhen.test.mjs tests/town.test.mjs tests/creatures.test.mjs tests/ambient.test.mjs tests/crisp.test.mjs tests/chat.test.mjs tests/worth-dedupe.test.mjs tests/threads.test.mjs tests/colour.test.mjs tests/chat-model.test.mjs tests/connect.test.mjs tests/chat-stream.test.mjs",
     "test:rules:run": "node --test --test-concurrency=1 tests/firestore.rules.test.mjs",
     "test:rules": "firebase emulators:exec --only firestore --project demo-virtual-world \"npm run test:rules:run\"",
     "copy:web": "node scripts/copy-web.mjs",
