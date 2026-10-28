@@ -71,3 +71,6 @@ body[data-tab=chat] #chatLog{padding-bottom:calc(var(--input-h) + 24px + env(saf
 .cxFade{position:absolute;left:0;right:0;bottom:0;z-index:1;pointer-events:none;opacity:0;transition:opacity 160ms linear;
  background:linear-gradient(to top,#07080C 0,#07080C var(--cxBar,76px),rgba(7,8,12,0) calc(var(--cxBar,76px) + 72px));height:calc(var(--cxBar,76px) + 72px)}
 .cxFade.on{opacity:1}
+#chatLog .msg.bot .mbody .agent-links{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+#chatLog .msg.bot .mbody .agent-link{display:inline-flex;align-items:center;min-height:44px;color:#FFFFFF;font-size:14px;font-weight:500;text-decoration:underline;text-underline-offset:3px}
+#chatLog .msg.bot .mbody .agent-link.alt{color:#8A90A0;min-height:32px}

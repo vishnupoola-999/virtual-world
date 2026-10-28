@@ -1,6 +1,8 @@
 // Streaming agent reply (connect-v1 spec §5/§6): 3-dot bubble, word-by-word flush, soft caret, follow-bottom with a
 // "Jump to latest" chip, and the stopped / cut off / failed lines. DOM only; the network lives in connect-api.js.
 export const FOLLOW_PX = 48;
+// done.text is the server's final reply (trimmed on MAX_TOKENS, reviewed on calendar turns); it wins over the streamed text.
+export const finalText = (streamed, doneText) => (typeof doneText === 'string' && doneText.trim() && doneText !== streamed ? doneText : streamed);
 // Split a buffer into whole words ready to show and the unfinished tail.
 export function takeWords(buf, final = false) {
   if (final) return { words: buf ? buf.match(/\S+\s*|\s+/g) || [buf] : [], rest: '' };
@@ -76,7 +78,7 @@ export function streamBubble({ log, view = log.closest('section') || document.bo
     get started() { return !!(text || buf); },
     push(tok) { if (ended) return; buf += tok; if (!raf) raf = requestAnimationFrame(tick); },
     reopen() { ended = false; d.classList.remove('cut', 'fail'); for (const old of d.querySelectorAll('.cxLine')) old.remove(); },
-    finish() { flush(true); stopCaret(); ended = true; showChip(false); log.removeEventListener('scroll', onScroll); const all = text; t.textContent = all; return all; },
+    finish(done) { flush(true); stopCaret(); ended = true; showChip(false); log.removeEventListener('scroll', onScroll); const all = finalText(text, done); text = all; t.textContent = all; return all; },
     stop(onContinue) { flush(true); stopCaret(); ended = true; t.textContent = text; line('stopped', onContinue); showChip(false); },
     fail(reason, onRetry) {
       flush(true); stopCaret(); ended = true; showChip(false);

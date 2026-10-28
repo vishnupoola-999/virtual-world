@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { describe, test } from 'node:test';
-import { createServer, CHAT_MODEL, pendingAction, streamErrorCode } from '../proxy/server.js';
+import { createServer, CHAT_MODEL, pendingAction, streamErrorCode, linkOut } from '../proxy/server.js';
 
 const ORIGIN = 'https://vishnupoola-999.github.io';
 const UID = 'ownerUid000000000001';
@@ -66,20 +66,62 @@ describe('POST /agent/chat (SSE)', () => {
     assert.ok(url0.endsWith(`${CHAT_MODEL}:streamGenerateContent?alt=sse`));
   });
 
-  test('tool calls become action events in the pending-action shape', async () => {
+  test('link-out tool calls are never action events; they come back as done.links', async () => {
     const call = { functionCall: { name: 'send_email', args: { to: 'pooja@example.com', subject: 'Hi', body: 'Hello' } } };
     await run({ fetchImpl: async () => geminiSse([{ text: 'I can send that.' }, call]) }, async (url) => {
       const ev = events(await (await post(url, { body: { tools: true, timeZone: 'Asia/Kolkata', messages: [{ role: 'user', content: 'email pooja hi' }] } })).text());
-      const act = ev.find((e) => e.event === 'action');
-      assert.ok(act, 'action event');
-      assert.deepEqual(Object.keys(act.data).sort(), ['app', 'expiresAt', 'id', 'kind', 'summary']);
-      assert.equal(act.data.app, 'gmail');
-      assert.equal(act.data.kind, 'send');
-      assert.match(act.data.summary, /pooja@example\.com/);
-      assert.equal(ev.at(-1).data.actions[0].id, act.data.id);
+      assert.equal(ev.filter((e) => e.event === 'action').length, 0, 'no action event for a link-out');
+      const done = ev.at(-1);
+      assert.equal(done.event, 'done');
+      assert.equal(done.data.actions, undefined);
+      assert.equal(done.data.text, 'I can send that.');
+      assert.equal(done.data.links.length, 1);
+      const [l] = done.data.links;
+      assert.deepEqual([l.app, l.name], ['gmail', 'send_email']);
+      assert.match(l.label, /pooja@example\.com/);
+      assert.match(l.url, /^https:\/\/mail\.google\.com\/mail\/\?view=cm/);
+      assert.match(l.url, /su=Hi/);
+      assert.match(l.mailto, /^mailto:pooja%40example\.com\?subject=Hi/);
     });
     const p = pendingAction({ name: 'add_event', args: { title: 'Lunch', start: '2026-10-29T13:00' } }, 1000);
     assert.deepEqual([p.app, p.kind, p.expiresAt], ['gcal', 'write', 1000 + 15 * 60_000]);
+  });
+
+  test('a link-out with no reply text still ends with done, a short line and the link', async () => {
+    const call = { functionCall: { name: 'draft_email', args: { to: 'ravi@example.com', subject: 'Plan', body: 'See you' } } };
+    await run({ fetchImpl: async () => geminiSse([call]) }, async (url) => {
+      const ev = events(await (await post(url, { body: { tools: true, timeZone: 'Asia/Kolkata', messages: [{ role: 'user', content: 'draft ravi an email' }] } })).text());
+      assert.equal(ev.filter((e) => e.event === 'action').length, 0);
+      const done = ev.at(-1);
+      assert.equal(done.event, 'done');
+      assert.equal(done.data.text, 'Tap the link below to finish it.');
+      assert.equal(done.data.links[0].name, 'draft_email');
+    });
+  });
+
+  test('connected-app actions keep their action events and are not links', async () => {
+    const act = { id: 'act_' + 'a'.repeat(18), app: 'calendar', kind: 'write', summary: 'Lunch', expiresAt: 99 };
+    const connectors = {
+      toolsFor: async () => ({ apps: ['calendar'], declarations: [{ name: 'calendar_create_event', description: 'x', parameters: { type: 'OBJECT', properties: {} } }] }),
+      isTool: (n) => n === 'calendar_create_event',
+      handleCall: async () => ({ action: act }),
+    };
+    const call = { functionCall: { name: 'calendar_create_event', args: { title: 'Lunch' } } };
+    await run({ connectors, fetchImpl: async () => geminiSse([{ text: 'Shall I add it?' }, call]) }, async (url) => {
+      const ev = events(await (await post(url, { body: { tools: true, timeZone: 'Asia/Kolkata', messages: [{ role: 'user', content: 'add lunch' }] } })).text());
+      const acts = ev.filter((e) => e.event === 'action');
+      assert.deepEqual(acts.map((e) => e.data), [act]);
+      assert.equal(ev.at(-1).data.links, undefined);
+    });
+  });
+
+  test('linkOut builds https links only, with a 1h default end for events', () => {
+    const e = linkOut({ name: 'add_event', args: { title: 'Lunch', start: '2026-10-29T13:00' } }, 'Asia/Kolkata');
+    assert.equal(e.app, 'gcal');
+    assert.match(e.url, /dates=20261029T073000Z\/20261029T083000Z/);
+    assert.equal(linkOut({ name: 'add_event', args: { title: 'x', start: 'soon' } }, 'UTC'), null);
+    assert.equal(linkOut({ name: 'list_events', args: {} }).url, 'https://calendar.google.com/calendar/r');
+    assert.equal(linkOut({ name: 'mystery', args: {} }), null);
   });
 
   test('MAX_TOKENS ends with error cut_off, the partial is stored with partial: cut_off and not sent to memory', async () => {

@@ -114,6 +114,15 @@ export const ERROR_REASONS = ['cut_off', 'failed', 'rate_limited'];
 // action {id,app,kind,summary,expiresAt}; done {messageId,text,actions?,partial?}; error {code,message,text?,partial?}.
 // Stop = abort (+ POST /agent/chat/:id/stop); POST /agent/chat/:id/continue resumes a stopped / cut-off reply.
 // If /agent/chat is missing (404/405) we fall back to the old POST /chat JSON reply for the session.
+// done.links: link-outs the server can't run (Gmail compose, Calendar template). Shown as plain links, never as
+// confirm cards. Only https:// urls and mailto: fallbacks get through.
+export function normLinks(list) {
+  return (Array.isArray(list) ? list : []).slice(0, 5).map((l) => ({
+    label: String(l?.label || '').slice(0, 120),
+    url: typeof l?.url === 'string' && /^https:\/\//.test(l.url) ? l.url : '',
+    mailto: typeof l?.mailto === 'string' && /^mailto:/i.test(l.mailto) ? l.mailto : '',
+  })).filter((l) => l.label && l.url);
+}
 async function readSSE(r, { onToken, onAction, onDone, onError }) {
   const parse = sseParser(), rd = r.body.getReader(), dec = new TextDecoder();
   let ended = null;
@@ -125,7 +134,7 @@ async function readSSE(r, { onToken, onAction, onDone, onError }) {
         if (event === 'token' && typeof data?.t === 'string') onToken?.(data.t);
         else if (event === 'action') { const a = normAction(data); if (a) onAction?.(a); }
         else if (event === 'done') {
-          ended = { done: true, messageId: data?.messageId || null, text: typeof data?.text === 'string' ? data.text : null };
+          ended = { done: true, messageId: data?.messageId || null, text: typeof data?.text === 'string' ? data.text : null, links: normLinks(data?.links), toolResults: Array.isArray(data?.toolResults) ? data.toolResults : [] };
           for (const x of Array.isArray(data?.actions) ? data.actions : []) { const a = normAction(x); if (a) onAction?.(a); }
           onDone?.(ended);
         } else if (event === 'error') {
