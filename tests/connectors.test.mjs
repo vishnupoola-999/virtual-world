@@ -179,3 +179,43 @@ test('chat: connected tools are offered and a write comes back as a pending acti
     assert.equal(c._pending.get(j.actions[0].id).state, 'pending');
   } finally { server.close(); }
 });
+
+test('Firestore store: only ciphertext is written; owner-bound decrypt', async () => {
+  const { firestoreTokenStore } = await import('../proxy/connectors/index.js');
+  const writes = [];
+  let doc = null;
+  const admin = { projectId: 'p', now: () => 1, accessToken: async () => 'ADMIN', fetchImpl: async (url, init = {}) => {
+    if (init.method === 'PATCH') { writes.push(init.body); doc = JSON.parse(init.body); return json(200, {}); }
+    return doc ? json(200, doc) : json(404, {});
+  } };
+  const s = firestoreTokenStore(admin, KEY);
+  await s.put('u1', { google: { rt: 'REFRESH-SECRET-1', apps: ['gmail'] } });
+  assert.ok(!writes[0].includes('REFRESH-SECRET-1'));
+  assert.deepEqual(Object.keys(JSON.parse(writes[0]).fields).sort(), ['data', 'updatedAt']);
+  assert.equal((await s.get('u1')).google.rt, 'REFRESH-SECRET-1');
+  assert.equal(firestoreTokenStore(admin, null), null, 'no key -> no store, never plaintext');
+});
+
+test('DELETE revokes at Google before deleting; tokens never in responses or logs', async () => {
+  const { c, docs, calls } = harness();
+  const logs = [];
+  const orig = { error: console.error, warn: console.warn, log: console.log };
+  for (const k of Object.keys(orig)) console[k] = (...a) => logs.push(a.map(String).join(' '));
+  try {
+    const st = new URL((await c.startConnect('u1', 'gmail')).authUrl).searchParams.get('state');
+    await c.callback('google', new URLSearchParams({ state: st, code: 'C' }));
+    const out = [];
+    out.push(await c.listApps('u1'));
+    const { action } = await c.handleCall('u1', { name: 'gmail_create_draft', args: { to: 'p@x.io', subject: 'a', body: 'b' } }, 'UTC');
+    out.push(action, await c.decide('u1', action.id, 'approve'));
+    // A failing exchange must not log the code/token either.
+    await c.callback('google', new URLSearchParams({ state: 'bad', code: 'C' }));
+    let deletedWhileRevoked = null;
+    const del = docs.delete.bind(docs);
+    docs.delete = (k) => { deletedWhileRevoked = calls.some((x) => x.url.includes('/revoke')); return del(k); };
+    out.push(await c.disconnect('u1', 'gmail'));
+    assert.equal(deletedWhileRevoked, true, 'revoke happens before delete');
+    const blob = JSON.stringify(out) + logs.join('\n');
+    for (const secret of ['RT1', 'AT2', '"AT"', 'sec']) assert.ok(!blob.includes(secret), `leaked ${secret}`);
+  } finally { Object.assign(console, orig); }
+});
