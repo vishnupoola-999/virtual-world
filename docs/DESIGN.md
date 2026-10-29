@@ -233,3 +233,4 @@ Only the link rows span the chat width; the reply bubble above them keeps the no
 
 ## Launch copy (2026-10-29)
 No testing, beta or placeholder copy in the UI. Input hints describe what to type instead of sample names: "Pick a short name", "What you study or do, and what you love", "Your first name". Unbuilt features say what works now ("Only your own agent takes chats for now. Say hi to NAME from Friends.") rather than "coming soon". The connect tile "Soon" state chip stays.
+Layers offers Night only; no "Later" style tiles. Apps: working apps first, then at most two Soon tiles.

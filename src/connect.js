@@ -33,6 +33,7 @@ export function stateChip(state) {
 const rows = (list, glyph) => list.map((t) => `<div class="li"><b aria-hidden="true">${glyph}</b><span>${esc(t)}</span></div>`).join('');
 export function appsHtml(apps) {
   if (!apps?.length) return '';
+  apps = [...apps.filter((a) => a.state !== 'soon'), ...apps.filter((a) => a.state === 'soon').slice(0, 2)];
   const n = apps.filter((a) => a.state === 'connected').length;
   return `<div class="cxHead"><span class="cap">Apps</span><span class="meta">${n} of ${apps.length} connected</span></div>`
     + apps.map((a) => `<button type="button" class="tile" data-app="${esc(a.id)}"${a.state === 'soon' ? ' disabled' : ''}><span class="mk" aria-hidden="true">${esc(META[a.id].mk)}</span><span class="tn">${esc(a.name || META[a.id].name)}${a.account && a.state !== 'none' ? `<small class="acct">${esc(a.account)}</small>` : ''}</span>${stateChip(META[a.id].always ? 'always' : a.state)}</button>`).join('')
