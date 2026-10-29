@@ -231,11 +231,15 @@ Expired cards dim their title to #8A90A0.
 Link-outs from done.links render as rows under the reply, spanning the chat width from the bubble's left edge: 48px, #16181F, 12px radius, 8px apart; 24px app letter tile, 15px/500 white label (ellipsis), #8A90A0 arrow at the right. The mailto fallback is a 40px ghost row (no background, 14px/500 white) under the Gmail row, its text aligned with the label. Only https and mailto links render; nothing opens without a tap. No blur, press feedback is a transform.
 Only the link rows span the chat width; the reply bubble above them keeps the normal bubble width.
 
+## Launch copy (2026-10-29)
+No testing, beta or placeholder copy in the UI. Input hints describe what to type instead of sample names: "Pick a short name", "What you study or do, and what you love", "Your first name". Unbuilt features say what works now ("Only your own agent takes chats for now. Say hi to NAME from Friends.") rather than "coming soon". The connect tile "Soon" state chip stays.
+Layers offers Night only; no "Later" style tiles. Apps: working apps first, then at most two Soon tiles.
 ## Agent motion (2026-10-28)
 Agents walk with an ease-in-out from wherever they are drawn, at a steady pace (600 ms to 4 s), and face where they are going. Their heading is fixed in the world: turning the map lets you walk around them and see their back and sides. Turns ease over about 300 ms the short way round. Reduced motion still snaps. No new DOM animation.
 
-## Me: Talk to your agent first (v63)
+## Me: Talk to your agent first (v64)
 - The first element on Me is "Talk to <agent name>" (name is dynamic, e.g. Boss): full width, 52px, 16px radius, #FFFFFF fill, #0A0B10 16px/600 label, 20px chat-bubble icon, 8px gap, 24px below it to the hero.
 - Pressed: transform scale(.97), 120ms. No blur, no shadow. Focus ring 2px white, 3px offset.
 - The old ghost "Talk to" row under "Edit my agent" is gone; "Edit my agent" stays the only other primary.
 - Review fix: the button sits directly under the agent's name row (16px gap), above Interests. Me adds 24px bottom padding so the last row and footer clear the tab pill by 24px.
+- Also in v64: the #moreSheet "Share live location" row reads "Friends see you while the app is open." (was "Family sees you…").

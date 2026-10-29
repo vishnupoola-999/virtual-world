@@ -193,7 +193,7 @@ test('reactions: server hearts, optimistic toggle, sender-side badge, accent onl
   await v.locator('.msg[data-id="d"] p').dblclick(); await expect(rxOf(v, 'd').locator('b')).toHaveText('2'); await expect(rxOf(v, 'd')).toHaveClass(/mine/);
   await v.locator('.msg[data-id="d"] p').dblclick(); await expect(rxOf(v, 'd')).not.toHaveClass(/mine/); await expect(rxOf(v, 'd').locator('b')).toHaveCount(0);
   // Double-tap again removes mine.
-  await v.locator('.msg[data-id="b"] p').dblclick(); await expect(rxOf(v, 'b')).toHaveCount(0); expect(s.reacts.at(-1)).toEqual({ mid: 'b', emoji: 'heart', on: false });
+  await v.locator('.msg[data-id="b"] p').dblclick(); await expect(rxOf(v, 'b')).toHaveCount(0); await expect.poll(() => s.reacts.at(-1)).toEqual({ mid: 'b', emoji: 'heart', on: false });
   expect(await page.evaluate(() => globalThis.localStorage.getItem('vw-rx'))).toBeNull();
 });
 

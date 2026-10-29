@@ -102,7 +102,7 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
       <div class="cards six" id="onbCards" role="radiogroup" aria-label="Choose a character"><canvas id="onbCv" aria-hidden="true"></canvas>
       ${CREATURES.map((c,i)=>`<button type="button" role="radio" aria-checked="false" aria-label="Character ${i+1}" data-creature="${c}"></button>`).join('')}</div>
       <div class="accRow" id="onbAcc" role="radiogroup" aria-label="Add an extra (optional)" hidden>${ACCESSORIES.map(a=>`<button type="button" role="radio" aria-checked="${a==='none'}" class="${a==='none'?'on':''}" data-acc="${a}">${ACC_LABEL[a]}</button>`).join('')}</div>
-      <label class="nm">Name your agent<input id="onbName" maxlength="16" autocomplete="off" enterkeyhint="done" placeholder="e.g. Chinni"></label>
+      <label class="nm">Name your agent<input id="onbName" maxlength="16" autocomplete="off" enterkeyhint="done" placeholder="Pick a short name"></label>
       <button class="primary big" id="onbCreate" disabled>Continue</button><button class="link" id="onbLater" type="button">Customise look later</button>`));
     const btns=[...body.querySelectorAll('#onbCards button')],name=$('onbName'),go=$('onbCreate');
     const upd=()=>{go.disabled=!(base&&name.value.trim());};name.oninput=upd;
@@ -147,7 +147,7 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
       <div class="count"><b id="intCnt" aria-live="polite">0 of 5</b><span class="meter" id="intMeter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span></div>
       <div class="grid" id="intGrid" role="group" aria-label="Interests">${Object.keys(ICONS).map(k=>`<button type="button" class="chip" aria-pressed="false" data-k="${k}">${icon(k)}${LABEL[k]}${ck}</button>`).join('')}</div>
       <div class="about"><label for="intBio"><span>About you <span class="opt">· optional</span></span><span id="intBc">0/80</span></label>
-        <textarea id="intBio" rows="2" maxlength="80" placeholder="e.g. CSE 2nd year at NIT Warangal, into robotics" autocomplete="off" enterkeyhint="done"></textarea><small>Friends' agents see this line next to your agent.</small></div>
+        <textarea id="intBio" rows="2" maxlength="80" placeholder="What you study or do, and what you love" autocomplete="off" enterkeyhint="done"></textarea><small>Friends' agents see this line next to your agent.</small></div>
       <div class="bottom"><div class="hint" id="intHint">Pick 3 more</div><button class="primary big" id="intNext" disabled>Continue</button></div>`));
     const ui=()=>{const n=sel.size;for(const c of body.querySelectorAll('.chip')){c.setAttribute('aria-pressed',String(sel.has(c.dataset.k)));c.classList.toggle('full',n>=5);}
       $('intCnt').textContent=`${n} of 5`;[...$('intMeter').children].forEach((m,i)=>m.classList.toggle('on',i<n));$('intNext').disabled=n<3;
