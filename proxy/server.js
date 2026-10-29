@@ -1173,6 +1173,24 @@ async function handleRead(req, res, ctx, id) {
 }
 
 // GET/POST /me/chat-settings {readReceipts: bool}. Stored server-side in chatPrefs/{uid} (clients denied by the catch-all rule).
+// POST /me/usage {seconds, newSession?, screen?}: time-in-app heartbeat from the app (about every 60s while visible).
+// Stores counts and durations only in usage/{uid}: totalSeconds, sessions, lastSeenAt, screens.<chat|world>Seconds.
+const USAGE_SCREENS = ['chat', 'world'];
+async function handleUsage(req, res, ctx) {
+  if (!allowHit(ctx.chatIpHits, clientIp(req), CHAT.ipBurst, CHAT.ipWindowMs, Date.now())) throw new HttpError(429, 'rate limited');
+  const { uid } = await requireUser(req, ctx.verifyIdToken);
+  const s = ctx.lifeStore;
+  if (!s?.addUsage) throw new HttpError(503, 'usage not configured');
+  const body = await readJson(req);
+  const seconds = body.seconds;
+  if (!Number.isInteger(seconds) || seconds < 0 || seconds > 120) throw new HttpError(400, 'seconds must be an integer 0-120');
+  if (body.newSession !== undefined && typeof body.newSession !== 'boolean') throw new HttpError(400, 'newSession must be boolean');
+  const screen = USAGE_SCREENS.includes(body.screen) ? body.screen : '';
+  if (!allowHit(ctx.chatUidHits, `u|${uid}`, 6, 60_000, Date.now())) throw new HttpError(429, 'slow down');
+  await s.addUsage(uid, { seconds, newSession: body.newSession === true, screen });
+  sendJson(res, 200, { ok: true });
+}
+
 async function handleChatSettings(req, res, ctx) {
   const { uid } = await chatUser(req, ctx);
   const s = ctx.lifeStore;
@@ -1468,6 +1486,10 @@ export function createServer(options = {}) {
       const tx = url.pathname.match(/^\/threads\/([^/]{1,64})\/(typing|read)$/);
       if (tx && req.method === 'POST') {
         await (tx[2] === 'typing' ? handleTyping(req, res, ctx, tx[1]) : handleRead(req, res, ctx, tx[1]));
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/me/usage') {
+        await handleUsage(req, res, ctx);
         return;
       }
       if (url.pathname === '/me/chat-settings' && (req.method === 'GET' || req.method === 'POST')) {
