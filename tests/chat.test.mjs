@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { describe, test } from 'node:test';
 import { createServer, creatureLookOut, chatText, introText, dedupeMeets, threadIdFor } from '../proxy/server.js';
-import { hashId } from '../proxy/life.js';
+import { hashId, lifeStore } from '../proxy/life.js';
 
 const SALT = 'test-salt';
 const ALICE = 'aliceUid000000000001', BOB = 'bobUid00000000000002', EVE = 'eveUid00000000000003';
@@ -329,4 +329,36 @@ describe('chat reactions', () => {
       assert.equal(last.status, 429);
     });
   });
+});
+
+describe('POST /me/usage (time in app)', () => {
+  test('auth, validation, counts only, rate limit', async () => {
+    const store = memStore(); const got = [];
+    store.addUsage = async (uid, u) => { got.push({ uid, ...u }); };
+    await withApi(store, async (call) => {
+      assert.equal((await call(null, 'POST', '/me/usage', { seconds: 5 })).status, 401);
+      assert.equal((await call(ALICE, 'POST', '/me/usage', { seconds: 121 })).status, 400);
+      assert.equal((await call(ALICE, 'POST', '/me/usage', { seconds: 1.5 })).status, 400);
+      assert.equal((await call(ALICE, 'POST', '/me/usage', { seconds: 5, newSession: 'y' })).status, 400);
+      const r = await call(ALICE, 'POST', '/me/usage', { seconds: 60, newSession: true, screen: 'chat', text: 'secret' });
+      assert.equal(r.status, 200); assert.deepEqual(r.json, { ok: true });
+      await call(ALICE, 'POST', '/me/usage', { seconds: 30, screen: '<script>' });
+      assert.deepEqual(got.map(({ uid, seconds, newSession, screen }) => [uid, seconds, newSession, screen]), [[ALICE, 60, true, 'chat'], [ALICE, 30, false, '']]);
+      assert.ok(!JSON.stringify(got).includes('secret'));
+      let last; for (let i = 0; i < 7; i++) last = await call(BOB, 'POST', '/me/usage', { seconds: 1 });
+      assert.equal(last.status, 429);
+    });
+  });
+});
+
+test('lifeStore.addUsage: one atomic commit with increments, no content', async () => {
+  const calls = [];
+  const s = lifeStore({ projectId: 'p', accessToken: async () => 't', fetchImpl: async (u, i) => { calls.push([u, i]); return { ok: true, json: async () => ({}) }; } });
+  await s.addUsage(ALICE, { seconds: 42, newSession: true, screen: 'world', now: 0 });
+  assert.match(calls[0][0], /documents:commit$/);
+  const w = JSON.parse(calls[0][1].body).writes[0];
+  assert.match(w.update.name, /documents\/usage\/aliceUid000000000001$/);
+  assert.deepEqual(w.updateMask.fieldPaths, ['lastSeenAt']);
+  assert.deepEqual(w.updateTransforms.map((t) => [t.fieldPath, t.increment.integerValue]), [['totalSeconds', '42'], ['sessions', '1'], ['screens.worldSeconds', '42']]);
+  await assert.rejects(s.addUsage('bad/uid', { seconds: 1 }));
 });
