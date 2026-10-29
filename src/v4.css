@@ -124,7 +124,13 @@ body.v4 #sheet[data-cur=me] #sheetHead b{visibility:hidden}
 #v4Arrive .txt{position:absolute;top:56%;left:0;right:0;text-align:center}#v4Arrive h2{font:600 20px/1.2 Inter,system-ui,sans-serif;margin:0 0 8px}#v4Arrive p{color:var(--tx-2);font:400 13px/1.4 Inter,system-ui,sans-serif;margin:0 24px}
 #v4Arrive small{position:relative;color:var(--tx-3);font:400 12px/1 Inter,system-ui,sans-serif}
 /* ---- Me */
-#v4Me{display:flex;flex-direction:column}
+#v4Me{display:flex;flex-direction:column;padding-bottom:24px} /* + the sheet body's tabH+16 = pill height + 24px clear of its top */
+/* Talk to <agent>: the first thing on Me. Solid white primary, 52px, pressed = scale only */
+#v4Me .meTalk{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:52px;min-height:52px;margin:16px 0 0;padding:0 16px;border:0;border-radius:16px;background:#FFFFFF;color:#0A0B10;font:600 16px/1 Inter,system-ui,sans-serif;box-shadow:none;transition:transform 120ms ease-out;-webkit-tap-highlight-color:transparent;flex:none}
+#v4Me .meTalk span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#v4Me .meTalk svg{flex:none}
+#v4Me .meTalk:active{transform:scale(.97)}
+#v4Me .meTalk:focus-visible{outline:2px solid #FFFFFF;outline-offset:3px}
 .meHero{display:flex;align-items:center;gap:16px;margin-top:-8px}.meHero h2{font:600 20px/1.2 Inter,system-ui,sans-serif;margin:0 0 4px}.meHero small{color:var(--tx-2);font:400 13px/1.3 Inter,system-ui,sans-serif}
 #v4Me .colRow{margin:0 -4px}
 .week{margin:16px 0;padding:14px 16px;border-radius:12px;background:var(--s2);display:flex;flex-direction:column;gap:4px}.week b{font:600 14px/1.2 Inter,system-ui,sans-serif}.week small{color:var(--tx-2);font:400 13px/1.3 Inter,system-ui,sans-serif}

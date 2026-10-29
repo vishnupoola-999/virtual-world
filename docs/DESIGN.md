@@ -236,3 +236,10 @@ No testing, beta or placeholder copy in the UI. Input hints describe what to typ
 Layers offers Night only; no "Later" style tiles. Apps: working apps first, then at most two Soon tiles.
 ## Agent motion (2026-10-28)
 Agents walk with an ease-in-out from wherever they are drawn, at a steady pace (600 ms to 4 s), and face where they are going. Their heading is fixed in the world: turning the map lets you walk around them and see their back and sides. Turns ease over about 300 ms the short way round. Reduced motion still snaps. No new DOM animation.
+
+## Me: Talk to your agent first (v64)
+- The first element on Me is "Talk to <agent name>" (name is dynamic, e.g. Boss): full width, 52px, 16px radius, #FFFFFF fill, #0A0B10 16px/600 label, 20px chat-bubble icon, 8px gap, 24px below it to the hero.
+- Pressed: transform scale(.97), 120ms. No blur, no shadow. Focus ring 2px white, 3px offset.
+- The old ghost "Talk to" row under "Edit my agent" is gone; "Edit my agent" stays the only other primary.
+- Review fix: the button sits directly under the agent's name row (16px gap), above Interests. Me adds 24px bottom padding so the last row and footer clear the tab pill by 24px.
+- Also in v64: the #moreSheet "Share live location" row reads "Friends see you while the app is open." (was "Family sees you…").

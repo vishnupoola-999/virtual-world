@@ -159,7 +159,7 @@ test('7 Me: hero, interests, colour row, This week (real), one primary', async (
   await expect(m.locator('.colRow .swc')).toHaveCount(10); await expect(m.locator('.week')).toContainText('Met 4 agents');
   await expect(m.locator('.primary')).toHaveCount(1); await expect(m.locator('.primary')).toHaveText('Edit my agent');
   await m.evaluate((e) => { for (let n = e; n; n = n.parentElement) if (n.scrollHeight > n.clientHeight + 1) { n.scrollTop = n.scrollHeight; break; } }); await page.waitForTimeout(300);
-  const [mt, tb] = [await m.locator('.meTools').boundingBox(), await page.locator('#tabs').boundingBox()]; expect(Math.abs(tb.y - (mt.y + mt.height) - 16)).toBeLessThan(1.5); // fix 4: exactly 16px
+  const [mt, tb] = [await m.locator('.meTools').boundingBox(), await page.locator('#tabs').boundingBox()]; expect(Math.abs(tb.y - (mt.y + mt.height) - 40)).toBeLessThan(1.5); // 16px tools margin + 24px Me padding (Diggy, #75)
   await shot(page, '7-me');
 });
 
