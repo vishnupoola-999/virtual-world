@@ -5,7 +5,7 @@ import { createServer, connectText, CONNECT } from '../proxy/server.js';
 import {
   cooldownFor, pickTown, stripTown, townLook, nearbyTown, offsetFor, shiftLatLng, shardOf, publicCard, cleanLook, maxCallsFromEnv, TOWN_AGENTS,
   SAFETY_SETTINGS, geminiLlm, makeStatus, lifeStore, lifeSalt, LIFE, capAllows, checkTickSecret, cleanInterests, countAction, dayKey, parseConversation, parseDecision,
-  pickMatch, placeNear, runTick, shouldAct, similarity, hashId, scrub, safeLine, decidePrompt, conversationPrompt, publicProfile, parseNote, notePrompt, NOTE_MAX,
+  paceBudget, paceAllows, pickMatch, placeNear, runTick, shouldAct, similarity, hashId, scrub, safeLine, decidePrompt, conversationPrompt, publicProfile, parseNote, notePrompt, NOTE_MAX,
 } from '../proxy/life.js';
 import { TEST_AGENTS } from '../scripts/seed-test-agents.mjs';
 
@@ -674,4 +674,20 @@ test('/tick?async=1 answers 202 at once and finishes the tick in the background'
     await Promise.all(pending);
     assert.equal(ran, 1);
   } finally { server.closeAllConnections(); server.close(); }
+});
+
+describe('pacing', () => {
+  const D0 = Date.parse('2026-10-24T00:00:00Z');
+  test('budget grows across the UTC day', () => {
+    assert.equal(paceBudget(D0), 1);
+    assert.equal(paceBudget(D0 + 6 * 3_600_000), 4);
+    assert.equal(paceBudget(D0 + 12 * 3_600_000), 7);
+    assert.equal(paceBudget(D0 + 86_399_000), 12);
+  });
+  test('agent cannot burn the cap in the morning', () => {
+    const t = D0 + 2 * 3_600_000;
+    assert.equal(paceAllows({ day: dayKey(t), actions: 1 }, t), true);
+    assert.equal(paceAllows({ day: dayKey(t), actions: 2 }, t), false);
+    assert.equal(paceAllows({ day: 'old', actions: 9 }, t), true);
+  });
 });

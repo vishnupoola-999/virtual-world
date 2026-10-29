@@ -172,6 +172,17 @@ export function capAllows(life = {}, now, cap = LIFE.dailyCap) {
   return (Number(life.actions) || 0) < cap;
 }
 
+// Pacing: spread the daily cap over the UTC day. Allowed so far = ceil(cap * elapsed fraction) + burst.
+export function paceBudget(now, cap = LIFE.dailyCap, burst = 1) {
+  const frac = (now % 86_400_000) / 86_400_000;
+  return Math.min(cap, Math.ceil(cap * frac) + burst);
+}
+
+export function paceAllows(life = {}, now, cap = LIFE.dailyCap) {
+  const used = life.day === dayKey(now) ? Number(life.actions) || 0 : 0;
+  return used < paceBudget(now, cap);
+}
+
 export function countAction(life = {}, now) {
   const same = life.day === dayKey(now);
   return { ...life, day: dayKey(now), actions: (same ? Number(life.actions) || 0 : 0) + 1, lastActionAt: now };
@@ -187,7 +198,7 @@ export function shouldAct(agent, now) {
   if (!isActive(agent, now)) return false;
   const life = agent.life || {};
   if (life.lastActionAt && now - life.lastActionAt < LIFE.minGapMs) return false;
-  return capAllows(life, now);
+  return capAllows(life, now) && paceAllows(life, now);
 }
 
 // ---- untrusted text hygiene (bios and model output) ----
