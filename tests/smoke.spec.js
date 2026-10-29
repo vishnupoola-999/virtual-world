@@ -112,12 +112,12 @@ test('own character follows live location while sharing', async ({ page, context
   await expect(page.locator('#liveBtn')).toContainText('Stop sharing');
   await expect(page.locator('.ag.mine canvas')).toBeVisible(); // v4: no You pill, so check the character itself
   await expect(page.locator('#map .me')).toHaveCount(0);
-  const near = await page.evaluate(() => {
+  // It walks there (eased, up to 4 s) instead of teleporting.
+  await expect.poll(() => page.evaluate(() => {
     const r = globalThis.document.querySelector('.ag.mine canvas').getBoundingClientRect();
     const q = globalThis.__map.project([78.3908, 17.4485]);
     return Math.abs(r.left + r.width / 2 - q.x) < 40 && Math.abs(q.y - r.bottom) < 200;
-  });
-  expect(near).toBe(true);
+  }), { timeout: 8000 }).toBe(true);
   // Stopping puts the character back at its saved spot.
   await page.evaluate(() => globalThis.document.getElementById('liveBtn').click());
   await expect(page.locator('#liveBtn')).toContainText('Share my live location');

@@ -234,3 +234,5 @@ Only the link rows span the chat width; the reply bubble above them keeps the no
 ## Launch copy (2026-10-29)
 No testing, beta or placeholder copy in the UI. Input hints describe what to type instead of sample names: "Pick a short name", "What you study or do, and what you love", "Your first name". Unbuilt features say what works now ("Only your own agent takes chats for now. Say hi to NAME from Friends.") rather than "coming soon". The connect tile "Soon" state chip stays.
 Layers offers Night only; no "Later" style tiles. Apps: working apps first, then at most two Soon tiles.
+## Agent motion (2026-10-28)
+Agents walk with an ease-in-out from wherever they are drawn, at a steady pace (600 ms to 4 s), and face where they are going. Their heading is fixed in the world: turning the map lets you walk around them and see their back and sides. Turns ease over about 300 ms the short way round. Reduced motion still snaps. No new DOM animation.

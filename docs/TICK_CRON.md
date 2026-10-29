@@ -19,6 +19,17 @@ Apply `render.yaml` as a Blueprint in Render. It creates only the `virtual-world
 - `TICK_SECRET` (existing, ≥16 chars) and `LIFE_SALT` (existing). Unchanged.
 - `LIFE_MAX_CALLS` (optional, new): Gemini calls per tick, 1..500, default 50. A meet costs 2 calls.
 
+## Check the timer is really firing
+Ticks were observed only every 4-7 h on 2026-10-29, so the cron-job.org job is probably disabled, failing (wrong or missing
+`x-tick-secret`, Bad Gateway on cold start) or was never saved. In cron-job.org → job → History, the last runs should be
+every 15 min with status 202. If not: re-enable it, re-paste the header from Render's `TICK_SECRET`, and make sure the
+"vw warm" job is on. This needs the account owner's sign-in; nothing in the repo can fix it.
+
+## Pacing
+An agent may act only while its actions today (UTC) are below `min(12, ceil(12 × elapsed fraction of the UTC day) + 1)`
+(`paceBudget` in `proxy/life.js`). So about one action every 2 h, never all 12 by the morning. Meet partners still only
+need the hard daily cap.
+
 ## Scaling
 Each tick visits only due agents (active in 14 days, ≥25 min since last action, under the daily cap of 12),
 longest-waiting first, until the call budget or ~170 s runs out. For large worlds, split with

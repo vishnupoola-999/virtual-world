@@ -1337,7 +1337,9 @@ async function handleApps(req, res, ctx, url) {
     return true;
   }
   const am = url.pathname.match(/^\/apps\/([a-z]{1,20})(\/connect|\/confirm)?$/);
-  const ac = url.pathname.match(/^\/actions\/(act_[0-9a-f]{18}(?:[0-9a-f]{6})?)$/);
+  // POST /actions/:id {decision}; /confirm and /cancel are aliases. Any other /actions/* path is a JSON 404, never the 'ok' catch-all.
+  const ac = url.pathname.match(/^\/actions\/([^/]{1,64})(\/confirm|\/cancel)?$/);
+  if (url.pathname.startsWith('/actions/') && !(ac && req.method === 'POST')) { sendJson(res, 404, { error: 'not found' }); return true; }
   const list = url.pathname === '/apps' && req.method === 'GET';
   if (!list && !(am && ((am[2] && req.method === 'POST') || (!am[2] && req.method === 'DELETE'))) && !(ac && req.method === 'POST')) return false;
   if (!allowHit(ctx.connectHits, clientIp(req), 30, 60_000, Date.now())) throw new HttpError(429, 'rate limited');
@@ -1347,10 +1349,13 @@ async function handleApps(req, res, ctx, url) {
     if (list) { sendJson(res, 200, { configured: !!c?.configured(), apps: c ? await c.listApps(uid) : [] }); return true; }
     if (!c) throw new HttpError(503, 'not configured');
     if (ac) {
-      const body = await readJson(req);
+      const body = ac[2] ? {} : await readJson(req);
+      const decision = ac[2] === '/confirm' ? 'approve' : ac[2] === '/cancel' ? 'cancel' : body.decision;
+      // Ids that are not ours (wrong shape) are treated like unknown ones.
+      if (!/^act_[0-9a-f]{18}(?:[0-9a-f]{6})?$/.test(ac[1])) { sendJson(res, 200, { state: 'expired' }); return true; }
       // An action this server no longer holds (Render restart, or a #62 stream action that only the app can run)
       // answers 200 {state:'expired'}: a 404 would make the app hide every confirm card for the session.
-      try { sendJson(res, 200, await c.decide(uid, ac[1], body.decision)); } catch (e) {
+      try { sendJson(res, 200, await c.decide(uid, ac[1], decision)); } catch (e) {
         if (e instanceof ConnectHttpError && e.status === 404) { sendJson(res, 200, { state: 'expired' }); return true; }
         throw e;
       }

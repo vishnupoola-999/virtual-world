@@ -3,6 +3,7 @@
 // This module has no three.js; the shared renderer (agent-renderer.js) is lazy-loaded once an agent is on screen at zoom ≥ 14.
 // Budget: one WebGL context, 30 fps, at most 8 live characters (the rest get one static frame), paused off-screen,
 // on the Chat tab and in the background. Only transform and opacity animate.
+import {travelHeading,easeIO,screenYaw,headingFromYaw,easeHeading} from './motion.js';
 import {dragToClose} from './ui.js';
 import {toLook} from './character-data.js';
 const basePR=()=>Math.min(Math.max(1,globalThis.devicePixelRatio||1),2); // same cap as agent-renderer.js (kept here so three.js stays lazy)
@@ -45,12 +46,15 @@ function create(map){
     else{const moved=a.lat!==d.lat||a.lon!==d.lon;const from=[a.lon,a.lat];Object.assign(a,d,{look,state:d.state||a.state});
       if(moved)walkTo(a,from,[d.lon,d.lat]);}
     a.el.classList.toggle('far',!near());paint(a);syncSource();kick();return a;}
-  // Short moves walk (marker slides via MapLibre's transform); long jumps teleport.
-  function walkTo(a,from,to){cancelAnimationFrame(a.walkRaf);const dist=Math.hypot((to[0]-from[0])*Math.cos(to[1]*Math.PI/180),to[1]-from[1])*111320;
-    if(dist>150||REDUCED.matches||document.hidden){a.marker.setLngLat(to);return;}
-    const keep=a.state;a.state='walking';paint(a);const t0=performance.now(),T=Math.min(1600,300+dist*12);
-    const step=t=>{const f=Math.min(1,(t-t0)/T);a.marker.setLngLat([from[0]+(to[0]-from[0])*f,from[1]+(to[1]-from[1])*f]);
-      if(f<1)a.walkRaf=requestAnimationFrame(step);else{a.state=keep==='walking'?'online':keep;paint(a);}};a.walkRaf=requestAnimationFrame(step);}
+  // Agents walk from where they are drawn right now (not the last target, which made a mid-walk update snap back),
+  // eased in and out at a steady pace, facing their travel direction in world space. Only very long jumps (>3 km) teleport.
+  function walkTo(a,_from,to){cancelAnimationFrame(a.walkRaf);const cur=a.marker.getLngLat(),from=[cur.lng,cur.lat];
+    const dist=Math.hypot((to[0]-from[0])*Math.cos(to[1]*Math.PI/180),to[1]-from[1])*111320;if(dist<.3){a.marker.setLngLat(to);return;}
+    a.heading=travelHeading(from,to);
+    if(dist>3000||REDUCED.matches||document.hidden){a.marker.setLngLat(to);a.headingNow=undefined;kick();return;}
+    if(a.state!=='walking')a.keep=a.state;a.state='walking';paint(a);const t0=performance.now(),T=Math.min(4000,600+dist*14);
+    const step=t=>{const f=Math.min(1,Math.max(0,(t-t0)/T)),e=easeIO(f);a.marker.setLngLat([from[0]+(to[0]-from[0])*e,from[1]+(to[1]-from[1])*e]);
+      if(f<1)a.walkRaf=requestAnimationFrame(step);else{a.walkRaf=0;a.state=!a.keep||a.keep==='walking'?'online':a.keep;a.keep=null;paint(a);kick();}};a.walkRaf=requestAnimationFrame(step);kick();}
   function remove(id){const a=all.get(id);if(!a)return;cancelAnimationFrame(a.walkRaf);a.marker.remove();all.delete(id);R?.drop(id);if(prof?.id===id)closeProfile();syncSource();}
   // Screen-space offset for one marker (meet partner beside yours); [0,0] restores the default.
   function setOffset(id,[dx,dy]){const a=all.get(id);if(a)a.marker.setOffset([dx,dy-6]);}
@@ -70,13 +74,21 @@ function create(map){
     if(!vis.length&&!prof)return;
     if(t-last>=FRAME_MS){const dt=last?Math.min(.1,(t-last)/1000):0;last=t;vis.sort((x,y)=>x[1]-y[1]);
       vis.forEach(([a],i)=>{const live=i<MAX_LIVE&&!REDUCED.matches;const anim=animFor(a);
-        if(!live&&a.drawnKey===anim+JSON.stringify(a.look))return;blit(a,anim,live?dt:0);a.drawnKey=live?null:anim+JSON.stringify(a.look);});
+        const key=anim+yawKey(a)+JSON.stringify(a.look);if(!live&&a.drawnKey===key)return;blit(a,anim,live?dt:0);a.drawnKey=live?null:key;});
       if(prof)drawProfile(dt);}
     raf=requestAnimationFrame(frame);}
   const animFor=a=>a.mine&&a.waveUntil>performance.now()?'wave':a.state==='walking'||a.living?.kind==='walking'?'walk':a.state==='talking'||(a.living?.kind==='meeting'&&a.mine)?'talk':'idle';
-  // Eased turn: a.yaw is the target (undefined = the renderer's default -0.3); a.yawNow follows it (~250 ms), snapping when static or reduced motion.
-  function easeYaw(a,dt){const t=typeof a.yaw==='number'?a.yaw:-.3;if(typeof a.yawNow!=='number'||!dt||REDUCED.matches)a.yawNow=t;else a.yawNow+=(t-a.yawNow)*Math.min(1,dt*10);
-    if(Math.abs(t-a.yawNow)<.002)a.yawNow=t;return a.yawNow;}
+  // Heading lives in WORLD space (radians clockwise from north); the screen yaw is derived from it minus the map bearing every
+  // frame, so rotating the camera lets you walk around the agent instead of the agent turning with the camera.
+  // Default heading matches the old -0.3 screen yaw at the default -20 degree bearing.
+  const DEF_HEADING=Math.PI+.3-20*Math.PI/180;
+  const bearingRad=()=>(map.getBearing?.()||0)*Math.PI/180;
+  function easeYaw(a,dt){const t=typeof a.heading==='number'?a.heading:DEF_HEADING;
+    if(typeof a.headingNow!=='number'||!dt||REDUCED.matches)a.headingNow=t;
+    else a.headingNow=easeHeading(a.headingNow,t,dt); // shortest way round, ~300 ms; dt is clamped to .1 s
+    return a.yawNow=screenYaw(a.headingNow,bearingRad());} // yawNow: last drawn screen yaw (tests read it)
+  // Static frames are cached per (anim, look, screen yaw) so a camera turn redraws them from the new side.
+  const yawKey=a=>Math.round(screenYaw(typeof a.heading==='number'?a.heading:DEF_HEADING,bearingRad())*40);
   function blit(a,anim,dt){const src=R.draw(a.id,a.look,anim,dt,undefined,easeYaw(a,dt)),cv=a.g.canvas;
     if(cv.width!==src.width||cv.height!==src.height){cv.width=src.width;cv.height=src.height;}
     a.g.clearRect(0,0,cv.width,cv.height);a.g.drawImage(src,0,0);
@@ -129,8 +141,12 @@ function create(map){
 
   // Friends' agents switch in Layers: hide everyone except you.
   function showFriends(on){for(const a of all.values())if(!a.mine){a.hidden=!on;a.el.style.visibility=on?'':'hidden';}syncSource();}
-  // Living state for one agent: {kind:'walking'|'meeting'|'working'|'idle', html} plus an optional yaw (radians, map view only).
-  function setLiving(id,living,yaw){const a=all.get(id);if(!a)return;a.living=living||null;a.yaw=yaw;a.drawnKey=null;paint(a);kick();}
+  // Living state for one agent: {kind:'walking'|'meeting'|'working'|'idle', html} plus an optional yaw: a screen yaw (radians,
+  // map view, as living.js computes it from screen positions) converted once to a world heading so it holds while the camera turns.
+  // undefined turns back to the heading it had before a set yaw.
+  function setLiving(id,living,yaw){const a=all.get(id);if(!a)return;a.living=living||null;if(typeof yaw==='number'){if(typeof a.yaw!=='number')a.preHeading=a.heading;a.yaw=yaw;a.heading=headingFromYaw(yaw,bearingRad());}
+    else if(typeof a.yaw==='number'){a.yaw=undefined;a.heading=a.preHeading;} // turns back to the heading it had before the meet
+    a.drawnKey=null;paint(a);kick();}
   // One portrait frame of an agent into a 2D canvas (the away-card header avatar); loads the shared renderer if needed.
   function portrait(id,cv,anim,dt){const a=all.get(id);if(!a)return false;if(!R){loadR();return false;}const src=R.draw(a.id,a.look,anim||'idle',dt||0,'portrait');
     const g=cv.getContext('2d');g.clearRect(0,0,cv.width,cv.height);g.drawImage(src,0,0,src.width,src.width,0,0,cv.width,cv.height);a.drawnKey=null;kick();return true;}
