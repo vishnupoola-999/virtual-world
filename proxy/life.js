@@ -644,6 +644,18 @@ export function lifeStore(admin) {
       if (!UID_RE.test(uid)) throw new Error('bad uid');
       await call(`${base}/chatPrefs/${uid}?updateMask.fieldPaths=readReceipts`, { method: 'PATCH', body: JSON.stringify({ fields: { readReceipts: toValue(!!p.readReceipts) } }) });
     },
+    // Time in app (admin-only usage/{uid}; clients can't read or write it). Counts and durations only, never content.
+    // One atomic commit: increments add to whatever is there, so concurrent heartbeats never lose time.
+    async addUsage(uid, { seconds = 0, newSession = false, screen = '', now = Date.now() } = {}) {
+      if (!UID_RE.test(uid)) throw new Error('bad uid');
+      const inc = (fieldPath, n) => ({ fieldPath, increment: { integerValue: String(n) } });
+      const transforms = [inc('totalSeconds', seconds)];
+      if (newSession) transforms.push(inc('sessions', 1));
+      if (screen) transforms.push(inc(`screens.${screen}Seconds`, seconds));
+      await call(`${base}:commit`, { method: 'POST', body: JSON.stringify({ writes: [{
+        update: { name: `projects/${projectId}/databases/${FIRESTORE_DB}/documents/usage/${uid}`, fields: { lastSeenAt: { timestampValue: new Date(now).toISOString() } } },
+        updateMask: { fieldPaths: ['lastSeenAt'] }, updateTransforms: transforms }] }) });
+    },
     // Create-only: fails (409) if the thread already exists, so a double accept never seeds twice.
     async createThread(id, t) {
       const fields = Object.fromEntries(Object.entries(t).map(([k, v]) => [k, toValue(v)]));
