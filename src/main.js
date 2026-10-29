@@ -16,6 +16,7 @@ import {setupTown} from './town.js';
 import {setupThreads} from './threads.js';
 import {setupV4} from './v4.js';
 import {track} from './onboarding.js';
+import {setupUsage} from './usage.js';
 import {setupUI,toast,closeSheet,openSheet,dragToClose} from './ui.js';
 const $=id=>document.getElementById(id);
 setupUI();
@@ -65,6 +66,7 @@ const apps=setupConnect({getUser:chatUser});window.__vw.connect=apps;
 const chat=setupChat({getAgent:()=>window.__vw.agent?.agent,getUser:chatUser,hero,connect:apps,onNeedAgent:()=>openSheet('agent'),
   onShowMe:a=>{tabs.set('world');if(a)flyTo(map,a.lon,a.lat,19);}});
 tabs=setupTabs({map,hero,onSwitch:t=>{flt.pause(t==='chat');famL0.pause(t==='chat');},canChat:()=>!!window.__vw.agent?.agent&&chat.open(),onChat:()=>{const ok=chat.open();if(ok)closeSheet();return ok;}});
+setupUsage();
 window.__vw.tabs=tabs;window.__vw.openSheet=openSheet;
 // Onboarding for new users (?onb=0 skips it, for tests and debugging). Returning users go straight to Chat.
 const noOnb=new URLSearchParams(location.search).get('onb')==='0';
