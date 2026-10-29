@@ -18,3 +18,7 @@ ui-debug.log
 *.jks
 *.keystore
 !android/app/debug.keystore
+
+# Keystores (never commit)
+*.keystore
+*.jks
