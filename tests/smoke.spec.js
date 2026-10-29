@@ -43,6 +43,8 @@ test('page loads with no console errors', async ({ page }) => {
   });
 
   // Signed out: onboarding opens on the night globe, and Get started leads to one-tap sign-in.
+  // ntfy.sh rate-limits shared CI runners (HTTP 429); answer its relay calls locally.
+  await page.route(/^https:\/\/ntfy\.sh\//, (r) => r.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }));
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page).toHaveTitle('Virtual World');
   await expect(page.locator('#onb')).toBeVisible();
