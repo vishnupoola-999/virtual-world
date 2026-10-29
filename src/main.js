@@ -86,7 +86,7 @@ $('layDone').onclick=()=>closeSheet();
 $('swFriends').onclick=()=>{const on=$('swFriends').getAttribute('aria-checked')!=='true';$('swFriends').setAttribute('aria-checked',String(on));agents.showFriends(on);toast(on?"Friends' agents shown":"Friends' agents hidden");};
 agents.configure({onmove:()=>window.__vw.agent.startMove('profile'),oncustom:()=>{openSheet('agent');$('agEdit')?.click();},
   oninterests:()=>ob.editInterests(window.__vw.agent?.agent),
-  onvisit:a=>{const ll=a.marker.getLngLat();flyTo(map,ll.lng,ll.lat,18);},onchat:a=>toast(`Chatting with ${a.name}'s agent is coming soon`),
+  onvisit:a=>{const ll=a.marker.getLngLat();flyTo(map,ll.lng,ll.lat,18);},onchat:a=>toast(`Only your own agent takes chats for now. Say hi to ${a.name} from Friends.`),
   onLongPress:()=>window.__vw.agent.startMove('longpress')});
 $('chatShow').onclick=()=>{const a=window.__vw.agent?.agent;tabs.set('world');if(a)flyTo(map,a.lon,a.lat,19);};
 $('chatMore').onclick=$('chatPlus').onclick=()=>more(true);dragToClose($('moreSheet'),()=>more(false));$('moreDone').onclick=$('moreScrim').onclick=()=>more(false);

@@ -230,3 +230,6 @@ Expired cards dim their title to #8A90A0.
 ## Link rows (2026-10-28)
 Link-outs from done.links render as rows under the reply, spanning the chat width from the bubble's left edge: 48px, #16181F, 12px radius, 8px apart; 24px app letter tile, 15px/500 white label (ellipsis), #8A90A0 arrow at the right. The mailto fallback is a 40px ghost row (no background, 14px/500 white) under the Gmail row, its text aligned with the label. Only https and mailto links render; nothing opens without a tap. No blur, press feedback is a transform.
 Only the link rows span the chat width; the reply bubble above them keeps the normal bubble width.
+
+## Launch copy (2026-10-29)
+No testing, beta or placeholder copy in the UI. Input hints describe what to type instead of sample names: "Pick a short name", "What you study or do, and what you love", "Your first name". Unbuilt features say what works now ("Only your own agent takes chats for now. Say hi to NAME from Friends.") rather than "coming soon". The connect tile "Soon" state chip stays.
