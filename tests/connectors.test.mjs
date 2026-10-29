@@ -177,6 +177,9 @@ test('not configured: /apps says soon, connect returns 503', async () => {
     assert.ok(l.apps.every((a) => a.state === (a.id === 'gmail' ? 'connected' : 'soon')));
     assert.equal((await fetch(`${base}/apps/gcal/connect`, { method: 'POST', headers: h })).status, 503);
     assert.equal((await fetch(`${base}/apps`)).status, 401);
+    assert.equal((await fetch(`${base}/actions/x/confirm`, { method: 'POST' })).status, 401);
+    const g = await fetch(`${base}/actions/x`);
+    assert.equal(g.status, 404); assert.deepEqual(await g.json(), { error: 'not found' });
     const cb = await fetch(`${base}/connect/google/callback?state=x&code=y`, { redirect: 'manual' });
     assert.equal(cb.status, 302);
     assert.match(cb.headers.get('location'), /result=error/);
@@ -356,4 +359,19 @@ test('confirm 403/410 revokes the parked token at Google before dropping it', as
   tick(10 * 60_000 + 1);
   await assert.rejects(c.confirm('u1', 'gcal', d), (e) => e.status === 410);
   assert.equal(revokes(), 3);
+});
+
+test('unknown or malformed action ids answer 200 expired on POST, /confirm and /cancel', async () => {
+  const { c } = harness();
+  const server = createServer({ verifyIdToken: async () => ({ uid: 'u1', provider: 'google.com' }), connectors: c, admin: null, memory: null, apiKey: 'k', rateLimiter: { allow: async () => true } });
+  await new Promise((r) => server.listen(0, r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const h = { Authorization: 'Bearer a.b.c', 'Content-Type': 'application/json' };
+  try {
+    for (const p of ['/actions/act_000000000000000000', '/actions/x', '/actions/x/confirm', '/actions/act_000000000000000000/cancel']) {
+      const r = await fetch(base + p, { method: 'POST', headers: h, body: JSON.stringify({ decision: 'approve' }) });
+      assert.equal(r.status, 200, p); assert.deepEqual(await r.json(), { state: 'expired' }, p);
+    }
+    assert.equal((await fetch(`${base}/actions/act_000000000000000000`, { headers: h })).status, 404);
+  } finally { server.close(); }
 });
