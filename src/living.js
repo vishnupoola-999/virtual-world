@@ -91,7 +91,7 @@ export function setupLiving(map,{hintEl}={}){const agents=agentsOnMap(map);let d
       set('lv-route',line(opts.route&&opts.route.length>1?opts.route:[from,to]));
       if(st.destination.name){const d=document.createElement('div');d.className='dest glass';d.innerHTML=svg('bldg')+esc(st.destination.name);
         dest=new maplibregl.Marker({element:d,anchor:'bottom'}).setLngLat(to).addTo(map);}
-      yaw=-1.0;}
+      {const h=Math.atan2((to[0]-from[0])*Math.cos(to[1]*Math.PI/180),to[1]-from[1]),b=map.getBearing()*Math.PI/180;yaw=Math.PI-(h-b);}} // face the destination (world heading via screen yaw)
     if(st.kind==='meeting'&&st.withAgentId){const p=agents.get(st.withAgentId)||agents.get('f-'+st.withAgentId);
       // Diggy: no connecting line; both characters turn ~30 degrees toward each other (eased in world-agents.js) and turn back after.
       if(p){const left=map.project([me.lon,me.lat]).x<=map.project([p.lon,p.lat]).x;
