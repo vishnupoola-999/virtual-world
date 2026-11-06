@@ -6,7 +6,7 @@ import {
   cooldownFor, pickTown, stripTown, townLook, nearbyTown, offsetFor, shiftLatLng, shardOf, publicCard, cleanLook, maxCallsFromEnv, TOWN_AGENTS,
   SAFETY_SETTINGS, geminiLlm, makeStatus, lifeStore, lifeSalt, LIFE, capAllows, checkTickSecret, cleanInterests, countAction, dayKey, parseConversation, parseDecision,
   paceBudget, paceAllows, pickMatch, placeNear, runTick, shouldAct, similarity, hashId, scrub, safeLine, decidePrompt, conversationPrompt, publicProfile, parseNote, notePrompt, NOTE_MAX,
-  cardMotion, continueActivity, needsCompany, fallbackLines, topicsFromText, topicsFromLines, matchInterests, consentAllows, shareableStatus, friendBoard, WALK_MS,
+  cardMotion, needsCompany, topicsFromText, topicsFromLines, matchInterests, consentAllows, shareableStatus, friendBoard, WALK_MS,
 } from '../proxy/life.js';
 import { TEST_AGENTS } from '../scripts/seed-test-agents.mjs';
 
@@ -705,9 +705,17 @@ describe('walks, work, town company and chat consent', () => {
     assert.equal(store.status.a.kind, 'walking');
     assert.equal(store.status.a.since, NOW - 30 * 60_000);
     assert.equal(store.lives.a.actions, 1);
-    assert.equal(store.pub[hashId('a', SALT)].motion.ms, WALK_MS);
-    assert.ok(store.pub[hashId('a', SALT)].motion.east !== 0 || store.pub[hashId('a', SALT)].motion.north !== 0);
-    assert.equal(continueActivity(me, NOW + WALK_MS), null);
+    const card = store.pub[hashId('a', SALT)];
+    assert.equal(card.motion.ms, WALK_MS);
+    assert.ok(Math.hypot(card.motion.east, card.motion.north) <= 900);
+    assert.equal(card.status.destination, undefined);
+    assert.ok(!JSON.stringify(card).includes('17.123456'));
+    assert.ok(!JSON.stringify(card).includes('78.66'));
+    const done = agent('a', ['tech', 'ai', 'x'], { status: walking(NOW - WALK_MS), life: { lastActionAt: NOW - WALK_MS, actions: 1, day: dayKey(NOW) } });
+    const store2 = fakeStore([done]);
+    await runTick({ store: store2, llm: async () => { calls++; return '{"action":"rest"}'; }, now: NOW, salt: SALT });
+    assert.equal(calls, 1);
+    assert.equal(store2.status.a.kind, 'idle');
   });
   test('work advances across ticks and a public card never carries an exact home', async () => {
     const store = fakeStore([agent('a', ['tech', 'ai', 'x'])]);
@@ -721,21 +729,37 @@ describe('walks, work, town company and chat consent', () => {
     await runTick({ store: store2, llm: async () => { calls++; return '{"action":"rest"}'; }, now: NOW + 3_600_000, salt: SALT });
     assert.equal(calls, 0);
     assert.equal(store2.status.a.progress.done, 2);
+    assert.equal(store2.status.a.since, store.status.a.since);
+    assert.match(store2.status.a.label, /2 of 4/);
+    let step = store2.status.a;
+    for (let i = 0; i < 2; i++) {
+      const s = fakeStore([agent('a', ['tech', 'ai', 'x'], { status: step, life: { lastActionAt: NOW, actions: 1, day: dayKey(NOW) } })]);
+      await runTick({ store: s, llm: async () => { throw new Error('model'); }, now: NOW + (i + 2) * 3_600_000, salt: SALT });
+      step = s.status.a;
+    }
+    assert.equal(step.progress.done, 4);
+    const fin = fakeStore([agent('a', ['tech', 'ai', 'x'], { status: step, life: { lastActionAt: NOW, actions: 1, day: dayKey(NOW) } })]);
+    let called = 0;
+    await runTick({ store: fin, llm: async () => { called++; return '{"action":"rest"}'; }, now: NOW + 6 * 3_600_000, salt: SALT });
+    assert.equal(called, 1);
+    assert.equal(fin.status.a.kind, 'idle');
     const card = { lat: 17.12, lon: 78.65 };
     const motion = cardMotion(card, walking(NOW));
     assert.ok(motion && Math.hypot(motion.east, motion.north) <= 900);
     assert.equal(cardMotion(card, { kind: 'idle', label: 'Resting', since: NOW }), null);
     assert.ok(!JSON.stringify(motion).includes('17.123456'));
   });
-  test('a quiet world meets a virtual neighbour even when the model rests and the chat is empty', async () => {
+  test('a quiet world meets a virtual neighbour when the model rests', async () => {
     const store = fakeStore([agent('a', ['cricket', 'food', 'art'])]);
-    const r = await runTick({ store, company: true, llm: async () => '{"action":"rest"}', now: NOW, salt: SALT });
+    let n = 0;
+    const r = await runTick({ store, company: true, llm: async () => (++n === 1 ? '{"action":"rest"}' : 'A: Hi!\nB: Hello!\nA: Nice day.\nB: You too.'), now: NOW, salt: SALT });
     assert.equal(r.townMeets, 1);
     assert.equal(r.rests, 0);
-    assert.ok(store.diary.a[0].town);
-    assert.ok(store.diary.a[0].lines.length >= 4);
+    assert.equal(store.diary.a[0].town, true);
     assert.equal(needsCompany(agent('a', ['tech'], { life: { met: { x: NOW - 1000 } } }), NOW, 6 * 3_600_000), false);
-    assert.ok(fallbackLines({ name: 'A', interests: ['tech'] }, { name: 'B', interests: ['music'] }).length >= 4);
+    const dropped = fakeStore([agent('a', ['cricket', 'food', 'art'])]);
+    await runTick({ store: dropped, company: true, llm: async () => '{"action":"rest"}', now: NOW, salt: SALT });
+    assert.equal(dropped.diary.a, undefined);
   });
   test('zero shared interest prefers a town neighbour over a far real agent', async () => {
     const me = agent('me', ['cricket', 'food', 'art']);
@@ -780,7 +804,10 @@ describe('walks, work, town company and chat consent', () => {
     assert.equal(snap.kind, 'working');
     assert.equal(snap.label, 'Packing a bag');
     assert.equal(snap.destination, undefined);
-    assert.equal(shareableStatus({ kind: 'walking', label: 'Heading to tech spot', since: 5, destination: { name: 'x', lngLat: [1, 2] } }).destination, undefined);
+    const bare = shareableStatus({ kind: 'walking', label: 'Heading to tech spot', since: 5, destination: { name: 'x', lngLat: [1, 2] }, withAgentId: hashId('a', SALT) });
+    assert.equal(bare.destination, undefined);
+    assert.equal(bare.withAgentId, undefined);
+    assert.ok(!JSON.stringify(bare).includes(hashId('a', SALT)));
     const board = friendBoard({ friends: { [hashId('b', SALT)]: { name: 'Agent b' } }, friendStatus: { [hashId('b', SALT)]: snap } });
     assert.equal(board[0].status.kind, 'working');
   });
@@ -790,13 +817,14 @@ describe('walks, work, town company and chat consent', () => {
     store.getMatchConsent = async (uid) => ({ chats: saved.has(uid) ? saved.get(uid) : null });
     store.setMatchConsent = async (uid, chats) => { saved.set(uid, chats === true); };
     const server = createServer({ admin: null, memory: null, rateLimiter: { allow: async () => true }, lifeSalt: SALT, lifeStore: store,
-      verifyIdToken: async (t) => { if (t !== 'aaa.bbb.ccc') throw new Error('bad'); return { uid: 'alice', provider: 'google.com' }; } });
+      verifyIdToken: async (t) => { if (t === 'anon.anon.anon') return { uid: 'anon', provider: 'anonymous' }; if (t !== 'aaa.bbb.ccc') throw new Error('bad'); return { uid: 'alice', provider: 'google.com' }; } });
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
     const url = `http://127.0.0.1:${server.address().port}/me/match-consent`;
     const headers = { Authorization: 'Bearer aaa.bbb.ccc', 'Content-Type': 'application/json' };
     try {
       assert.equal((await fetch(url)).status, 401);
+      assert.equal((await fetch(url, { headers: { Authorization: 'Bearer anon.anon.anon' } })).status, 403);
       const before = await fetch(url, { headers });
       assert.equal(before.status, 200);
       assert.deepEqual(await before.json(), { chats: null });

@@ -58,8 +58,6 @@ function create(map){
   function remove(id){const a=all.get(id);if(!a)return;cancelAnimationFrame(a.walkRaf);a.marker.remove();all.delete(id);R?.drop(id);if(prof?.id===id)closeProfile();syncSource();}
   // Screen-space offset for one marker (meet partner beside yours); [0,0] restores the default.
   function setOffset(id,[dx,dy]){const a=all.get(id);if(a)a.marker.setOffset([dx,dy-6]);}
-  // Draw an agent somewhere other than its saved home (a walk in progress) without changing the home put() compares against.
-  function place(id,lat,lon){const a=all.get(id);if(!a||!Number.isFinite(lat)||!Number.isFinite(lon))return;a.marker.setLngLat([lon,lat]);}
   function setState(id,s){const a=all.get(id);if(!a||a.state===s)return;a.state=s;paint(a);kick();}
 
   // ---- the 30 fps loop: nearest 8 on-screen agents animate, others get one static frame
@@ -152,7 +150,7 @@ function create(map){
   // One portrait frame of an agent into a 2D canvas (the away-card header avatar); loads the shared renderer if needed.
   function portrait(id,cv,anim,dt){const a=all.get(id);if(!a)return false;if(!R){loadR();return false;}const src=R.draw(a.id,a.look,anim||'idle',dt||0,'portrait');
     const g=cv.getContext('2d');g.clearRect(0,0,cv.width,cv.height);g.drawImage(src,0,0,src.width,src.width,0,0,cv.width,cv.height);a.drawnKey=null;kick();return true;}
-  return {get renderInfo(){return R?{size:R.size,pixelRatio:R.pixelRatio,antialias:R.antialias}:null;},put,remove,setState,setOffset,place,setLiving,portrait,openProfile,closeProfile,showFriends,get(id){return all.get(id);},configure(h){Object.assign(hooks,h);},
+  return {get renderInfo(){return R?{size:R.size,pixelRatio:R.pixelRatio,antialias:R.antialias}:null;},put,remove,setState,setOffset,setLiving,portrait,openProfile,closeProfile,showFriends,get(id){return all.get(id);},configure(h){Object.assign(hooks,h);},
     // Your own agent, used by agent.js in place of the old full-screen 3D layer.
     mine:{set(a){if(!a){remove('me');return;}put({id:'me',mine:true,name:a.name||'My agent',lat:a.lat,lon:a.lon,look:a.look,ownerName:a.ownerName,meta:a.meta,status:a.status});},
       play(n){const a=all.get('me');if(!a)return;if(n==='walk'){a.state='walking';paint(a);setTimeout(()=>{if(a.state==='walking'){a.state='online';paint(a);}},900);}

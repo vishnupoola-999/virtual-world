@@ -119,7 +119,11 @@ export function publicCard(agent, status, now) {
   const src = agent.approx && Number.isFinite(agent.approx.lat) ? agent.approx : { lat: agent.lat, lon: agent.lon };
   const card = { name: p.name, interests: p.interests, updatedAt: now };
   if (Number.isFinite(src.lat) && Number.isFinite(src.lon)) { card.lat = round2(src.lat); card.lon = round2(src.lon); }
-  if (status) card.status = status;
+  if (status && typeof status === 'object' && !Array.isArray(status)) {
+    const pub = { ...status };
+    delete pub.destination;
+    card.status = pub;
+  } else if (status) card.status = status;
   const motion = cardMotion(card, status);
   if (motion) card.motion = motion;
   const look = cleanLook(agent.look);
@@ -128,7 +132,7 @@ export function publicCard(agent, status, now) {
 }
 
 // Public walking hint: metres from the ~1 km anchor toward the rounded destination, capped so the
-// marker stays in that neighbourhood. The client multiplies by walkFraction(since). No exact home.
+// marker stays in that neighbourhood. Destination coordinates stay off the card. Others interpolate with since.
 export function cardMotion(card, status) {
   if (!card || !status || status.kind !== 'walking' || !status.destination) return null;
   const [lng, lat] = status.destination.lngLat || [];
@@ -450,10 +454,7 @@ export function continueActivity(agent, now) {
   if (st.kind === 'walking' && st.destination?.lngLat) {
     const since = Number(st.since) || 0;
     if (!since || now - since >= WALK_MS) return null;
-    const f = Math.max(0, Math.min(1, (now - since) / WALK_MS));
-    const done = Math.max(1, Math.min(8, Math.round(f * 8) || 1));
-    const status = { ...st, progress: { done, total: 8 } };
-    return { lifePatch: { activity: 'move', status: st.label || 'On the move' }, status };
+    return { lifePatch: { activity: 'move', status: st.label || 'On the move' }, status: st };
   }
   if (st.kind === 'working' && st.progress && st.progress.done < st.progress.total) {
     const total = Math.max(1, Math.floor(st.progress.total) || 1);
@@ -463,25 +464,6 @@ export function continueActivity(agent, now) {
     return { lifePatch: { activity: 'work', status: base }, status };
   }
   return null;
-}
-
-// Used when a meet was chosen but the model reply could not be saved. Our own words, not the model's.
-export function fallbackLines(a, b) {
-  const shared = (a.interests || []).filter((t) => (b.interests || []).includes(t));
-  const topic = shared[0] || 'the neighbourhood';
-  const rows = [
-    [a.name, `Hey ${b.name}, good to meet you.`],
-    [b.name, `Hey ${a.name}, good to meet you too.`],
-    [a.name, `I have been around ${topic} lately.`],
-    [b.name, `Same here. We should talk again.`],
-  ];
-  const lines = [];
-  for (const [speaker, text] of rows) {
-    const t = safeLine(text, 120);
-    if (!t) return null;
-    lines.push({ speaker, text: t });
-  }
-  return lines.length >= 4 ? lines : null;
 }
 
 function oneLine(v, max) {
@@ -497,16 +479,7 @@ ${UNTRUSTED_NOTE}
 They talk about what they share. 4 to 6 lines, alternating, each line "A: ..." or "B: ...", max 120 chars each. No other text.`;
 }
 
-// True when the model wrote a speaker line we refuse to keep. Those replies are dropped, not replaced.
-export function conversationUnsafe(text) {
-  for (const raw of String(text || '').split('\n')) {
-    const m = raw.match(/^\s*\**([AB])\**\s*:\s*(.+)$/);
-    if (m && !safeLine(m[2], 120)) return true;
-  }
-  return false;
-}
-
-// Any unsafe line (links, contact details, instructions) drops the whole conversation: nothing is saved.
+// Any unsafe or unparsable line drops the whole conversation: nothing is saved and no replacement is invented.
 export function parseConversation(text, a, b) {
   const lines = [];
   for (const raw of String(text).split('\n')) {
@@ -629,12 +602,22 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
         if (o.uid === me.uid || !o.interests.length || touched.has(o.uid) || !capAllows(o.life, now)) continue;
         candidates.push(await forMatch(o));
       }
-      // A real shared interest wins. Otherwise meet a town neighbour (any interest) so an empty world still feels full.
-      // A zero-overlap real agent is the backup once every town neighbour is on cooldown.
-      let match = pickMatch(meMatch, candidates, now, salt, cooldown);
+      // Town vs real uses saved interests only. Opted-in topic tags can re-rank people who already share a saved tag.
+      // They are never written onto a profile. A zero saved score meets a town neighbour instead of a stranger.
+      const savedOf = (a) => {
+        if (!a || isTown(a.uid)) return a;
+        const orig = agents.find((x) => x.uid === a.uid);
+        return orig ? { ...a, interests: orig.interests } : a;
+      };
+      let match = pickMatch(savedOf(me), candidates.map(savedOf), now, salt, cooldown);
       if (town && (!match || match.score === 0)) {
-        const townPick = pickTown(meMatch, now, salt, cooldown);
+        const townPick = pickTown(savedOf(me), now, salt, cooldown);
         if (townPick) match = townPick;
+      }
+      // Topic tags apply only when a town neighbour was not chosen. Profiles passed onward keep saved interests.
+      if (match && !match.town) {
+        const themed = pickMatch(meMatch, candidates, now, salt, cooldown);
+        if (themed) match = { ...themed, agent: savedOf(themed.agent) };
       }
       const mine = publicProfile(me);
       // Count before calling: the cap is spent even if the model fails or says rest.
@@ -682,20 +665,12 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       }
       const other = match.agent, theirs = publicProfile(other);
       let lines = null;
-      let raw = '';
       try {
         summary.calls++;
-        raw = await llm(conversationPrompt(mine, theirs), 400);
-        lines = parseConversation(raw, mine, theirs);
-      } catch { lines = null; raw = ''; }
-      // A blank or unusable reply still gets a meeting. A reply we refused for safety is not replaced.
-      if (!lines && !conversationUnsafe(raw)) lines = fallbackLines(mine, theirs);
+        lines = parseConversation(await llm(conversationPrompt(mine, theirs), 400), mine, theirs);
+      } catch { lines = null; }
       if (!lines) { await save(me, { ...life, activity: 'rest' }, { updateTime: me.updateTime, status: makeStatus('idle', { now }) }); continue; }
-      const otherMatch = match.town ? other : (enriched.get(other.uid) || other);
-      const sharedSaved = mine.interests.filter((t) => theirs.interests.includes(t));
-      const shared = sharedSaved.length || match.town || !consentAllows(me) || !consentAllows(other)
-        ? sharedSaved
-        : cleanInterests(meMatch.interests, 8).filter((t) => cleanInterests(otherMatch.interests, 8).includes(t)).slice(0, 3);
+      const shared = mine.interests.filter((t) => theirs.interests.includes(t));
       const otherId = hashId(other.uid, salt), meId = hashId(me.uid, salt);
       // Notes only for real agents with shared interests; one model call per side, within budget; any failure omits it.
       const writeNote = async (a, b) => {

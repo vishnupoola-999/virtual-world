@@ -1,14 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fanOut, cardStatus, cardPlace, clip, feedHtml, activityHtml, logHtml, noteText, worthMeeting, byNewest, setupTown, connectError, hiDraft, sendConnect, CONNECT_URL, HI_MAX, EMPTY, clearShift, FAN_PX } from '../src/town.js';
+import { fanOut, cardStatus, clip, feedHtml, activityHtml, logHtml, noteText, worthMeeting, byNewest, setupTown, connectError, hiDraft, sendConnect, CONNECT_URL, HI_MAX, EMPTY, clearShift, FAN_PX } from '../src/town.js';
 
 test('clip caps at 40 chars with ellipsis', () => { assert.equal(clip('a'.repeat(50)).length, 40); assert.equal(clip('short'), 'short'); });
-test('cardPlace walks a public agent off its anchor and stays put without motion', () => {
-  const still = cardPlace({ lat: 17.45, lon: 78.38 });
-  assert.deepEqual(still, { lat: 17.45, lon: 78.38 });
-  const moved = cardPlace({ lat: 17.45, lon: 78.38, motion: { east: 0, north: 1113.2, ms: 1000, since: 1000 } }, 1500);
-  assert.ok(moved.lat > 17.45 && moved.lat < 17.46);
-});
 test('cardStatus handles string, object and junk', () => {
   assert.deepEqual(cardStatus('Reading at the library'), { kind: 'walking', label: 'Reading at the library' });
   assert.equal(cardStatus({ kind: 'meeting', label: 'x'.repeat(60) }).label.length, 40);

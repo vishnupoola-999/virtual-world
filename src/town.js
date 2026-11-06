@@ -4,7 +4,6 @@
 // Anonymous users, network errors and missing config all fail quietly: no others on the map, a calm Feed message.
 import {displayName as dn} from './names.js';
 import {friendsHtml,avatar,lookOf,fillAvatars} from './threads.js';
-import {walkFraction,offsetPlace} from './motion.js';
 const PROJ='virtual-world-8ac82',FS_DB='default'; // same as firebase.js (kept here so this module has no CDN imports)
 export const FEED_URL='https://virtual-world-ai.onrender.com/feed?n=30';
 export const CONNECT_URL='https://virtual-world-ai.onrender.com/connect';
@@ -17,10 +16,6 @@ export const clip=(s,n=40)=>{s=String(s||'').replace(/\s+/g,' ').trim();return s
 // Public card status may be {kind,label} or a plain string. Labels are capped at 40 characters.
 export function cardStatus(st){if(typeof st==='string')return st.trim()?{kind:'walking',label:clip(st)}:null;
   if(st&&typeof st==='object'&&st.label)return {...st,label:clip(st.label)};return null;}
-// Where a public card is drawn right now. A walking card carries motion {east,north,ms,since} from its ~1 km anchor.
-export function cardPlace(d,now=Date.now()){const lat=+d?.lat,lon=+d?.lon;if(!Number.isFinite(lat)||!Number.isFinite(lon))return {lat,lon};
-  const m=d?.motion;if(!m||!Number.isFinite(+m.east)||!Number.isFinite(+m.north))return {lat,lon};
-  return offsetPlace(lat,lon,+m.east,+m.north,walkFraction(m.since,now,+m.ms||undefined));}
 // Agents sharing a spot fan out around it by 40px (72px once the group is tapped open). Returns Map id -> [dx,dy] in px.
 export const spotKey=a=>a.lat.toFixed(3)+','+a.lon.toFixed(3);
 export function groupsOf(list){const g=new Map();for(const a of list){const k=spotKey(a);(g.get(k)||g.set(k,[]).get(k)).push(a);}return g;}
@@ -134,15 +129,14 @@ export function setupTown({agents,living,getUser,el,actEl,dotEl,map,threads=null
     for(const p of Array.isArray(f.nearby)?f.nearby.slice(0,6):[]){if(!p||!p.id)continue;let lat=+p.lat,lon=+(p.lng??p.lon);
       if(!(Number.isFinite(lat)&&Number.isFinite(lon))&&me&&p.offsetM){lon=me.lon+(+p.offsetM.east||0)/(111320*Math.cos(me.lat*Math.PI/180));lat=me.lat+(+p.offsetM.north||0)/110540;}
       if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;const id='nb-'+p.id,ci=p.look?.colorIndex;now.add(id);
-      agents.put({id,name:dn(p.name)||'Neighbour',lat,lon,look:Number.isInteger(ci)&&living.townLook?living.townLook(p.look):undefined,ownerName:dn(p.name),other:true,meta:'Neighbour',status:p.status||undefined});agents.get(id)?.el.classList.add('town','nearby');
-      if(p.status)agents.setLiving?.(id,{kind:'working',html:esc(clip(String(p.status),40))});}
+      agents.put({id,name:dn(p.name)||'Neighbour',lat,lon,look:Number.isInteger(ci)&&living.townLook?living.townLook(p.look):undefined,ownerName:dn(p.name),other:true,meta:'Neighbour'});agents.get(id)?.el.classList.add('town','nearby');}
     for(const id of nb)if(!now.has(id))agents.remove(id);nb=now;}
   function draw(list){last=list;const keep=list.filter(d=>d&&d.id&&d.id!==myId&&Number.isFinite(d.lat)&&Number.isFinite(d.lon));const now=new Set();
     const off=new Map(),group=new Map();
     for(const [k,g] of groupsOf(keep)){const o=fanOut(g,spread.has(k)?SPREAD_PX:FAN_PX);for(const a of g){off.set(a.id,o.get(a.id));group.set(a.id,g.length>1&&!spread.has(k)?k:null);}}
-    for(const d of keep){const st=cardStatus(d.status),at=cardPlace(d);now.add(d.id);
-      living.putOther?living.putOther({id:d.id,name:d.name||'Agent',lat:at.lat,lon:at.lon,look:d.look,approx:{lat:at.lat,lon:at.lon},status:st||undefined,other:true,meta:'Around town · approximate area'})
-        :agents.put({id:d.id,name:d.name||'Agent',lat:at.lat,lon:at.lon,look:d.look,other:true});
+    for(const d of keep){const st=cardStatus(d.status);now.add(d.id);
+      living.putOther?living.putOther({id:d.id,name:d.name||'Agent',lat:d.lat,lon:d.lon,look:d.look,approx:{lat:d.lat,lon:d.lon},status:st||undefined,other:true,meta:'Around town · approximate area'})
+        :agents.put({id:d.id,name:d.name||'Agent',lat:d.lat,lon:d.lon,look:d.look,other:true});
       const a=agents.get(d.id);if(!a)continue;a.marker.setOffset([off.get(d.id)[0],-6+off.get(d.id)[1]]);a.townGroup=group.get(d.id);hookTap(a);}
     for(const id of drawn)if(!now.has(id))agents.remove(id);drawn=now;threads?.ring();queueClear();return keep.length;}
   // Tapping an agent in a closed group zooms in and spreads the group instead of opening a profile.
@@ -156,8 +150,7 @@ export function setupTown({agents,living,getUser,el,actEl,dotEl,map,threads=null
     const rail=rr&&rr.width?{x:rr.left,y:rr.top,w:rr.width,h:rr.height}:null;
     for(const e of document.querySelectorAll('.maplibregl-marker.ag.other')){e.style.translate='';const cv=e.querySelector('canvas');const r=(cv||e).getBoundingClientRect();
       if(!r.width||r.right<0||r.left>W||r.bottom<0||r.top>H)continue;const dx=clearShift({x:r.left,y:r.top,w:r.width,h:r.height},{w:W,rail});if(dx)e.style.translate=dx+'px 0';}}
-  if(map){setInterval(()=>{if(!document.hidden&&document.body.dataset.tab!=='chat')queueClear();},1000);map.on('moveend',queueClear);map.on('zoomend',queueClear);addEventListener('resize',queueClear);
-    setInterval(()=>{if(!document.hidden&&last.some(d=>d&&d.motion))draw(last);},20000);}
+  if(map){setInterval(()=>{if(!document.hidden&&document.body.dataset.tab!=='chat')queueClear();},1000);map.on('moveend',queueClear);map.on('zoomend',queueClear);addEventListener('resize',queueClear);}
   async function refreshMap(user=getUser()){if(!isReal(user)){clearMap();return 0;}
     try{await ensureMyId(user);return draw(await F.fetchPublicAgents(user));}catch(e){console.warn('town',e?.message);return 0;}}
   function clearMap(){for(const id of drawn)agents.remove(id);for(const id of nb)agents.remove(id);nb=new Set();drawn=new Set();myId=null;}
