@@ -275,7 +275,7 @@ describe('POST /publish and paged publicAgents', () => {
       assert.equal(store.saved.length, 1);
       const [id, card] = store.saved[0];
       assert.equal(id, B); assert.equal(card.name, 'Vishnu'); assert.equal(card.lat, 17.39); assert.equal(card.lon, 78.49);
-      assert.deepEqual(card.status, { text: 'Walking', since: 5 }); noUids(card);
+      assert.equal(card.status, undefined); noUids(card);
       assert.equal((await call(BOB, 'POST', '/publish')).status, 429);
       assert.equal((await call(EVE, 'POST', '/publish')).status, 404); // no position: not published
       assert.equal((await call(ALICE, 'POST', '/publish')).status, 404);

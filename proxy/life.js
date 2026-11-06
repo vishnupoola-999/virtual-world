@@ -119,11 +119,9 @@ export function publicCard(agent, status, now) {
   const src = agent.approx && Number.isFinite(agent.approx.lat) ? agent.approx : { lat: agent.lat, lon: agent.lon };
   const card = { name: p.name, interests: p.interests, updatedAt: now };
   if (Number.isFinite(src.lat) && Number.isFinite(src.lon)) { card.lat = round2(src.lat); card.lon = round2(src.lon); }
-  if (status && typeof status === 'object' && !Array.isArray(status)) {
-    const pub = { ...status };
-    delete pub.destination;
-    card.status = pub;
-  } else if (status) card.status = status;
+  // Same fields a friend sees. Motion below still uses the original status, including its destination.
+  const shared = shareableStatus(status);
+  if (shared) card.status = shared;
   const motion = cardMotion(card, status);
   if (motion) card.motion = motion;
   const look = cleanLook(agent.look);

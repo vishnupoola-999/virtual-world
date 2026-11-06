@@ -708,6 +708,7 @@ describe('walks, work, town company and chat consent', () => {
     const card = store.pub[hashId('a', SALT)];
     assert.equal(card.motion.ms, WALK_MS);
     assert.ok(Math.hypot(card.motion.east, card.motion.north) <= 900);
+    assert.deepEqual(card.status, shareableStatus(me.status));
     assert.equal(card.status.destination, undefined);
     assert.ok(!JSON.stringify(card).includes('17.123456'));
     assert.ok(!JSON.stringify(card).includes('78.66'));
@@ -716,6 +717,21 @@ describe('walks, work, town company and chat consent', () => {
     await runTick({ store: store2, llm: async () => { calls++; return '{"action":"rest"}'; }, now: NOW, salt: SALT });
     assert.equal(calls, 1);
     assert.equal(store2.status.a.kind, 'idle');
+  });
+  test('a public card status matches the friend allowlist and a walk still has motion', () => {
+    const hid = hashId('pal', SALT);
+    const meeting = makeStatus('meeting', { now: NOW, label: 'With Pal', withAgentId: hid, withName: 'Pal', town: true });
+    const meet = publicCard({ uid: 'a', name: 'Ann', interests: ['tech', 'ai', 'x'], lat: 17.123456, lon: 78.654321 }, meeting, NOW);
+    assert.deepEqual(meet.status, shareableStatus(meeting));
+    for (const k of ['destination', 'withAgentId', 'withName', 'withTown']) assert.equal(meet.status[k], undefined);
+    assert.ok(!JSON.stringify(meet).includes(hid));
+    const walk = publicCard({ uid: 'a', name: 'Ann', interests: ['tech', 'ai', 'x'], lat: 17.123456, lon: 78.654321 }, walking(NOW), NOW);
+    assert.deepEqual(walk.status, shareableStatus(walking(NOW)));
+    assert.equal(walk.status.destination, undefined);
+    assert.equal(walk.motion.ms, WALK_MS);
+    assert.ok(Math.hypot(walk.motion.east, walk.motion.north) <= 900);
+    assert.ok(!JSON.stringify(walk).includes('78.66'));
+    assert.ok(!JSON.stringify(walk).includes('17.13'));
   });
   test('work advances across ticks and a public card never carries an exact home', async () => {
     const store = fakeStore([agent('a', ['tech', 'ai', 'x'])]);
