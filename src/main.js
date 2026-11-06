@@ -11,10 +11,11 @@ import {chatHero} from './chat-hero.js';
 import {setupTabs} from './tabs.js';
 import {currentUser,onUser,loadDiary,publishCard} from './firebase.js';
 import {setupLiving,readStatus} from './living.js';
-import {setupAway,markVisit} from './away.js';
+import {setupAway,markVisit,lastVisit} from './away.js';
 import {setupTown} from './town.js';
 import {setupThreads} from './threads.js';
 import {setupV4} from './v4.js';
+import {setupRecap} from './recap.js';
 import {track} from './onboarding.js';
 import {setupUsage} from './usage.js';
 import {setupUI,toast,closeSheet,openSheet,dragToClose} from './ui.js';
@@ -71,6 +72,7 @@ window.__vw.tabs=tabs;window.__vw.openSheet=openSheet;
 // Onboarding for new users (?onb=0 skips it, for tests and debugging). Returning users go straight to Chat.
 const noOnb=new URLSearchParams(location.search).get('onb')==='0';
 let chatFrom=null;const goChat=()=>{chatFrom=document.querySelector('#tabs [aria-selected=true]')?.id||null;if(chat.open()){closeSheet();tabs.set('chat');}};
+const goChatQuote=(text)=>{chatFrom=document.querySelector('#tabs [aria-selected=true]')?.id||null;if(chat.openQuote(text)){closeSheet();tabs.set('chat');}};
 // Agent chat hides the tab pill (like a person chat): Back returns to where it was opened from.
 {const b=$('chatBack');if(b)b.onclick=()=>{tabs.set('world');const f=chatFrom&&chatFrom!=='tabWorld'?$(chatFrom):null;chatFrom=null;f?.click();};}
 const ob=setupOnboarding(map,{onCreated:(a,saved)=>window.__vw.agent.adopt(a,saved),
@@ -103,17 +105,20 @@ const living=LIVING_MAP?setupLiving(map,{hintEl:$('liveHint')}):{showOwn:a=>read
 // Other people's public agents on the map + the Feed sheet (signed-in, non-anonymous users only).
 const threads=setupThreads({getUser:currentUser,agents,getMe:()=>window.__vw.agent?.agent});window.__vw.threads=threads;
 const town=setupTown({agents,living,map,threads,getUser:currentUser,el:$('feedList'),actEl:$('agentChats'),dotEl:$('agentDot')});window.__vw.town=town;
-const v4=setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAgent:()=>window.__vw.agent?.agent,getUser:currentUser,goChat,connect:apps});window.__vw.v4=v4;
+const v4=setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAgent:()=>window.__vw.agent?.agent,getUser:currentUser,goChat,connect:apps,onNews:()=>window.__vw.recap?.fromMe()});window.__vw.v4=v4;
+const recap=setupRecap({getUser:chatUser,getAgent:()=>window.__vw.agent?.agent,agents,map,town,closeSheet,goChat,openQuote:goChatQuote,setNews:on=>v4.setNews(on)});window.__vw.recap=recap;
 // Ambient creatures across the world's cities (client-only, deterministic, no names).
 import('./ambient.js').then(m=>{window.__vw.ambient=m.setupAmbient(map,agents);}).catch(e=>console.warn('ambient',e?.message));
-onUser(u=>{apps.refresh();if(u&&!u.isAnonymous){town.refreshMap(u);town.checkUnread(u);v4.refreshHud();}else{town.clearMap();v4.forget();}});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);
+onUser(u=>{apps.refresh();if(u&&!u.isAnonymous){town.refreshMap(u);town.checkUnread(u);v4.refreshHud();}else{town.clearMap();v4.forget();recap.reset();}});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);
 // Feed open also refreshes your public map card (POST /publish), at most every 10 min.
 const pubOnOpen=()=>{try{const t=+localStorage.getItem('vw-pub-at')||0;if(Date.now()-t<600000)return;localStorage.setItem('vw-pub-at',String(Date.now()));}catch{/* storage blocked */}publishCard();};
 $('railFeed').addEventListener('click',()=>{pubOnOpen();town.loadFeed();});
 // Agent chats (rail): the agent's own log + worth-meeting notes. Opening it clears the unread dot.
 $('railAgent').addEventListener('click',()=>town.loadActivity());
 addEventListener('pagehide',()=>markVisit());document.addEventListener('visibilitychange',()=>{if(document.hidden&&!away.open)markVisit();});
-const showLife=(u,a)=>{living.showOwn(a);if(!u||!a||ob.active)return;loadDiary(u.uid).then(entries=>v4.arrive({entries})).catch(e=>{console.warn('diary',e?.code||e?.message);v4.arrive({});});};
+const showLife=(u,a)=>{living.showOwn(a);if(!u||!a||ob.active)return;const since=lastVisit();
+  const arrive=()=>loadDiary(u.uid).then(entries=>v4.arrive({entries})).catch(e=>{console.warn('diary',e?.code||e?.message);v4.arrive({});});
+  recap.maybe({user:u,since}).then(shown=>{if(!shown)arrive();}).catch(arrive);};
 window.__vw.agent=setupAgent(map,{onLoaded:(u,a)=>{
   // Ask for interests whenever a signed-in agent has fewer than 3 tags stored in Firestore.
   // ?onb=0 still skips the first-time tour, but not this prompt. Don't interrupt onboarding past sign-in.

@@ -257,8 +257,18 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
     }
   }
 
+  // A recap moment quoted as the agent's line, so the next send (the existing SSE) has it as context.
+  let quoteText = null;
+  function applyQuote() {
+    const q = quoteText;
+    if (!q) return;
+    quoteText = null;
+    if (!hist.some((m) => m.role === 'assistant' && m.content === q)) remember('assistant', q);
+    render();
+  }
   // Returns true when the Chat tab can open (signed in with an agent, or a preview agent).
-  function open() {
+  function open(opts) {
+    if (opts && typeof opts.quote === 'string') quoteText = opts.quote.slice(0, 140);
     const agent = getAgent();
     const user = getUser();
     if (!agent) {
@@ -269,14 +279,14 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
     $('chatTitle').textContent = agent.name;
     input.placeholder = `Ask ${agent.name} anything`;
     const who = key() + '|' + agent.name;
-    if (openedFor === who) return true;
+    if (openedFor === who) { if (quoteText) applyQuote(); return true; }
     openedFor = who;
     status('ok');
     try { hist = JSON.parse(localStorage.getItem(key()) || '[]'); } catch { hist = []; }
     if (!Array.isArray(hist)) hist = [];
     render();
     const uid = user?.uid;
-    if (!uid) { if (!hist.length) greet(agent, user); return true; }
+    if (!uid) { if (quoteText) applyQuote(); else if (!hist.length) greet(agent, user); return true; }
     // Then the saved history from Firestore (other devices); greet only if there is none anywhere.
     const t = hist.length ? null : typing('Remembering our chats…');
     Promise.race([loadMessages(uid), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), LOAD_TIMEOUT_MS))])
@@ -287,10 +297,16 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
       .catch((err) => console.warn('chat history not loaded:', err?.code || err?.message))
       .finally(() => {
         t?.remove();
-        if (openedFor === who && !hist.length) greet(agent, user);
-        else if (openedFor === who && writes === 0) trimMessages(uid).catch(() => {});
+        if (openedFor !== who) return;
+        if (quoteText) { applyQuote(); return; }
+        if (!hist.length) greet(agent, user);
+        else if (writes === 0) trimMessages(uid).catch(() => {});
       });
     return true;
+  }
+  function openQuote(text) {
+    const q = String(text || '').trim().slice(0, 140);
+    return q ? open({ quote: q }) : open();
   }
 
   // The agent speaks first.
@@ -505,5 +521,5 @@ export function setupChat({getAgent, getUser, hero, onShowMe, onNeedAgent, conne
     }
   }
 
-  return { open, reset() { clearTimeout(greetTimer); greetTimer = 0; openedFor = null; } };
+  return { open, openQuote, reset() { clearTimeout(greetTimer); greetTimer = 0; openedFor = null; quoteText = null; } };
 }
