@@ -12,8 +12,8 @@ const t0 = Date.parse('2026-11-06T09:10:00');
 const MOMENTS = [
   { id: 't1', kind: 'thought', text: 'I walked past the old banyan near the bus stop again. Do you ever sit there?', createdAt: t0, seenAt: null, weight: 1, source: 'generated' },
   { id: 'q1', kind: 'question', text: 'You said exams are next week. Want me to keep your mornings quiet?', createdAt: t0 + 15 * 60000, seenAt: null, weight: 2, source: 'generated' },
-  { id: 'm1', kind: 'meeting', text: "I met karthikeya's agent. We talked about cricket for ages.", createdAt: t0 + 30 * 60000, seenAt: null, weight: 3, source: 'event', meetingId: 'meet1', otherUid: 'h_k', otherAgentName: 'karthikeya' },
-  { id: 'f1', kind: 'friend', text: 'Puff and I are friends now. Say hi to SBK GAMER?', createdAt: t0 + 45 * 60000, seenAt: null, weight: 5, source: 'event', otherUid: 'h_s', otherAgentName: 'SBK GAMER' },
+  { id: 'm1', kind: 'meeting', text: "I met karthikeya's agent. We talked about cricket for ages.", createdAt: t0 + 30 * 60000, seenAt: null, weight: 3, source: 'event', refs: { meetingId: 'meet1', otherAgentId: 'h_k', otherAgentName: 'karthikeya' } },
+  { id: 'f1', kind: 'friend', text: 'Puff and I are friends now. Say hi to SBK GAMER?', createdAt: t0 + 45 * 60000, seenAt: null, weight: 5, source: 'event', refs: { meetingId: 'meet2', otherAgentId: 'h_s', otherAgentName: 'SBK GAMER' } },
 ];
 const fv = (v) => typeof v === 'number' ? { doubleValue: v } : typeof v === 'string' ? { stringValue: v }
   : { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fv(x)])) } };
@@ -39,11 +39,13 @@ async function boot(page, box = {}) {
       return r.fulfill({ json: { show: box.show, moments: box.moments } });
     }
     if (p === '/recap/seen') { seen.push(q.postDataJSON()); return r.fulfill({ json: { ok: true } }); }
+    if (p === '/threads' && q.method() === 'GET') return r.fulfill({ json: { threads: box.threads || [] } });
+    if (/^\/threads\/[^/]+\/messages$/.test(p)) return r.fulfill({ json: { messages: [] } });
     if (p === '/connect') { connects.push(q.postDataJSON()); return r.fulfill({ status: 201, json: { id: 'hi1' } }); }
     if (p === '/feed') return r.fulfill({ json: { myId: 'me', mine: [], town: [], nearby: [], incoming: [], outgoing: [] } });
     return r.fulfill({ status: 404, json: {} });
   });
-  await page.goto('/?onb=0#17.6/17.4504/78.3805/0/45', { waitUntil: 'domcontentloaded' });
+  await page.goto(`/?${box.query || 'onb=0&recap=1'}#17.6/17.4504/78.3805/0/45`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => globalThis.__map?.loaded() && globalThis.__vw?.recap, null, { timeout: 45_000 });
   await page.evaluate(() => {
     globalThis.__vw.__testUser = { isAnonymous: false, uid: 'u1', getIdToken: async () => 'test-token' };
@@ -72,27 +74,52 @@ test('recap deck, skip, and Me news', async ({ page }) => {
       ...six.slice(1),
     ];
     const seen = [{ id: 's', kind: 'thought', text: 'already shown', createdAt: now, seenAt: now, weight: 1 }];
+    const mid = [
+      { id: 'a', kind: 'thought', text: 'a thought here', createdAt: now - 3, weight: 1 },
+      { id: 'f', kind: 'friend', text: 'Friend in the middle', createdAt: now - 2, weight: 5 },
+      { id: 'b', kind: 'observation', text: 'b note here', createdAt: now - 1, weight: 1 },
+    ];
+    const legacy = m.normMoment({ id: 'leg', kind: 'meeting', text: 'Met someone yesterday afternoon', otherUid: 'h_old', meetingId: 'm9', otherAgentName: 'Old' });
+    const refsWin = m.normMoment({ id: 'rf', kind: 'friend', text: 'We are friends as of today', refs: { otherAgentId: 'h_new', meetingId: 'm2', otherAgentName: 'New' }, otherUid: 'h_old', otherAgentId: 'h_top' });
+    const top = m.normMoment({ id: 'top', kind: 'meeting', text: 'Met someone from the top field', otherAgentId: 'h_top', meetingId: 'm3' });
     return {
       six: m.pickMoments(six).map((x) => x.id),
       inside: m.pickMoments(inside).map((x) => x.id),
+      mid: m.pickMoments(mid).map((x) => x.id),
       seen: m.pickMoments(seen).length,
       away: m.awayLongEnough(now - 15 * 60 * 1000, now) === false && m.awayLongEnough(now - 15 * 60 * 1000 - 1, now) === true,
+      legacy: legacy && legacy.otherAgentId,
+      refsWin: refsWin && refsWin.otherAgentId,
+      top: top && top.otherAgentId,
+      onb: m.autoShowAllowed(new URL('http://127.0.0.1/?onb=0')) === false,
+      flagged: m.autoShowAllowed(new URL('http://127.0.0.1/?onb=0&recap=1')) && m.autoShowAllowed(new URL('http://127.0.0.1/?onb=0&recap=mock')),
     };
   }));
-  expect(picked.six).toEqual(['old', 'b', 'c', 'd', 'e']);
+  expect(picked.six).toEqual(['b', 'c', 'd', 'e', 'old']);
   expect(picked.inside).toHaveLength(4);
-  expect(picked.inside).toContain('f');
+  expect(picked.inside.at(-1)).toBe('f');
+  expect(picked.mid).toEqual(['a', 'b', 'f']);
   expect(picked.seen).toBe(0);
   expect(picked.away).toBe(true);
+  expect(picked.legacy).toBe('h_old');
+  expect(picked.refsWin).toBe('h_new');
+  expect(picked.top).toBe('h_top');
+  expect(picked.onb).toBe(true);
+  expect(picked.flagged).toBe(true);
 
   await boot(page);
   expect(await arm(page)).toBe(true);
   await expect(page.locator('#recap')).toBeVisible();
   await expect(page.locator('#recap .recapText')).toHaveText(MOMENTS[0].text);
   await expect(page.locator('#recap .primary')).toHaveText('Reply');
+  await expect(page.locator('#recap .recapSegs i')).toHaveCount(5);
+  await expect(page.locator('#recap .recapSegs')).toHaveAttribute('aria-valuemax', '5');
+  expect(await page.locator('#recap .primary').evaluate((el) => globalThis.getComputedStyle(el).color)).toBe('rgb(10, 11, 16)');
+  expect(await page.locator('#recap .recapTop').evaluate((el) => globalThis.getComputedStyle(el).paddingTop)).toBe('16px');
   await expect(page.locator('#recap .sec')).toHaveText('Next');
   await expect(page.locator('#recap .recapKicker')).toContainText('While you were away');
   await expect(page.locator('#recap .recapKicker')).toContainText('9:10 AM');
+  await page.waitForTimeout(320);
   const cre = await page.locator('#recap .recapCre').boundingBox();
   expect(Math.abs(cre.y - 120)).toBeLessThan(2);
   expect(Math.abs(cre.width - 160)).toBeLessThan(2);
@@ -105,7 +132,6 @@ test('recap deck, skip, and Me news', async ({ page }) => {
   expect(await page.locator('#recap .primary').evaluate((el) => globalThis.getComputedStyle(el).borderRadius)).toBe('16px');
   expect(await page.locator('#tabs').evaluate((el) => globalThis.getComputedStyle(el).visibility)).toBe('hidden');
   expect(await page.locator('#recap').evaluate((el) => `${globalThis.getComputedStyle(el).backdropFilter} ${globalThis.getComputedStyle(el).filter}`)).not.toContain('blur');
-  await page.waitForTimeout(320);
   await shot(page, 'thought');
 
   await page.locator('#recap .recapSkip').click();
@@ -146,12 +172,22 @@ test('recap deck, skip, and Me news', async ({ page }) => {
   await expect(page.locator('#recap .sec')).toHaveText('Done');
   await expect(page.locator('#recap .bob')).toHaveClass(/hop/);
   expect(await page.locator('#recap .recapSegs i.jack').evaluate((el) => globalThis.getComputedStyle(el).backgroundImage)).toContain('linear-gradient');
-  expect(await page.locator('#recap .recapCard.friend').evaluate((el) => globalThis.getComputedStyle(el).borderTopWidth)).toBe('2px');
+  const friendCard = await page.locator('#recap .recapCard.friend').evaluate((el) => {
+    const s = globalThis.getComputedStyle(el);
+    return { width: s.borderTopWidth, image: s.backgroundImage };
+  });
+  expect(friendCard.width).toBe('2px');
+  expect(friendCard.image).toContain('linear-gradient');
+  expect(friendCard.image).toContain('91, 140, 255');
+  expect(friendCard.image).toContain('155, 107, 255');
   await page.waitForTimeout(700);
   await shot(page, 'friend');
 
-  await page.locator('#recap .sec').click();
+  // Done itself closes to the map (covered below). A tap on the story still reaches the end card.
+  await page.locator('#recap .recapText').click();
   await expect(page.locator('#recap .recapText')).toHaveText("That's everything since you left.");
+  await expect(page.locator('#recap .recapSegs i')).toHaveCount(5);
+  await expect(page.locator('#recap .recapSegs i.on')).toHaveCount(5);
   await expect(page.locator('#recap .primary')).toHaveText('Talk to Puff');
   await expect(page.locator('#recap .sec')).toHaveText('Open map');
   await page.waitForTimeout(320);
@@ -177,10 +213,12 @@ test('slow recap skips the overlay and keeps the news dot', async ({ page }) => 
 });
 
 test('a recent session and an empty recap stay on the map', async ({ page }) => {
-  const { box } = await boot(page);
+  const { box } = await boot(page, { show: false });
   expect(await arm(page, Date.now() - 10 * 60 * 1000)).toBe(false);
   await expect(page.locator('#recap')).toBeHidden();
   await expect(page.locator('#recapDot')).toBeVisible();
+  await page.locator('#tabMe').click();
+  await expect(page.locator('#meNews')).toHaveText('See news');
   box.moments = [];
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => globalThis.__map?.loaded() && globalThis.__vw?.recap, null, { timeout: 45_000 });
@@ -191,4 +229,94 @@ test('a recent session and an empty recap stay on the map', async ({ page }) => 
   expect(await arm(page)).toBe(false);
   await expect(page.locator('#recap')).toBeHidden();
   await expect(page.locator('#recapDot')).toBeHidden();
+});
+
+test('show true opens even after a short absence', async ({ page }) => {
+  await boot(page, { show: true });
+  expect(await arm(page, Date.now() - 10 * 60 * 1000)).toBe(true);
+  await expect(page.locator('#recap')).toBeVisible();
+  await expect(page.locator('#recap .recapText')).toHaveText(MOMENTS[0].text);
+});
+
+test('onb=0 skips auto-show unless recap is flagged', async ({ page }) => {
+  await boot(page, { query: 'onb=0', show: true });
+  expect(await arm(page, Date.now() - 20 * 60 * 1000)).toBe(false);
+  await expect(page.locator('#recap')).toBeHidden();
+  await expect(page.locator('#recapDot')).toBeVisible();
+  await page.locator('#tabMe').click();
+  await expect(page.locator('#meNews')).toHaveText('See news');
+  await page.locator('#meNews').click();
+  await expect(page.locator('#recap')).toBeVisible();
+  await expect(page.locator('#recap .recapText')).toHaveText(MOMENTS[0].text);
+});
+
+test('Done on the friend card closes onto the map', async ({ page }) => {
+  await boot(page);
+  await page.locator('#tabMe').click();
+  await expect(page.locator('#sheet')).toBeVisible();
+  await page.evaluate(() => globalThis.__vw.recap.preview([
+    { id: 'q1', kind: 'question', text: 'You said exams are next week. Want me to keep your mornings quiet?', createdAt: Date.now() - 60000, weight: 2 },
+    { id: 'f1', kind: 'friend', text: 'Puff and I are friends now. Say hi to SBK GAMER?', createdAt: Date.now(), weight: 5, refs: { meetingId: 'meet2', otherAgentId: 'h_s', otherAgentName: 'SBK GAMER' } },
+  ], 1));
+  await expect(page.locator('#recap .sec')).toHaveText('Done');
+  await expect(page.locator('#recap .primary')).toHaveText('Say hi');
+  await page.locator('#recap .sec').click();
+  await expect(page.locator('#recap')).toBeHidden();
+  await expect(page.locator('#recap .recapText')).toHaveCount(0);
+  await expect(page.locator('#sheet')).toBeHidden();
+  await expect(page.locator('#tabWorld')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('body')).toHaveAttribute('data-tab', 'world');
+
+  await page.evaluate(() => globalThis.__vw.recap.preview([
+    { id: 't1', kind: 'thought', text: 'I walked past the old banyan near the bus stop again. Do you ever sit there?', createdAt: Date.now(), weight: 1 },
+  ]));
+  await expect(page.locator('#recap .sec')).toHaveText('Next');
+  await expect(page.locator('#recap .recapSegs i')).toHaveCount(2);
+  await page.locator('#recap .sec').click();
+  await expect(page.locator('#recap .recapText')).toHaveText("That's everything since you left.");
+  await expect(page.locator('#recap .primary')).toHaveText('Talk to Puff');
+  await page.locator('#recap .primary').click();
+  await expect(page.locator('#recap')).toBeHidden();
+  await expect(page.locator('#chatView')).toBeVisible();
+});
+
+test('Say hi opens an existing thread and otherwise connects by hash', async ({ page }) => {
+  const { connects } = await boot(page, { threads: [{ id: 't_sbk', with: { id: 'h_s', name: 'SBK GAMER' } }] });
+  await page.evaluate(() => globalThis.__vw.recap.preview([{
+    id: 'f1', kind: 'friend', text: 'Puff and I are friends now. Say hi to SBK GAMER?', createdAt: Date.now(), weight: 5,
+    refs: { meetingId: 'meet2', otherAgentId: 'h_s', otherAgentName: 'SBK GAMER' },
+  }]));
+  await page.locator('#recap .primary').click();
+  await expect(page.locator('#dmView')).toBeVisible();
+  await expect(page.locator('#dmView .dmWho b')).toHaveText('SBK GAMER');
+  expect(connects).toEqual([]);
+
+  await page.evaluate(() => globalThis.__vw.threads.close());
+  connects.length = 0;
+  await page.evaluate(() => globalThis.__vw.recap.preview([{
+    id: 'f2', kind: 'friend', text: 'Puff and I are friends now. Say hi to karthikeya?', createdAt: Date.now(), weight: 5,
+    otherUid: 'h_k', meetingId: 'meet-old', otherAgentName: 'karthikeya',
+  }]));
+  await page.locator('#recap .primary').click();
+  await expect.poll(() => connects.length).toBe(1);
+  expect(connects[0]).toMatchObject({ toAgentId: 'h_k', meetId: 'meet-old' });
+  await expect(page.locator('#dmView')).toBeHidden();
+});
+
+test('See them flies to that agent on the world map', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => {
+    globalThis.__vw.tabs.set('chat');
+    globalThis.__vw.recap.preview([{
+      id: 'm1', kind: 'meeting', text: "I met karthikeya's agent. We talked about cricket for ages.", createdAt: Date.now(), weight: 3,
+      refs: { meetingId: 'meet1', otherAgentId: 'h_k', otherAgentName: 'karthikeya' },
+    }]);
+  });
+  await page.locator('#recap .primary').click();
+  await expect(page.locator('#recap')).toBeHidden();
+  await expect(page.locator('body')).toHaveAttribute('data-tab', 'world');
+  await expect.poll(() => page.evaluate(() => {
+    const c = globalThis.__map.getCenter();
+    return Math.abs(c.lat - 17.451) < 0.0002 && Math.abs(c.lng - 78.381) < 0.0002 && globalThis.__map.getPitch() > 55;
+  })).toBe(true);
 });

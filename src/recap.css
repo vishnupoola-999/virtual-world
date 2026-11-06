@@ -2,7 +2,7 @@
 #recap{position:fixed;inset:0;z-index:40;background:#07080C;color:#fff;display:flex;flex-direction:column}
 #recap[hidden]{display:none}
 body.recapOn #tabs,body.recapOn #v4Hud,body.recapOn .maplibregl-control-container{visibility:hidden}
-#recap .recapTop{display:flex;align-items:center;gap:12px;padding:16px 16px 0}
+#recap .recapTop{display:flex;align-items:center;gap:12px;padding:calc(16px + env(safe-area-inset-top, 0px)) 16px 0}
 #recap .recapSegs{flex:1;display:flex;gap:4px;min-width:0}
 #recap .recapSegs i{flex:1;height:4px;border-radius:2px;background:#16181F}
 #recap .recapSegs i.on{background:#fff}
@@ -16,11 +16,11 @@ body.recapOn #tabs,body.recapOn #v4Hud,body.recapOn .maplibregl-control-containe
 #recap .recapKicker{margin:24px 0 0;font:600 12px/1.3 Inter,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#8A90A0;text-align:center}
 #recap .recapText{margin:12px 0 0;font:600 24px/1.25 Inter,system-ui,sans-serif;color:#fff;text-align:center;max-width:100%;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 #recap .recapCard{margin-top:16px;width:100%;box-sizing:border-box;background:#111318;border-radius:16px;padding:16px;color:#8A90A0;font:400 16px/1.4 Inter,system-ui,sans-serif;display:flex;align-items:center;gap:12px;border:2px solid transparent}
-#recap .recapCard.friend{border-color:#9B6BFF}
+#recap .recapCard.friend{border-color:transparent;background:linear-gradient(#111318,#111318) padding-box,linear-gradient(90deg,#5B8CFF,#9B6BFF) border-box}
 #recap .recapCard .cav{width:40px;height:40px}
 #recap .recapActs{position:relative;z-index:1;margin-top:auto;padding:0 16px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column}
 #recap .recapActs .sec{height:48px;border:0;background:none;color:#8A90A0;font:500 16px/1 Inter,system-ui,sans-serif;width:100%}
-#recap .recapActs .primary{height:48px;min-height:48px;border:0;border-radius:16px;background:#fff;color:#07080C;font:600 16px/1 Inter,system-ui,sans-serif;width:100%}
+#recap .recapActs .primary{height:48px;min-height:48px;border:0;border-radius:16px;background:#fff;color:#0A0B10;font:600 16px/1 Inter,system-ui,sans-serif;width:100%}
 #recap button{transition:transform 100ms ease-out;-webkit-tap-highlight-color:transparent}
 #recap button:active{transform:scale(.97)}
 #recap .recapBody.in{animation:recapIn 280ms ease-out both}

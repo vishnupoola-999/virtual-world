@@ -106,7 +106,7 @@ const living=LIVING_MAP?setupLiving(map,{hintEl:$('liveHint')}):{showOwn:a=>read
 const threads=setupThreads({getUser:currentUser,agents,getMe:()=>window.__vw.agent?.agent});window.__vw.threads=threads;
 const town=setupTown({agents,living,map,threads,getUser:currentUser,el:$('feedList'),actEl:$('agentChats'),dotEl:$('agentDot')});window.__vw.town=town;
 const v4=setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAgent:()=>window.__vw.agent?.agent,getUser:currentUser,goChat,connect:apps,onNews:()=>window.__vw.recap?.fromMe()});window.__vw.v4=v4;
-const recap=setupRecap({getUser:chatUser,getAgent:()=>window.__vw.agent?.agent,agents,map,town,closeSheet,goChat,openQuote:goChatQuote,setNews:on=>v4.setNews(on)});window.__vw.recap=recap;
+const recap=setupRecap({getUser:chatUser,getAgent:()=>window.__vw.agent?.agent,agents,map,town,threads,tabs,closeSheet,goChat,openQuote:goChatQuote,setNews:on=>v4.setNews(on)});window.__vw.recap=recap;
 // Ambient creatures across the world's cities (client-only, deterministic, no names).
 import('./ambient.js').then(m=>{window.__vw.ambient=m.setupAmbient(map,agents);}).catch(e=>console.warn('ambient',e?.message));
 onUser(u=>{apps.refresh();if(u&&!u.isAnonymous){town.refreshMap(u);town.checkUnread(u);v4.refreshHud();}else{town.clearMap();v4.forget();recap.reset();}});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);

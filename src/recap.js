@@ -3,6 +3,7 @@
 // filled with made-up activity except on a local dev host (never in production, never under automation).
 import { avatar, fillAvatars, lookOf } from './threads.js';
 import { sendConnect, hiDraft, connectError } from './town.js';
+import { flyTo } from './map.js';
 import { toast } from './ui.js';
 
 const BASE = 'https://virtual-world-ai.onrender.com';
@@ -20,6 +21,22 @@ export function weightOf(m) {
   return WEIGHT[m?.kind] || 1;
 }
 
+function clipStr(v, max) {
+  if (typeof v !== 'string') return undefined;
+  const s = v.trim().slice(0, max);
+  return s || undefined;
+}
+
+// GET /recap puts the other agent on refs. Top-level otherAgentId, then legacy otherUid, are fallbacks.
+function momentRefs(m) {
+  const refs = m.refs && typeof m.refs === 'object' ? m.refs : {};
+  return {
+    meetingId: clipStr(refs.meetingId, 80) || clipStr(m.meetingId, 80),
+    otherAgentId: clipStr(refs.otherAgentId, 80) || clipStr(m.otherAgentId, 80) || clipStr(m.otherUid, 80),
+    otherAgentName: clipStr(refs.otherAgentName, 40) || clipStr(m.otherAgentName, 40),
+  };
+}
+
 export function normMoment(m) {
   if (!m || typeof m !== 'object' || !KINDS.includes(m.kind)) return null;
   const id = String(m.id || '').trim().slice(0, 80);
@@ -28,11 +45,17 @@ export function normMoment(m) {
   const seen = m.seenAt == null || m.seenAt === '' ? null : (at(m.seenAt) || true);
   return {
     id, kind: m.kind, text, createdAt: at(m.createdAt) || Date.now(), seenAt: seen, weight: weightOf(m),
-    meetingId: typeof m.meetingId === 'string' && m.meetingId ? m.meetingId : undefined,
-    otherUid: typeof m.otherUid === 'string' && m.otherUid ? m.otherUid : undefined,
-    otherAgentName: typeof m.otherAgentName === 'string' && m.otherAgentName.trim() ? m.otherAgentName.trim().slice(0, 40) : undefined,
+    ...momentRefs(m),
     source: m.source === 'event' ? 'event' : 'generated',
   };
+}
+
+// A friend is the peak: after the newest-4 + highest-weight pick, it is the last content card.
+function withFriendLast(list) {
+  const rest = [];
+  const friends = [];
+  for (const m of list) (m.kind === 'friend' ? friends : rest).push(m);
+  return rest.concat(friends);
 }
 
 // Newest 4, plus the highest-weight moment when it is older than those four. Cap 5.
@@ -41,16 +64,28 @@ export function pickMoments(list) {
   const byId = new Map();
   for (const m of items) byId.set(m.id, m);
   const uniq = [...byId.values()];
-  if (uniq.length <= 5) return uniq.sort((a, b) => a.createdAt - b.createdAt);
-  const newest = [...uniq].sort((a, b) => b.createdAt - a.createdAt);
-  const chosen = new Map(newest.slice(0, 4).map((m) => [m.id, m]));
-  const best = uniq.reduce((b, m) => weightOf(m) > weightOf(b) ? m : b);
-  if (!chosen.has(best.id)) chosen.set(best.id, best);
-  return [...chosen.values()].sort((a, b) => a.createdAt - b.createdAt);
+  let chosen;
+  if (uniq.length <= 5) chosen = uniq.sort((a, b) => a.createdAt - b.createdAt);
+  else {
+    const newest = [...uniq].sort((a, b) => b.createdAt - a.createdAt);
+    const bag = new Map(newest.slice(0, 4).map((m) => [m.id, m]));
+    const best = uniq.reduce((b, m) => weightOf(m) > weightOf(b) ? m : b);
+    if (!bag.has(best.id)) bag.set(best.id, best);
+    chosen = [...bag.values()].sort((a, b) => a.createdAt - b.createdAt);
+  }
+  return withFriendLast(chosen);
 }
 
 export function awayLongEnough(since, now = Date.now()) {
   return typeof since === 'number' && since > 0 && now - since > AWAY_MS;
+}
+
+// ?onb=0 is how smoke tests skip intros. Auto-show stays off unless this load asked for the recap.
+export function autoShowAllowed(loc = globalThis.location) {
+  const q = new URLSearchParams(loc?.search || '');
+  if (q.get('onb') !== '0') return true;
+  const flag = q.get('recap');
+  return flag === '1' || flag === 'mock';
 }
 
 export function mockAllowed(loc = globalThis.location, nav = globalThis.navigator) {
@@ -79,8 +114,8 @@ function devMoments() {
   return [
     { id: 'dev-thought', kind: 'thought', text: 'I walked past the old banyan near the bus stop again. Do you ever sit there?', createdAt: now - 50 * 60000, weight: 1, source: 'generated' },
     { id: 'dev-question', kind: 'question', text: 'You said exams are next week. Want me to keep your mornings quiet?', createdAt: now - 35 * 60000, weight: 2, source: 'generated' },
-    { id: 'dev-meeting', kind: 'meeting', text: "I met karthikeya's agent. We talked about cricket for ages.", createdAt: now - 20 * 60000, weight: 3, source: 'event', otherAgentName: 'karthikeya' },
-    { id: 'dev-friend', kind: 'friend', text: 'Puff and I are friends now. Say hi to SBK GAMER?', createdAt: now - 5 * 60000, weight: 5, source: 'event', otherAgentName: 'SBK GAMER' },
+    { id: 'dev-meeting', kind: 'meeting', text: "I met karthikeya's agent. We talked about cricket for ages.", createdAt: now - 20 * 60000, weight: 3, source: 'event', refs: { meetingId: 'dev-meet', otherAgentId: 'h_devk', otherAgentName: 'karthikeya' } },
+    { id: 'dev-friend', kind: 'friend', text: 'Puff and I are friends now. Say hi to SBK GAMER?', createdAt: now - 5 * 60000, weight: 5, source: 'event', refs: { meetingId: 'dev-friend', otherAgentId: 'h_devs', otherAgentName: 'SBK GAMER' } },
   ];
 }
 
@@ -94,7 +129,9 @@ export async function fetchRecap(user, fetchImpl = fetch) {
   const raw = Array.isArray(j) ? j : j.moments;
   if (!Array.isArray(raw)) return { failed: true };
   const show = Array.isArray(j) ? false : j.show === true;
-  return { ok: true, show, moments: raw };
+  // lastSessionEndAt is the server's away clock. The client trusts `show` and does not recompute it.
+  const lastSessionEndAt = Array.isArray(j) ? null : j.lastSessionEndAt ?? null;
+  return { ok: true, show, lastSessionEndAt, moments: raw };
 }
 
 async function postSeen(user, ids) {
@@ -124,7 +161,7 @@ function secondaryLabel(m, last) {
   return 'Next';
 }
 
-export function setupRecap({ getUser, getAgent, agents, map, town, closeSheet, goChat, openQuote, setNews }) {
+export function setupRecap({ getUser, getAgent, agents, map, town, threads, tabs, closeSheet, goChat, openQuote, setNews }) {
   const root = document.createElement('div');
   root.id = 'recap';
   root.hidden = true;
@@ -170,9 +207,11 @@ export function setupRecap({ getUser, getAgent, agents, map, town, closeSheet, g
     writeSet(autoKey(), s);
   }
 
+  function liveAgent(id) {
+    return id ? (agents?.get(id) || agents?.get('nb-' + id)) : null;
+  }
   function otherLook(m) {
-    const live = m.otherUid && (agents?.get(m.otherUid) || agents?.get('nb-' + m.otherUid));
-    return lookOf(live?.look || null, m.otherAgentName || '');
+    return lookOf(liveAgent(m.otherAgentId)?.look || null, m.otherAgentName || '');
   }
   function cardHtml(m) {
     if (!m || (m.kind !== 'meeting' && m.kind !== 'friend') || !m.otherAgentName) return '';
@@ -187,14 +226,15 @@ export function setupRecap({ getUser, getAgent, agents, map, town, closeSheet, g
     const last = !end && view.index === moments.length - 1;
     const agent = getAgent();
     const name = agent?.name || 'my agent';
-    const segs = moments.map((mm, i) => {
+    const steps = moments.length + 1;
+    const segs = Array.from({ length: steps }, (_, i) => {
       const on = i <= view.index;
-      const jack = mm.kind === 'friend' && on;
+      const jack = moments[i]?.kind === 'friend' && on;
       return `<i class="${on ? 'on' : ''}${jack ? ' jack' : ''}"></i>`;
     }).join('');
     const kicker = m ? `While you were away · ${clock(m.createdAt)}` : 'While you were away';
     const text = m ? m.text : "That's everything since you left.";
-    root.innerHTML = `<div class="recapTop"><div class="recapSegs" role="progressbar" aria-valuemin="1" aria-valuemax="${moments.length}" aria-valuenow="${Math.min(view.index + 1, moments.length)}">${segs}</div><button type="button" class="recapSkip">Skip</button></div>`
+    root.innerHTML = `<div class="recapTop"><div class="recapSegs" role="progressbar" aria-valuemin="1" aria-valuemax="${steps}" aria-valuenow="${Math.min(view.index + 1, steps)}">${segs}</div><button type="button" class="recapSkip">Skip</button></div>`
       + `<div class="recapBody in"><div class="recapCre"><div class="bob${m?.kind === 'friend' && !reduceMotion() ? ' hop' : ''}">${avatar(lookOf(agent?.look, agent?.name), 'cav xl', 0)}</div></div>`
       + `<p class="recapKicker">${esc(kicker)}</p><p class="recapText">${esc(text)}</p>${cardHtml(m)}</div>`
       + `<div class="recapActs"><button type="button" class="sec">${esc(secondaryLabel(m, last))}</button><button type="button" class="primary">${esc(primaryLabel(m, name))}</button></div>`;
@@ -202,7 +242,7 @@ export function setupRecap({ getUser, getAgent, agents, map, town, closeSheet, g
     const bob = root.querySelector('.bob.hop');
     bob?.addEventListener('animationend', () => bob.classList.remove('hop'), { once: true });
     root.querySelector('.recapSkip').onclick = (e) => { e.stopPropagation(); skip(); };
-    root.querySelector('.recapActs .sec').onclick = (e) => { e.stopPropagation(); if (end) finish(); else advance(); };
+    root.querySelector('.recapActs .sec').onclick = (e) => { e.stopPropagation(); if (end || (m && m.kind === 'friend' && last)) finish(); else advance(); };
     root.querySelector('.recapActs .primary').onclick = (e) => { e.stopPropagation(); if (end) { finish(); goChat?.(); } else act(m); };
   }
 
@@ -227,9 +267,14 @@ export function setupRecap({ getUser, getAgent, agents, map, town, closeSheet, g
     view.index += 1;
     paint();
   }
+  function landOnMap() {
+    closeSheet?.();
+    tabs?.set?.('world');
+  }
   function finish() {
     if (view) noteSeen(view.moments.map((m) => m.id));
     close();
+    landOnMap();
   }
   function skip() {
     close();
@@ -255,22 +300,41 @@ export function setupRecap({ getUser, getAgent, agents, map, town, closeSheet, g
         break;
     }
   }
+  function agentPos(live) {
+    if (!live) return null;
+    if (Number.isFinite(live.lon) && Number.isFinite(live.lat)) return [live.lon, live.lat];
+    const ll = live.marker?.getLngLat?.();
+    if (ll && Number.isFinite(ll.lng) && Number.isFinite(ll.lat)) return [ll.lng, ll.lat];
+    return null;
+  }
   async function seeMap(m) {
-    const id = m.otherUid;
-    let live = id && (agents?.get(id) || agents?.get('nb-' + id));
-    if (!live && id && town?.refreshMap) {
+    landOnMap();
+    const id = m.otherAgentId;
+    let live = liveAgent(id);
+    if (!agentPos(live) && id && town?.refreshMap) {
       try { await town.refreshMap(getUser()); } catch { /* map list stays as it was */ }
-      live = agents?.get(id) || agents?.get('nb-' + id);
+      live = liveAgent(id);
     }
-    if (!live?.marker || !map?.easeTo) return;
-    const ll = live.marker.getLngLat();
-    map.easeTo({ center: ll, zoom: Math.max(map.getZoom?.() || 16, 17), duration: reduceMotion() ? 0 : 600, essential: true });
+    const pos = agentPos(live);
+    if (!pos || !map) return;
+    flyTo(map, pos[0], pos[1], Math.max(map.getZoom?.() || 16, 17));
   }
   async function sayHi(m) {
     const u = getUser();
-    if (!u || !m.otherUid) return;
+    const id = m.otherAgentId;
+    if (!u || !id) return;
+    const find = () => (threads?.threads || []).find((t) => t?.with?.id === id);
+    let existing = find();
+    if (!existing && threads?.load) {
+      try { await threads.load(u); } catch { /* use the list already in memory */ }
+      existing = find();
+    }
+    if (existing && threads?.openThread) {
+      await threads.openThread(existing.id);
+      return;
+    }
     try {
-      await sendConnect(u, { toAgentId: m.otherUid, meetId: m.meetingId, text: hiDraft(m.otherAgentName || '') });
+      await sendConnect(u, { toAgentId: id, meetId: m.meetingId, text: hiDraft(m.otherAgentName || '') });
       toast('Hi sent');
     } catch (e) {
       toast(e?.status === 409 ? 'Hi sent' : connectError(e?.status));
@@ -309,9 +373,10 @@ export function setupRecap({ getUser, getAgent, agents, map, town, closeSheet, g
     return first;
   }
 
-  // Automatic overlay: unseen moments, server show flag, and more than 15 minutes away.
+  // Automatic overlay only when the server says show and a moment with text is still unseen.
+  // The 15-minute rule stays on the server (show). ?onb=0 skips this unless ?recap=1 or ?recap=mock.
   // A slow or failed GET skips the overlay and leaves any news dot already earned.
-  async function maybe({ user, since, force = false } = {}) {
+  async function maybe({ user, force = false } = {}) {
     const n = ++seq;
     user = user || getUser();
     if (!user || user.isAnonymous || !getAgent()) return false;
@@ -323,7 +388,7 @@ export function setupRecap({ getUser, getAgent, agents, map, town, closeSheet, g
     if (!list.length) return false;
     const auto = readSet(autoKey());
     const fresh = list.filter((m) => !auto.has(m.id));
-    if (!force && !(res.show && awayLongEnough(since) && fresh.length)) return false;
+    if (!force && !(res.show === true && fresh.length > 0 && autoShowAllowed())) return false;
     return present(force ? list : fresh);
   }
 
