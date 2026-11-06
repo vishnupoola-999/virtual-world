@@ -53,7 +53,7 @@ body[data-tab=chat] #topbar,body[data-tab=chat] #rail,body[data-tab=chat] .recen
 #chatIn{min-width:0}
 body[data-tab=world] .msg.typing span{animation:none}
 @media (prefers-reduced-motion:reduce){.msg.typing span{animation:none}}
-.maplibregl-ctrl-group{box-shadow:none}.maplibregl-ctrl-group button+button{border-top:1px solid var(--line)}.maplibregl-ctrl-icon{filter:invert(1) hue-rotate(180deg)}
+.maplibregl-ctrl-group{box-shadow:none}.maplibregl-ctrl-group button+button{border-top:1px solid var(--line)}.maplibregl-ctrl-icon{filter:invert(1)}
 
 .pickHead{font-weight:600;margin:8px 0 var(--sp-8);color:var(--text)}.pickHead small{display:block;font-weight:400;color:var(--muted);font-size:13px}
 .pick{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-12);margin-bottom:8px}
