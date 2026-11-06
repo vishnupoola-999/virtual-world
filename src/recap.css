@@ -14,7 +14,7 @@ body.recapOn #tabs,body.recapOn #v4Hud,body.recapOn .maplibregl-control-containe
 #recap .bob{animation:recapBob 2.8s ease-in-out infinite}
 #recap .bob.hop{animation:recapHop 640ms ease-in-out 1}
 #recap .recapKicker{margin:24px 0 0;font:600 12px/1.3 Inter,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#8A90A0;text-align:center}
-#recap .recapText{margin:12px 0 0;font:600 24px/1.25 Inter,system-ui,sans-serif;color:#fff;text-align:center;max-width:100%;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+#recap .recapText{margin:12px 0 0;font:600 24px/1.25 Inter,system-ui,sans-serif;color:#fff;text-align:center;max-width:100%}
 #recap .recapCard{margin-top:16px;width:100%;box-sizing:border-box;background:#111318;border-radius:16px;padding:16px;color:#8A90A0;font:400 16px/1.4 Inter,system-ui,sans-serif;display:flex;align-items:center;gap:12px;border:2px solid transparent}
 #recap .recapCard.friend{border-color:transparent;background:linear-gradient(#111318,#111318) padding-box,linear-gradient(90deg,#5B8CFF,#9B6BFF) border-box}
 #recap .recapCard .cav{width:40px;height:40px}

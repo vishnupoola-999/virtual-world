@@ -111,6 +111,15 @@ test('recap deck, skip, and Me news', async ({ page }) => {
   expect(await arm(page)).toBe(true);
   await expect(page.locator('#recap')).toBeVisible();
   await expect(page.locator('#recap .recapText')).toHaveText(MOMENTS[0].text);
+  const shown = await page.locator('#recap .recapText').evaluate((el) => {
+    const s = globalThis.getComputedStyle(el);
+    return { clamp: s.webkitLineClamp, overflow: s.overflow, text: el.innerText, cropped: el.scrollHeight > el.clientHeight + 1 };
+  });
+  expect(shown.clamp).toBe('none');
+  expect(shown.overflow).not.toBe('hidden');
+  expect(shown.cropped).toBe(false);
+  expect(shown.text).toContain('Do you ever sit there?');
+  expect(shown.text).not.toMatch(/…|\.\.\./);
   await expect(page.locator('#recap .primary')).toHaveText('Reply');
   await expect(page.locator('#recap .recapSegs i')).toHaveCount(5);
   await expect(page.locator('#recap .recapSegs')).toHaveAttribute('aria-valuemax', '5');
