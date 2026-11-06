@@ -24,7 +24,7 @@ import { createHash, randomBytes, createPublicKey, createSign, createVerify, X50
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
-import { EMOJI_RE, cleanInterests, publicProfile, publicCard, scrub, isTown, stripTown, townByPublicId, townCharacter, offsetFor, nearbyTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick } from './life.js';
+import { EMOJI_RE, cleanInterests, publicProfile, publicCard, scrub, isTown, stripTown, townByPublicId, townCharacter, offsetFor, nearbyTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick, friendBoard, shareableStatus } from './life.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
 import { createConnectors, ConnectHttpError } from './connectors/index.js';
 import { calendarToolContext, reviewCalendarTurn, sanitizeZone, ensureRfc3339 } from '../src/calendarWhen.js';
@@ -1072,6 +1072,8 @@ async function handleThreads(req, res, ctx) {
     const otherId = (t.ids || []).find((x) => x !== myId) || null;
     const other = otherId ? await agentByPublicId(ctx, otherId) : null;
     const withP = publicOf(otherId, other || { name: t.names?.[otherId] });
+    const live = shareableStatus(other?.status);
+    if (live) withP.status = { kind: live.kind, label: live.label };
     return { id: t.id, with: withP, createdAt: Number(t.createdAt) || 0, metAt: Number(t.createdAt) || 0,
       sharedInterests: withP.interests.filter((x) => myInterests.includes(x)),
       last: t.lastAt ? { text: String(t.lastText || '').slice(0, 140), from: t.lastFromId === 'system' ? 'system' : t.lastFromId === myId ? 'me' : 'them', at: Number(t.lastAt) || 0 } : null,
@@ -1207,6 +1209,23 @@ async function handleChatSettings(req, res, ctx) {
   sendJson(res, 200, { readReceipts: p?.readReceipts !== false });
 }
 
+// Opt-in before any chat is read for matching. chats: null means the person has not answered yet.
+async function handleMatchConsent(req, res, ctx) {
+  const { uid } = await chatUser(req, ctx);
+  const s = ctx.lifeStore;
+  if (!s?.getMatchConsent || !s?.setMatchConsent) throw new HttpError(503, 'consent not configured');
+  if (req.method === 'POST') {
+    const body = await readJson(req);
+    if (typeof body.chats !== 'boolean') throw new HttpError(400, 'chats must be boolean');
+    if (!allowHit(ctx.chatUidHits, `c|${uid}`, 10, 60_000, Date.now())) throw new HttpError(429, 'slow down');
+    await s.setMatchConsent(uid, body.chats);
+    sendJson(res, 200, { chats: body.chats === true });
+    return;
+  }
+  const c = await s.getMatchConsent(uid).catch(() => ({ chats: null }));
+  sendJson(res, 200, { chats: c?.chats === true ? true : c?.chats === false ? false : null });
+}
+
 // ---- POST /publish: write or refresh the caller's own publicAgents card right after they save their agent ----
 // Reads agents/{uid} server-side (the client sends no card data), so a user can only ever publish their own, real data.
 export const PUBLISH = { minGapMs: 10_000, ipBurst: 20, ipWindowMs: 60_000 };
@@ -1294,9 +1313,15 @@ async function handleFeed(req, res, ctx, url) {
         .catch((e) => console.warn('connect backfill failed', String(e.message || e).slice(0, 80))));
     if (fix.length) ctx.pending?.push(Promise.all(fix));
   }
+  let friends = [];
+  if (ctx.lifeStore.getAgent) {
+    const self = await ctx.lifeStore.getAgent(uid).catch(() => null);
+    friends = friendBoard(self);
+  }
   sendJson(res, 200, {
     // The caller's own publicAgents doc id, so the app can skip drawing its own card twice.
     myId: ctx.lifeSalt ? hashId(uid, ctx.lifeSalt) : null,
+    friends,
     mine: dedupeMeets(diary).map((e) => feedEntry(e, fctx)),
     // Town characters standing around the caller's agent today (deterministic per user and day).
     nearby: ctx.lifeSalt ? nearbyTown(uid, ctx.lifeSalt, pos, Date.now()) : [],
@@ -1323,7 +1348,7 @@ async function handleTick(req, res, ctx) {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
     const of = Math.min(16, Math.max(1, Math.floor(Number(url.searchParams.get('of'))) || 1));
     const shard = Math.min(of - 1, Math.max(0, Math.floor(Number(url.searchParams.get('shard'))) || 0));
-    const run = () => runTick({ store: ctx.lifeStore, llm, now: Date.now(), salt: ctx.lifeSalt, maxCalls: ctx.maxCalls, shard, of });
+    const run = () => runTick({ store: ctx.lifeStore, llm, now: Date.now(), salt: ctx.lifeSalt, maxCalls: ctx.maxCalls, shard, of, company: true });
     // ?async=1 (cron-job.org, 30 s request timeout): answer 202 at once and finish the tick in the background.
     if (url.searchParams.get('async') === '1') {
       sendJson(res, 202, { started: true });
@@ -1494,6 +1519,10 @@ export function createServer(options = {}) {
       }
       if (url.pathname === '/me/chat-settings' && (req.method === 'GET' || req.method === 'POST')) {
         await handleChatSettings(req, res, ctx);
+        return;
+      }
+      if (url.pathname === '/me/match-consent' && (req.method === 'GET' || req.method === 'POST')) {
+        await handleMatchConsent(req, res, ctx);
         return;
       }
       if (url.pathname === '/apps' || url.pathname.startsWith('/apps/') || url.pathname.startsWith('/actions/') || url.pathname.startsWith('/connect/')) {

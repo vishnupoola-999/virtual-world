@@ -6,6 +6,7 @@
 import {agentsOnMap} from './world-agents.js';
 import {displayName,displayLabel,isTownName} from './names.js';
 import {townLook,toLook} from './character-data.js';
+import {walkFraction,alongLngLat} from './motion.js';
 export const MEET_YAW=Math.PI/6;
 export const MEET_DX=76; // px centre to centre: ~1.2 creature widths (creatures are ~62px wide in the 84px marker) // ~30 degrees
 const KINDS=new Set(['walking','meeting','working','idle']);
@@ -97,7 +98,14 @@ export function setupLiving(map,{hintEl}={}){const agents=agentsOnMap(map);let d
       if(p){const left=map.project([me.lon,me.lat]).x<=map.project([p.lon,p.lat]).x;
         yaw=left?MEET_YAW:-MEET_YAW;agents.setLiving(p.id,{kind:'idle'},left?-MEET_YAW:MEET_YAW);own.partners=[p.id];}}
     // The bottom card already says it, so the pill above your head does not repeat it (the meet bubble shows dots only).
-    agents.setLiving('me',{kind:st.kind,html:hintEl?'':pillHtml(st)},yaw);hint(st,agent?.name,opts);clampSoon();return st;}
+    agents.setLiving('me',{kind:st.kind,html:hintEl?'':pillHtml(st)},yaw);hint(st,agent?.name,opts);stepOwn();clampSoon();return st;}
+  // Slide your own agent along the route from the saved home toward the rounded destination. Home stays put()’s anchor.
+  function stepOwn(){const agent=own?.agent,st=agent&&readStatus(agent),me=agents.get('me');
+    if(!st||st.kind!=='walking'||!st.destination||!me||typeof me.status==='string')return;
+    const from=[Number(agent.lon),Number(agent.lat)];if(!from.every(Number.isFinite))return;
+    const f=walkFraction(agent.status?.since,Date.now());const [lon,lat]=alongLngLat(from,st.destination.lngLat,f);
+    agents.place?.('me',lat,lon);}
+  setInterval(()=>{if(typeof document==='undefined'||document.hidden)return;stepOwn();},15000);
   // Someone else's agent: kind + label only, at an approximate area. Destination, route and progress are ignored.
   function putOther(d){const st=readStatus(d),p=d.approx&&num(d.approx.lat)&&num(d.approx.lon)?d.approx:approx(d.lat,d.lon);
     agents.put({id:d.id,name:d.name,lat:p.lat,lon:p.lon,look:d.look,ownerName:d.ownerName,meta:d.meta||'Friend · approximate area',status:st.label||undefined,other:!!d.other});

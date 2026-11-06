@@ -38,7 +38,8 @@ export const interestsOf=w=>(Array.isArray(w?.interests)?w.interests:[]).filter(
 export const ago=at=>{const m=Math.max(0,(Date.now()-(+at||0))/60000);if(m<1)return 'now';if(m<60)return Math.round(m)+'m';const h=m/60;if(h<24)return Math.round(h)+'h';const d=Math.round(h/24);return d<7?d+'d':new Date(+at).toLocaleDateString(undefined,{day:'numeric',month:'short'});};
 // v4 row: 44px creature face, name (600 when unread), last line, time, 8px dot only for real unread.
 export function friendRow(t){const w=t.with||{},look=lookOf(w.look,w.name),ints=interestsOf(w),l=t.last,un=+t.unread>0;
-  const line=l&&l.text?(l.from==='me'?'You: ':'')+String(l.text).slice(0,80):ints.join(' · ');
+  const live=typeof w.status?.label==='string'&&w.status.label.trim()?w.status.label.trim():'';
+  const line=live||(l&&l.text?(l.from==='me'?'You: ':'')+String(l.text).slice(0,80):ints.join(' · '));
   return `<li class="fr${un?' un':''}" data-thread="${esc(t.id)}"><button type="button" class="frBtn">${avatar(look,'cav face')}<span class="frMain"><b>${esc(w.name||'Friend')}</b><small>${esc(line)}</small></span><span class="frSide"><time>${l?.at?ago(l.at):''}</time>${un?`<i class="udot" aria-label="${Math.min(+t.unread,99)} unread"></i>`:''}</span></button></li>`;}
 export function friendsHtml(threads){if(!threads?.length)return '';return `<div class="v4Sec frSec"><div class="capLbl">Friends</div><ul>${threads.map(friendRow).join('')}</ul></div>`;}
 // Message groups: same sender within 5 min. Timestamps only on gaps over 5 min.

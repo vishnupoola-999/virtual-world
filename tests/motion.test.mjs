@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {wrap,travelHeading,easeIO,screenYaw,headingFromYaw,easeHeading} from '../src/motion.js';
+import {wrap,travelHeading,easeIO,screenYaw,headingFromYaw,easeHeading,walkFraction,alongLngLat,offsetPlace,WALK_MS} from '../src/motion.js';
 const near=(a,b)=>assert.ok(Math.abs(wrap(a-b))<1e-6,`${a} vs ${b}`);
 test('travel heading is world-space, clockwise from north',()=>{near(travelHeading([0,0],[0,1]),0);near(travelHeading([0,0],[1,0]),Math.PI/2);near(travelHeading([0,0],[0,-1]),Math.PI);});
 test('rotating the camera changes the screen yaw by the same amount (agent holds its world heading)',()=>{
@@ -10,3 +10,9 @@ test('rotating the camera changes the screen yaw by the same amount (agent holds
 test('heading eases the short way round and settles',()=>{let x=3;for(let i=0;i<60;i++)x=easeHeading(x,-3,1/30);near(x,-3);
   assert.ok(Math.abs(wrap(easeHeading(3,-3,1/30)))>3,'went through PI, not through 0');});
 test('easing is smooth and bounded',()=>{assert.equal(easeIO(0),0);assert.equal(easeIO(1),1);near(easeIO(.5),.5);for(let f=0;f<1;f+=.05)assert.ok(easeIO(f+.05)>=easeIO(f));});
+test('a walk moves from the start toward the destination and stops at the end',()=>{
+  assert.equal(walkFraction(0,1000),0);assert.equal(walkFraction(1000,1000),0);assert.equal(walkFraction(1000,1000+WALK_MS),1);
+  assert.ok(Math.abs(walkFraction(1000,1000+WALK_MS/2)-.5)<1e-9);
+  assert.deepEqual(alongLngLat([10,20],[12,24],.5),[11,22]);
+  const p=offsetPlace(17,78,1113.2,0,.5);assert.ok(p.lon>78&&p.lon<78.02);assert.equal(offsetPlace(17,78,100,50,0).lat,17);
+});

@@ -103,6 +103,14 @@
 <div id="moveBar" hidden><div class="liftPin" aria-hidden="true"><span></span></div><div class="bar"><small style="color:var(--muted)">Drag the map to your agent's new home</small><div class="row"><button id="moveCancel">Cancel</button><button id="moveOk" class="primary">My agent lives here</button></div></div></div>
 <section id="onb" hidden aria-label="Welcome"><header class="onbTop"><button id="onbBack" aria-label="Back" hidden>‹</button><div id="onbPills" role="progressbar" aria-label="Step" aria-valuemin="1" aria-valuemax="6"></div><button id="onbSkip" class="link" hidden></button></header>
  <div id="onbOffline" class="offPill" hidden role="status">You're offline. We'll keep trying.</div><div id="onbBody"></div></section>
+<div class="scrim" id="consentScrim" hidden></div>
+<div class="vsheet glass" id="consentSheet" role="dialog" aria-labelledby="consentTitle" aria-hidden="true" hidden>
+ <div class="grab" aria-hidden="true"></div>
+ <h2 id="consentTitle">Use your chats to connect you?</h2>
+ <p class="tip">Your agent can read your chats with it, and chats with friends who also allow this, and use the topics you talk about to introduce you. The chats themselves stay private and are not shown to anyone else. You can change this later under Me.</p>
+ <button class="primary" id="consentYes" type="button">Allow</button>
+ <button id="consentNo" type="button">Not now</button>
+</div>
 <div id="toast" hidden role="status"></div>
 <small id="status" hidden></small>
 <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js" crossorigin="anonymous"></script>
