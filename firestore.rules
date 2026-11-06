@@ -6,11 +6,13 @@ service cloud.firestore {
       // `memory` (facts the agent remembers about its owner) is written only by the chat proxy with admin credentials.
       // The owner can read it but can never set or change it.
       allow create: if request.auth != null && request.auth.uid == uid && valid(request.resource.data)
-        && !request.resource.data.keys().hasAny(['memory','life','friends','isTest','status']);
+        && !request.resource.data.keys().hasAny(['memory','life','friends','friendStatus','matchConsent','isTest','status']);
       allow update: if request.auth != null && request.auth.uid == uid && valid(request.resource.data)
         && request.resource.data.get('memory', null) == resource.data.get('memory', null)
         && request.resource.data.get('life', null) == resource.data.get('life', null)
         && request.resource.data.get('friends', null) == resource.data.get('friends', null)
+        && request.resource.data.get('friendStatus', null) == resource.data.get('friendStatus', null)
+        && request.resource.data.get('matchConsent', null) == resource.data.get('matchConsent', null)
         && request.resource.data.get('isTest', null) == resource.data.get('isTest', null)
         && request.resource.data.get('status', null) == resource.data.get('status', null);
       // Life loop diary (proxy /tick writes with admin credentials). Owner reads and may delete, never writes.
@@ -30,7 +32,7 @@ service cloud.firestore {
         && m.at == request.time;
     }
     function valid(d) {
-      return d.keys().hasOnly(['name','look','personality','ownerName','lat','lon','approx','preciseVisibility','updatedAt','memory','spotApprox','interests','bio','life','friends','isTest','status'])
+      return d.keys().hasOnly(['name','look','personality','ownerName','lat','lon','approx','preciseVisibility','updatedAt','memory','spotApprox','interests','bio','life','friends','friendStatus','matchConsent','isTest','status'])
         && d.keys().hasAll(['name','look','lat','lon','preciseVisibility','updatedAt'])
         && d.name is string && d.name.size() > 0 && d.name.size() <= 40
         && d.look is map && (legacyLook(d.look) || characterLook(d.look) || creatureLook(d.look))

@@ -3,6 +3,9 @@
 // chats, memory, emails and exact coordinates are never put in another agent's prompt, diary or friends.
 const FIRESTORE_DB = encodeURIComponent(process.env.FIRESTORE_DATABASE_ID || 'default');
 import { timingSafeEqual, createHash } from 'node:crypto';
+import { WALK_MS } from '../src/motion.js';
+
+export { WALK_MS };
 
 export const LIFE = {
   dailyCap: 12,          // actions per agent per UTC day
@@ -116,30 +119,105 @@ export function publicCard(agent, status, now) {
   const src = agent.approx && Number.isFinite(agent.approx.lat) ? agent.approx : { lat: agent.lat, lon: agent.lon };
   const card = { name: p.name, interests: p.interests, updatedAt: now };
   if (Number.isFinite(src.lat) && Number.isFinite(src.lon)) { card.lat = round2(src.lat); card.lon = round2(src.lon); }
-  if (status) card.status = status;
+  // Same fields a friend sees. Motion below still uses the original status, including its destination.
+  const shared = shareableStatus(status);
+  if (shared) card.status = shared;
+  const motion = cardMotion(card, status);
+  if (motion) card.motion = motion;
   const look = cleanLook(agent.look);
   if (look) card.look = look;
   return card;
+}
+
+// Public walking hint: metres from the ~1 km anchor toward the rounded destination, capped so the
+// marker stays in that neighbourhood. Destination coordinates stay off the card. Others interpolate with since.
+export function cardMotion(card, status) {
+  if (!card || !status || status.kind !== 'walking' || !status.destination) return null;
+  const [lng, lat] = status.destination.lngLat || [];
+  if (!Number.isFinite(card.lat) || !Number.isFinite(card.lon) || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const north = (lat - card.lat) * 111_320;
+  const east = (lng - card.lon) * 111_320 * Math.cos(card.lat * Math.PI / 180);
+  const dist = Math.hypot(east, north);
+  if (dist < 40) return null;
+  // 899 leaves a metre for rounding so the published offset stays inside 900 m.
+  const scale = Math.min(dist, 899) / dist;
+  const since = Number(status.since);
+  if (!Number.isFinite(since) || since <= 0) return null;
+  return { east: Math.round(east * scale), north: Math.round(north * scale), ms: WALK_MS, since };
 }
 
 export const DEFAULT_INTERESTS = ['exploring', 'meeting people'];
 
 export const INTEREST_RE = /^[a-z0-9][a-z0-9 &+-]{0,23}$/;
 
-export function cleanInterests(list) {
+export function cleanInterests(list, max = 5) {
   if (!Array.isArray(list)) return [];
   const out = [];
+  const cap = Math.max(1, Math.min(8, max | 0));
   for (const t of list) {
     if (typeof t !== 'string') continue;
     const tag = t.trim().toLowerCase().replace(/\s+/g, ' ');
     if (INTEREST_RE.test(tag) && !out.includes(tag)) out.push(tag);
   }
-  return out.slice(0, 5);
+  return out.slice(0, cap);
+}
+
+// Words that may become a match tag. Only these tags ever leave a chat, and only after the owner opts in.
+export const TOPIC_WORDS = {
+  tech: ['tech', 'software', 'computer', 'app', 'coding', 'code'],
+  science: ['science', 'physics', 'chemistry', 'biology'],
+  cricket: ['cricket', 'wicket'],
+  music: ['music', 'song', 'guitar', 'playlist'],
+  art: ['art', 'paint', 'drawing', 'mural'],
+  startups: ['startup', 'startups', 'founder'],
+  gaming: ['game', 'gaming'],
+  books: ['book', 'books', 'novel', 'reading', 'library'],
+  movies: ['movie', 'movies', 'film', 'cinema'],
+  fitness: ['gym', 'fitness', 'workout'],
+  food: ['food', 'chai', 'cook', 'recipe'],
+  travel: ['travel', 'trip', 'flight'],
+  fashion: ['fashion', 'outfit'],
+  coding: ['javascript', 'python'],
+  space: ['space', 'rocket', 'astronomy'],
+  photography: ['photo', 'photography', 'camera'],
+};
+
+export function consentAllows(agent) {
+  return agent?.matchConsent?.chats === true;
+}
+
+// One line of a chat the owner allowed us to read. Injection-looking lines contribute nothing.
+export function topicsFromText(text) {
+  const raw = String(text || '');
+  if (!raw || SUSPICIOUS_RE.test(raw)) return [];
+  const low = scrub(raw).toLowerCase();
+  if (low.length < 3) return [];
+  const found = [];
+  for (const [tag, words] of Object.entries(TOPIC_WORDS)) {
+    if (words.some((w) => new RegExp(`(?:^|[^a-z])${w}(?:[^a-z]|$)`).test(low))) found.push(tag);
+  }
+  return found;
+}
+
+export function topicsFromLines(lines) {
+  const found = [];
+  for (const line of lines || []) {
+    for (const tag of topicsFromText(line)) if (!found.includes(tag)) found.push(tag);
+    if (found.length >= 5) break;
+  }
+  return found;
+}
+
+// Saved interests stay first. Consented topic tags are added only for matching, never written back.
+export function matchInterests(saved, topics) {
+  const base = cleanInterests(saved);
+  const extra = cleanInterests(topics, 8).filter((t) => !base.includes(t));
+  return [...base, ...extra].slice(0, 8);
 }
 
 // Jaccard similarity of two tag sets, 0..1. Swap for embeddings later behind the same signature.
 export function similarity(a, b) {
-  const A = new Set(cleanInterests(a)), B = new Set(cleanInterests(b));
+  const A = new Set(cleanInterests(a, 8)), B = new Set(cleanInterests(b, 8));
   if (!A.size || !B.size) return 0;
   let both = 0;
   for (const t of A) if (B.has(t)) both++;
@@ -276,7 +354,9 @@ export function decidePrompt(me, match) {
     UNTRUSTED_NOTE,
     'Pick ONE action. Reply with JSON only: {"action":"move","interest":"<one of your interests>","status":"<max 40 chars>"}',
     match ? 'or {"action":"meet"}' : '',
+    'or {"action":"work","task":"<what you are doing, max 40 chars>"}',
     'or {"action":"diary","text":"<one line, max 140 chars>"} or {"action":"rest"}.',
+    match ? 'If you have not met anyone recently, prefer meet so the city feels lived in.' : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -285,6 +365,10 @@ export function parseDecision(text, me, hasMatch) {
   try { d = JSON.parse(String(text).replace(/^```(json)?|```$/gm, '').trim()); } catch { return { action: 'rest' }; }
   if (!d || typeof d !== 'object') return { action: 'rest' };
   if (d.action === 'meet' && hasMatch) return { action: 'meet' };
+  if (d.action === 'work' || d.action === 'working') {
+    const label = safeLine(d.task || d.status, 40);
+    if (label) return { action: 'work', label };
+  }
   if (d.action === 'move') {
     const interest = me.interests.includes(d.interest) ? d.interest : me.interests[0];
     return { action: 'move', interest, status: safeLine(d.status, 40) || `Exploring ${interest}` };
@@ -317,6 +401,69 @@ export function makeStatus(kind, { label, now, destination, withAgentId, withNam
   return st;
 }
 
+// What another person may see. Kind and label only, plus work progress. Never a destination or a uid.
+export function shareableStatus(status) {
+  if (!status || typeof status !== 'object' || Array.isArray(status)) return null;
+  const kind = STATUS_KINDS.includes(status.kind) ? status.kind : null;
+  if (!kind) return null;
+  const label = safeLine(status.label, 40) || (kind === 'idle' ? 'Resting' : '');
+  if (!label) return null;
+  const out = { kind, label, since: Number(status.since) || 0 };
+  if (kind === 'working' && status.progress) {
+    const total = Math.max(0, Math.floor(status.progress.total) || 0);
+    const done = Math.min(total, Math.max(0, Math.floor(status.progress.done) || 0));
+    if (total > 0) out.progress = { done, total };
+  }
+  return out;
+}
+
+// Owner-readable board: each friend's latest public status. Live friendStatus wins over the meet snapshot.
+export function friendBoard(agent) {
+  if (!agent || typeof agent !== 'object') return [];
+  const facts = agent.friends && typeof agent.friends === 'object' && !Array.isArray(agent.friends) ? agent.friends : {};
+  const live = agent.friendStatus && typeof agent.friendStatus === 'object' && !Array.isArray(agent.friendStatus) ? agent.friendStatus : {};
+  const out = [];
+  for (const id of new Set([...Object.keys(facts), ...Object.keys(live)])) {
+    if (!/^h_[0-9a-f]{20}$/.test(id)) continue;
+    const fact = facts[id] && typeof facts[id] === 'object' ? facts[id] : {};
+    const name = scrub(String(fact.name || '')).slice(0, 40);
+    const st = shareableStatus(live[id]) || shareableStatus(fact.status);
+    const row = { id, name };
+    if (st) row.status = st;
+    out.push(row);
+    if (out.length === 40) break;
+  }
+  return out;
+}
+
+// True when this agent has not met anyone inside the current cooldown, so a quiet world should introduce someone.
+export function needsCompany(agent, now, cooldown) {
+  const met = agent?.life?.met || {};
+  let last = 0;
+  for (const v of Object.values(met)) last = Math.max(last, Number(v) || 0);
+  return now - last >= cooldown;
+}
+
+// Keep a walk or a task going across ticks. A new model decision used to replace "Heading to…" on the next wake,
+// so the agent never arrived and work never advanced. Returns null when the activity is finished.
+export function continueActivity(agent, now) {
+  const st = agent?.status;
+  if (!st || typeof st !== 'object') return null;
+  if (st.kind === 'walking' && st.destination?.lngLat) {
+    const since = Number(st.since) || 0;
+    if (!since || now - since >= WALK_MS) return null;
+    return { lifePatch: { activity: 'move', status: st.label || 'On the move' }, status: st };
+  }
+  if (st.kind === 'working' && st.progress && st.progress.done < st.progress.total) {
+    const total = Math.max(1, Math.floor(st.progress.total) || 1);
+    const done = Math.min(total, (Math.floor(st.progress.done) || 0) + 1);
+    const base = String(st.label || 'Working').replace(/ · \d+ of \d+$/, '');
+    const status = makeStatus('working', { now: Number(st.since) || now, label: `${base} · ${done} of ${total}`, progress: { done, total } });
+    return { lifePatch: { activity: 'work', status: base }, status };
+  }
+  return null;
+}
+
 function oneLine(v, max) {
   // eslint-disable-next-line no-control-regex
   return typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max) : '';
@@ -330,7 +477,7 @@ ${UNTRUSTED_NOTE}
 They talk about what they share. 4 to 6 lines, alternating, each line "A: ..." or "B: ...", max 120 chars each. No other text.`;
 }
 
-// Any unsafe line (links, contact details, instructions) drops the whole conversation: nothing is saved.
+// Any unsafe or unparsable line drops the whole conversation: nothing is saved and no replacement is invented.
 export function parseConversation(text, a, b) {
   const lines = [];
   for (const raw of String(text).split('\n')) {
@@ -372,13 +519,13 @@ export function parseNote(text, themName, shared) {
 // One tick. store: listAgents() -> [{uid, updateTime?, ...}], saveLife(uid, life, {updateTime}) (must reject if the doc
 // changed since updateTime), addDiary(uid, entry), addFriend(uid, friendId, fact). llm(prompt, maxTokens) -> text.
 // Budget: at most maxCalls model calls and deadlineMs per tick; every model call (rest included) counts toward the daily cap.
-export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(), maxCalls = LIFE.maxCallsPerTick, deadlineMs = LIFE.tickDeadlineMs, clock = Date.now, shard = 0, of = 1, town = true }) {
+export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(), maxCalls = LIFE.maxCallsPerTick, deadlineMs = LIFE.tickDeadlineMs, clock = Date.now, shard = 0, of = 1, town = true, company = false }) {
   if (!salt) throw new Error('LIFE_SALT missing');
   const started = clock();
   // Agents born before the interests step (#26) have none; give them a neutral default so they still live instead of being skipped forever.
   // In memory only. Never write DEFAULT_INTERESTS back onto agents/{uid}.interests — the client asks until 3 real tags are saved.
   const agents = (await store.listAgents()).map((a) => ({ ...a, interests: cleanInterests(a.interests).length ? cleanInterests(a.interests) : [...DEFAULT_INTERESTS] }));
-  const summary = { agents: agents.length, due: 0, acted: 0, skipped: 0, moves: 0, meets: 0, townMeets: 0, diary: 0, rests: 0, errors: 0, calls: 0, published: 0, stopped: null };
+  const summary = { agents: agents.length, due: 0, acted: 0, skipped: 0, moves: 0, meets: 0, townMeets: 0, diary: 0, rests: 0, works: 0, errors: 0, calls: 0, published: 0, stopped: null };
   const cooldown = cooldownFor(agents.filter((a) => isActive(a, now)).length);
   // Scaling: only due agents in this shard are visited, longest-waiting first, so the call budget goes where it is needed.
   const due = agents.filter((a) => shardOf(a.uid, of) === shard && shouldAct(a, now))
@@ -396,13 +543,80 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
     if (clock() - started > deadlineMs) { summary.stopped = 'time'; return false; }
     return true;
   };
-  const save = async (agent, life, opts) => { await store.saveLife(agent.uid, life, opts); await publish(agent, opts?.status); };
+  const byHash = new Map(agents.map((a) => [hashId(a.uid, salt), a]));
+  // Copy this agent's public status onto each friend's doc so they can read it. Friends never see a destination.
+  const notify = async (from, status) => {
+    if (!store.patchFriendStatus) return;
+    const snap = shareableStatus(status);
+    if (!snap) return;
+    const meId = hashId(from.uid, salt);
+    const ids = new Set([...Object.keys(from.friends || {}), ...Object.keys(from.friendStatus || {})]);
+    await Promise.all([...ids].map(async (fid) => {
+      const other = byHash.get(fid);
+      if (!other || isTown(other.uid) || other.uid === from.uid) return;
+      try { await store.patchFriendStatus(other.uid, meId, snap); } catch (e) { console.error('friend status', String(e.message || e).slice(0, 80)); }
+    }));
+  };
+  const save = async (agent, life, opts) => { await store.saveLife(agent.uid, life, opts); await publish(agent, opts?.status); if (opts?.status) await notify(agent, opts.status); };
+  // Consented chat topics are tags for matching only. Raw lines never enter a prompt, diary or public card.
+  let topicReads = 0;
+  const enriched = new Map();
+  const forMatch = async (agent) => {
+    if (!agent || isTown(agent.uid)) return agent;
+    if (enriched.has(agent.uid)) return enriched.get(agent.uid);
+    let next = agent;
+    if (consentAllows(agent) && store.listMatchLines && topicReads < 12) {
+      topicReads++;
+      try {
+        const topics = topicsFromLines(await store.listMatchLines(agent.uid, salt));
+        const interests = matchInterests(agent.interests, topics);
+        if (interests.length) next = { ...agent, interests };
+      } catch { /* saved interests only */ }
+    }
+    enriched.set(agent.uid, next);
+    return next;
+  };
   for (const me of due) {
     if (touched.has(me.uid)) { summary.skipped++; continue; }
+    const cont = continueActivity(me, now);
+    if (cont) {
+      try {
+        touched.add(me.uid);
+        const life = { ...(me.life || {}), ...cont.lifePatch, lastActionAt: now };
+        await save(me, life, { updateTime: me.updateTime, status: cont.status });
+        summary.acted++;
+        if (cont.status.kind === 'walking') summary.moves++; else summary.works++;
+      } catch (error) {
+        summary.errors++;
+        console.error('tick agent failed', String(error.message || error).slice(0, 120));
+      }
+      continue;
+    }
     if (!budget(1)) break;
     try {
-      const candidates = agents.filter((o) => o.interests.length && !touched.has(o.uid) && capAllows(o.life, now));
-      const match = pickMatch(me, candidates, now, salt, cooldown) || (town ? pickTown(me, now, salt, cooldown) : null);
+      const meMatch = await forMatch(me);
+      const candidates = [];
+      for (const o of agents) {
+        if (o.uid === me.uid || !o.interests.length || touched.has(o.uid) || !capAllows(o.life, now)) continue;
+        candidates.push(await forMatch(o));
+      }
+      // Town vs real uses saved interests only. Opted-in topic tags can re-rank people who already share a saved tag.
+      // They are never written onto a profile. A zero saved score meets a town neighbour instead of a stranger.
+      const savedOf = (a) => {
+        if (!a || isTown(a.uid)) return a;
+        const orig = agents.find((x) => x.uid === a.uid);
+        return orig ? { ...a, interests: orig.interests } : a;
+      };
+      let match = pickMatch(savedOf(me), candidates.map(savedOf), now, salt, cooldown);
+      if (town && (!match || match.score === 0)) {
+        const townPick = pickTown(savedOf(me), now, salt, cooldown);
+        if (townPick) match = townPick;
+      }
+      // Topic tags apply only when a town neighbour was not chosen. Profiles passed onward keep saved interests.
+      if (match && !match.town) {
+        const themed = pickMatch(meMatch, candidates, now, salt, cooldown);
+        if (themed) match = { ...themed, agent: savedOf(themed.agent) };
+      }
       const mine = publicProfile(me);
       // Count before calling: the cap is spent even if the model fails or says rest.
       let life = countAction(me.life, now);
@@ -416,6 +630,8 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
         throw error;
       }
       if (decision.action === 'meet' && !budget(1)) decision = { action: 'rest' };
+      // A rest in a quiet world becomes a meeting, including with a virtual neighbour who shares nothing.
+      if (decision.action === 'rest' && company && match && needsCompany(me, now, cooldown) && budget(1)) decision = { action: 'meet' };
       if (decision.action === 'move') {
         const target = placeNear(me, decision.interest, now, salt);
         if (target) {
@@ -439,9 +655,18 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
         summary.diary++;
         continue;
       }
+      if (decision.action === 'work') {
+        const status = makeStatus('working', { now, label: decision.label, progress: { done: 1, total: 4 } });
+        await save(me, { ...life, activity: 'work', status: decision.label }, { updateTime: me.updateTime, status });
+        summary.works++;
+        continue;
+      }
       const other = match.agent, theirs = publicProfile(other);
-      summary.calls++;
-      const lines = parseConversation(await llm(conversationPrompt(mine, theirs), 400), mine, theirs);
+      let lines = null;
+      try {
+        summary.calls++;
+        lines = parseConversation(await llm(conversationPrompt(mine, theirs), 400), mine, theirs);
+      } catch { lines = null; }
       if (!lines) { await save(me, { ...life, activity: 'rest' }, { updateTime: me.updateTime, status: makeStatus('idle', { now }) }); continue; }
       const shared = mine.interests.filter((t) => theirs.interests.includes(t));
       const otherId = hashId(other.uid, salt), meId = hashId(me.uid, salt);
@@ -469,8 +694,14 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       const myNote = await writeNote(mine, theirs), theirNote = await writeNote(theirs, mine);
       await store.addDiary(me.uid, { kind: 'meet', withId: otherId, withName: theirs.name, shared, lines, ...(myNote && { note: myNote }), at: now });
       await store.addDiary(other.uid, { kind: 'meet', withId: meId, withName: mine.name, shared, lines, ...(theirNote && { note: theirNote }), at: now });
-      await store.addFriend(me.uid, otherId, { name: theirs.name, interests: theirs.interests, bio: theirs.bio, note: `Met ${theirs.name}; we both like ${shared.join(', ') || 'chatting'}.`, at: now });
-      await store.addFriend(other.uid, meId, { name: mine.name, interests: mine.interests, bio: mine.bio, note: `Met ${mine.name}; we both like ${shared.join(', ') || 'chatting'}.`, at: now });
+      const mineStatus = makeStatus('meeting', { now, label: `With ${theirs.name}`, withAgentId: otherId, withName: theirs.name });
+      const theirStatus = makeStatus('meeting', { now, label: `With ${mine.name}`, withAgentId: meId, withName: mine.name });
+      await store.addFriend(me.uid, otherId, { name: theirs.name, interests: theirs.interests, bio: theirs.bio, status: shareableStatus(theirStatus), note: `Met ${theirs.name}; we both like ${shared.join(', ') || 'chatting'}.`, at: now });
+      await store.addFriend(other.uid, meId, { name: mine.name, interests: mine.interests, bio: mine.bio, status: shareableStatus(mineStatus), note: `Met ${mine.name}; we both like ${shared.join(', ') || 'chatting'}.`, at: now });
+      if (store.patchFriendStatus) {
+        await store.patchFriendStatus(me.uid, otherId, shareableStatus(theirStatus)).catch(() => {});
+        await store.patchFriendStatus(other.uid, meId, shareableStatus(mineStatus)).catch(() => {});
+      }
       // Public "who met whom" line: names, hashed ids and shared interests only, never the conversation.
       if (store.addPublicMeet) await store.addPublicMeet({ aId: meId, aName: mine.name, bId: otherId, bName: theirs.name, shared, at: now }).catch(() => {});
       summary.meets++;
@@ -506,7 +737,7 @@ export function fromValue(v = {}) {
 }
 
 // Only fields the loop needs are read; memory, ownerName and messages are never fetched.
-const READ_FIELDS = ['name', 'interests', 'bio', 'approx', 'lat', 'lon', 'updatedAt', 'life', 'isTest', 'look'];
+const READ_FIELDS = ['name', 'interests', 'bio', 'approx', 'lat', 'lon', 'updatedAt', 'life', 'isTest', 'look', 'status', 'friends', 'friendStatus', 'matchConsent'];
 
 export function lifeStore(admin) {
   if (!admin) return null;
@@ -698,6 +929,56 @@ export function lifeStore(admin) {
     async addFriend(uid, friendId, fact) {
       if (!UID_RE.test(uid) || !/^h_[0-9a-f]{20}$/.test(friendId)) return;
       await patch(`agents/${uid}`, { friends: { mapValue: { fields: { [friendId]: toValue(fact) } } } }, [`friends.${friendId}`]);
+    },
+    // Live status of someone you met, keyed by their public id. Owner can read it; only this proxy writes it.
+    async patchFriendStatus(uid, friendId, status) {
+      if (!UID_RE.test(uid) || !/^h_[0-9a-f]{20}$/.test(friendId) || !status) return;
+      await patch(`agents/${uid}`, { friendStatus: { mapValue: { fields: { [friendId]: toValue(status) } } } }, [`friendStatus.${friendId}`]);
+    },
+    async getMatchConsent(uid) {
+      if (!UID_RE.test(uid)) return { chats: null };
+      const a = await getDoc(`agents/${uid}`);
+      const c = a?.matchConsent;
+      if (!c || typeof c !== 'object') return { chats: null };
+      return { chats: c.chats === true ? true : c.chats === false ? false : null };
+    },
+    async setMatchConsent(uid, chats) {
+      if (!UID_RE.test(uid)) throw new Error('bad uid');
+      await patch(`agents/${uid}`, { matchConsent: toValue({ chats: chats === true, at: Date.now() }) }, ['matchConsent']);
+    },
+    // Lines the life loop may turn into topic tags. Empty unless this owner opted in.
+    // A friend's words are included only when that friend opted in too. The lines never leave this function's caller,
+    // which keeps only the topic tags.
+    async listMatchLines(uid, salt) {
+      if (!UID_RE.test(uid)) return [];
+      const self = await getDoc(`agents/${uid}`);
+      if (self?.matchConsent?.chats !== true) return [];
+      const lines = [];
+      try {
+        const msgs = await recent(`${base}/agents/${uid}`, 'messages', 24);
+        for (const m of msgs) {
+          if ((m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string') lines.push(m.content);
+        }
+      } catch { /* no owner chat yet */ }
+      const myId = hashId(uid, salt);
+      let threads;
+      try { threads = await this.listThreads(uid, 6); } catch { threads = []; }
+      for (const t of threads) {
+        const otherUid = (t.members || []).find((x) => x !== uid);
+        let otherOk = false;
+        if (otherUid && UID_RE.test(otherUid)) {
+          const o = await getDoc(`agents/${otherUid}`).catch(() => null);
+          otherOk = o?.matchConsent?.chats === true;
+        }
+        let ms;
+        try { ms = await this.listMessages(t.id, 0, 16); } catch { ms = []; }
+        for (const m of ms) {
+          if (m.fromId === 'system' || typeof m.text !== 'string') continue;
+          if (m.fromId === myId || otherOk) lines.push(m.text);
+        }
+        if (lines.length >= 40) break;
+      }
+      return lines.slice(0, 40);
     },
   };
 }

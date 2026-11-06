@@ -389,6 +389,8 @@ describe('rate limit counter rules', { concurrency: false }, () => {
     await assertFails(setDoc(agentRef(ALICE), { life: { actions: 0, day: '2026-10-24' }, updatedAt: serverTimestamp() }, { merge: true }));
     await assertFails(setDoc(agentRef(ALICE), { friends: {}, updatedAt: serverTimestamp() }, { merge: true }));
     await assertFails(setDoc(agentRef(ALICE), { status: { kind: 'walking', label: 'fake' }, updatedAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(agentRef(ALICE), { friendStatus: { h_0123456789abcdef0123: { kind: 'idle', label: 'Resting' } }, updatedAt: serverTimestamp() }, { merge: true }));
+    await assertFails(setDoc(agentRef(ALICE), { matchConsent: { chats: true }, updatedAt: serverTimestamp() }, { merge: true }));
     await assertSucceeds(setDoc(agentRef(ALICE), { name: 'Ada2', updatedAt: serverTimestamp() }, { merge: true }));
     await testEnv.withSecurityRulesDisabled(async (c) => {
       await setDoc(doc(c.firestore(), 'agents', ALICE, 'diary', 'd1'), { kind: 'diary', text: 'hi' });
