@@ -482,6 +482,29 @@ describe('rate limit counter rules', { concurrency: false }, () => {
       await assertFails(deleteDoc(doc(d, 'threads', 't1', 'messages', 'm1')));
     }
   });
+
+  test('moments are owner-read, server-write; usage stays closed to clients', async () => {
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), 'agents', ALICE, 'moments', 'meet_h_0123456789abcdef0123_1'), {
+        kind: 'meeting', text: 'I met Priya.', createdAt: Timestamp.now(), weight: 3, source: 'event',
+        refs: { meetingId: 'd1', otherAgentId: 'h_0123456789abcdef0123', otherAgentName: 'Priya' },
+      });
+      await setDoc(doc(c.firestore(), 'usage', ALICE), { totalSeconds: 5, lastSeenAt: Timestamp.now(), lastSessionEndAt: Timestamp.now() });
+    });
+    const own = doc(db(ALICE), 'agents', ALICE, 'moments', 'meet_h_0123456789abcdef0123_1');
+    await assertSucceeds(getDoc(own));
+    await assertSucceeds(getDocs(collection(db(ALICE), 'agents', ALICE, 'moments')));
+    await assertFails(getDoc(doc(db(BOB), 'agents', ALICE, 'moments', 'meet_h_0123456789abcdef0123_1')));
+    await assertFails(getDocs(collection(db(BOB), 'agents', ALICE, 'moments')));
+    await assertFails(setDoc(doc(db(ALICE), 'agents', ALICE, 'moments', 'fake'), { kind: 'meeting', text: 'invented' }));
+    await assertFails(updateDoc(own, { text: 'rewritten' }));
+    await assertFails(getDoc(doc(db(null), 'agents', ALICE, 'moments', 'meet_h_0123456789abcdef0123_1')));
+    await assertSucceeds(deleteDoc(own));
+    await assertFails(getDoc(doc(db(ALICE), 'usage', ALICE)));
+    await assertFails(getDoc(doc(db(BOB), 'usage', ALICE)));
+    await assertFails(setDoc(doc(db(ALICE), 'usage', ALICE), { lastSessionEndAt: Timestamp.now() }));
+    await assertFails(deleteDoc(doc(db(ALICE), 'usage', ALICE)));
+  });
 });
 
 function omit(data, key) {

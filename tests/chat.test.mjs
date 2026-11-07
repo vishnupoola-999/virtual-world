@@ -353,12 +353,37 @@ describe('POST /me/usage (time in app)', () => {
 
 test('lifeStore.addUsage: one atomic commit with increments, no content', async () => {
   const calls = [];
-  const s = lifeStore({ projectId: 'p', accessToken: async () => 't', fetchImpl: async (u, i) => { calls.push([u, i]); return { ok: true, json: async () => ({}) }; } });
+  const s = lifeStore({ projectId: 'p', accessToken: async () => 't', fetchImpl: async (u, i) => {
+    calls.push([u, i]);
+    if (!String(u).includes(':commit')) return { ok: false, status: 404, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({}) };
+  } });
   await s.addUsage(ALICE, { seconds: 42, newSession: true, screen: 'world', now: 0 });
-  assert.match(calls[0][0], /documents:commit$/);
-  const w = JSON.parse(calls[0][1].body).writes[0];
+  const commit = calls.find(([u]) => String(u).includes(':commit'));
+  assert.ok(commit, 'usage commit');
+  const w = JSON.parse(commit[1].body).writes[0];
   assert.match(w.update.name, /documents\/usage\/aliceUid000000000001$/);
   assert.deepEqual(w.updateMask.fieldPaths, ['lastSeenAt']);
+  assert.equal(w.update.fields.lastSessionEndAt, undefined);
   assert.deepEqual(w.updateTransforms.map((t) => [t.fieldPath, t.increment.integerValue]), [['totalSeconds', '42'], ['sessions', '1'], ['screens.worldSeconds', '42']]);
   await assert.rejects(s.addUsage('bad/uid', { seconds: 1 }));
+});
+
+test('lifeStore.addUsage newSession preserves the previous lastSeenAt', async () => {
+  const calls = [];
+  const prevMs = 1_700_000_000_000;
+  const now = prevMs + 20 * 60 * 1000;
+  const s = lifeStore({ projectId: 'p', accessToken: async () => 't', fetchImpl: async (u, i) => {
+    calls.push([u, i]);
+    if (!String(u).includes(':commit')) {
+      return { ok: true, status: 200, json: async () => ({ fields: { lastSeenAt: { timestampValue: new Date(prevMs).toISOString() } } }) };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  } });
+  await s.addUsage(ALICE, { seconds: 10, newSession: true, now });
+  const w = JSON.parse(calls.find(([u]) => String(u).includes(':commit'))[1].body).writes[0];
+  assert.deepEqual(w.updateMask.fieldPaths, ['lastSeenAt', 'lastSessionEndAt']);
+  assert.equal(w.update.fields.lastSessionEndAt.timestampValue, new Date(prevMs).toISOString());
+  assert.equal(w.update.fields.lastSeenAt.timestampValue, new Date(now).toISOString());
+  assert.notEqual(w.update.fields.lastSessionEndAt.timestampValue, w.update.fields.lastSeenAt.timestampValue);
 });
