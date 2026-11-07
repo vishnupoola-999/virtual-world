@@ -7,6 +7,7 @@ import {
   SAFETY_SETTINGS, geminiLlm, makeStatus, lifeStore, lifeSalt, LIFE, capAllows, checkTickSecret, cleanInterests, countAction, dayKey, parseConversation, parseDecision,
   paceBudget, paceAllows, pickMatch, placeNear, runTick, shouldAct, similarity, hashId, scrub, safeLine, decidePrompt, conversationPrompt, publicProfile, parseNote, notePrompt, NOTE_MAX,
   cardMotion, needsCompany, topicsFromText, topicsFromLines, matchInterests, consentAllows, shareableStatus, friendBoard, WALK_MS,
+  RECAP, MOMENT_WEIGHT, recapShow, usageSessionUpdate, buildRecapMoments, captureRecapMoments, publicRecapMoment, momentIdFor,
 } from '../proxy/life.js';
 import { TEST_AGENTS } from '../scripts/seed-test-agents.mjs';
 
@@ -851,5 +852,158 @@ describe('walks, work, town company and chat consent', () => {
       const bad = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ chats: 'yes' }) });
       assert.equal(bad.status, 400);
     } finally { server.close(); }
+  });
+});
+
+describe('recap moments', () => {
+  const CONVO = 'A: Hi there\nB: Hello\nA: You like tech?\nB: Yes, and science.\nA: Cool.';
+  function momentStore(agents) {
+    const s = fakeStore(agents);
+    let n = 0;
+    s.addDiary = async (uid, e) => {
+      const id = `d${n++}`;
+      (s.diary[uid] ||= []).push({ id, ...e });
+      return id;
+    };
+    s.moments = [];
+    s.addMoment = async (uid, id, m) => {
+      if (s.moments.some((x) => x.uid === uid && x.id === id)) return false;
+      s.moments.push({ uid, ...m });
+      return true;
+    };
+    return s;
+  }
+
+  test('show is 15 minutes, and newSession does not stamp the end as now', () => {
+    const now = 1_700_000_000_000;
+    assert.equal(RECAP.awayMs, 15 * 60 * 1000);
+    assert.equal(recapShow({ lastSessionEndAt: now - RECAP.awayMs }, now).show, true);
+    assert.equal(recapShow({ lastSessionEndAt: now - RECAP.awayMs + 1 }, now).show, false);
+    assert.deepEqual(recapShow({ lastSeenAt: now - RECAP.awayMs }, now), { show: true, lastSessionEndAt: now - RECAP.awayMs });
+    assert.equal(recapShow({ lastSeenAt: now - 60_000 }, now).show, false);
+    // GET before the opening heartbeat: lastSeenAt is a 5 minute gap, lastSessionEndAt is the visit before that.
+    const stale = recapShow({ lastSessionEndAt: now - 5 * 3_600_000, lastSeenAt: now - 5 * 60 * 1000 }, now);
+    assert.equal(stale.show, false);
+    assert.equal(stale.lastSessionEndAt, now - 5 * 60 * 1000);
+    // The heartbeat has just written lastSeenAt. The preserved end is the real gap, not "now".
+    const preserved = recapShow({ lastSessionEndAt: now - 3_600_000, lastSeenAt: now - 1000 }, now);
+    assert.equal(preserved.show, true);
+    assert.equal(preserved.lastSessionEndAt, now - 3_600_000);
+    const session = usageSessionUpdate({ lastSeenAt: now - 20 * 60 * 1000 }, now, true);
+    assert.equal(session.lastSessionEndAt, now - 20 * 60 * 1000);
+    assert.equal(session.lastSeenAt, now);
+    assert.notEqual(session.lastSessionEndAt, now);
+    // No stored end yet: record the previous lastSeenAt even if it is recent. It is not "now".
+    assert.equal(usageSessionUpdate({ lastSeenAt: now - 500 }, now, true).lastSessionEndAt, now - 500);
+    // Duplicate newSession inside one client heartbeat must not move an existing end up to this visit.
+    const dup = usageSessionUpdate({ lastSeenAt: now - 30_000, lastSessionEndAt: now - 20 * 60 * 1000 }, now, true);
+    assert.equal(dup.lastSessionEndAt, undefined);
+    assert.equal(dup.lastSeenAt, now);
+    // A real later return, past one heartbeat, does move the end to that leave time.
+    assert.equal(usageSessionUpdate({ lastSeenAt: now - 5 * 60 * 1000, lastSessionEndAt: now - 5 * 3_600_000 }, now, true).lastSessionEndAt, now - 5 * 60 * 1000);
+    assert.equal(usageSessionUpdate(null, now, true).lastSessionEndAt, undefined);
+    assert.equal(usageSessionUpdate({ lastSeenAt: now - 3_600_000 }, now, false).lastSessionEndAt, undefined);
+    assert.deepEqual(MOMENT_WEIGHT, { thought: 1, observation: 1, question: 2, meeting: 3, friend: 5 });
+  });
+
+  test('a real meet records one meeting and one new-friend moment per side, idempotently', async () => {
+    const store = momentStore([
+      agent('aliceUid', ['tech', 'science'], { name: 'Priya' }),
+      agent('bobUid', ['tech', 'music'], { name: 'Arjun' }),
+    ]);
+    let n = 0;
+    const llm = async (p) => {
+      n++;
+      if (n === 1) return '{"action":"meet"}';
+      if (n === 2) return CONVO;
+      const m = p.match(/You just met (.+?)\./);
+      return `I met ${m[1]}, they're into tech, you two would get along.`;
+    };
+    const r = await runTick({ store, llm, now: NOW, salt: SALT });
+    assert.equal(r.meets, 1);
+    assert.equal(r.errors, 0);
+    const other = hashId('bobUid', SALT);
+    const mine = store.moments.filter((m) => m.uid === 'aliceUid');
+    assert.equal(mine.length, 2);
+    const meeting = mine.find((m) => m.kind === 'meeting');
+    const friend = mine.find((m) => m.kind === 'friend');
+    assert.equal(meeting.id, momentIdFor('meeting', other, NOW));
+    assert.equal(friend.id, momentIdFor('friend', other, NOW));
+    assert.equal(meeting.weight, 3);
+    assert.equal(friend.weight, 5);
+    assert.equal(meeting.source, 'event');
+    assert.equal(meeting.refs.otherAgentId, other);
+    assert.equal(meeting.refs.otherAgentName, 'Arjun');
+    assert.equal(meeting.refs.meetingId, store.diary.aliceUid[0].id);
+    const bobMeet = store.moments.find((m) => m.uid === 'bobUid' && m.kind === 'meeting');
+    assert.equal(bobMeet.refs.meetingId, store.diary.bobUid[0].id);
+    assert.notEqual(meeting.refs.meetingId, bobMeet.refs.meetingId);
+    assert.equal(meeting.refs.meetingId, 'd0');
+    assert.equal(bobMeet.refs.meetingId, 'd1');
+    // The moment states the meet. The generated note stays on the diary and is not the card text.
+    assert.equal(meeting.text, 'I met Arjun. We both like tech.');
+    assert.equal(meeting.source, 'event');
+    assert.equal(store.diary.aliceUid[0].note, "I met Arjun, they're into tech, you two would get along.");
+    assert.equal(meeting.text.includes('get along'), false);
+    assert.equal(friend.text, 'Arjun and I are friends now.');
+    assert.equal(friend.source, 'event');
+    const payload = mine.map(({ uid, ...m }) => m);
+    const blob = JSON.stringify(payload);
+    assert.equal(blob.includes('bobUid'), false);
+    assert.equal(blob.includes('aliceUid'), false);
+    assert.equal(blob.includes('threadId'), false);
+    await captureRecapMoments(store, { uid: 'aliceUid', otherAgentId: other, otherName: 'Arjun', shared: ['tech'], at: NOW, meetingId: 'd0', isNewFriend: true });
+    assert.equal(store.moments.filter((m) => m.uid === 'aliceUid').length, 2);
+    assert.equal(buildRecapMoments({ otherAgentId: 'not-a-hash', otherName: 'Arjun', at: NOW, isNewFriend: true }).length, 0);
+  });
+
+  test('an existing friend gets a meeting moment only, and a town meet gets none', async () => {
+    const hb = hashId('bobUid', SALT);
+    const ha = hashId('aliceUid', SALT);
+    const store = momentStore([
+      agent('aliceUid', ['tech'], { name: 'Priya', friends: { [hb]: { name: 'Arjun' } } }),
+      agent('bobUid', ['tech'], { name: 'Arjun', friends: { [ha]: { name: 'Priya' } } }),
+    ]);
+    let n = 0;
+    await runTick({ store, llm: async () => (++n === 1 ? '{"action":"meet"}' : CONVO), now: NOW, salt: SALT });
+    assert.deepEqual(store.moments.map((m) => m.kind).sort(), ['meeting', 'meeting']);
+    const town = momentStore([agent('solo', ['tech', 'ai'], { name: 'Priya' })]);
+    let called = 0;
+    town.addMoment = async () => { called++; };
+    let t = 0;
+    const r = await runTick({ store: town, llm: async () => (++t === 1 ? '{"action":"meet"}' : CONVO), now: NOW, salt: SALT });
+    assert.equal(r.townMeets, 1);
+    assert.equal(r.errors, 0);
+    assert.equal(called, 0);
+  });
+
+  test('a moment write failure does not fail the meet or invent a line', async () => {
+    const store = momentStore([
+      agent('aliceUid', ['tech'], { name: 'Priya' }),
+      agent('bobUid', ['tech'], { name: 'Arjun' }),
+    ]);
+    store.addMoment = async () => { throw new Error('firestore 500'); };
+    let n = 0;
+    const r = await runTick({ store, llm: async () => (++n === 1 ? '{"action":"meet"}' : CONVO), now: NOW, salt: SALT });
+    assert.equal(r.meets, 1);
+    assert.equal(r.errors, 0);
+    assert.equal(store.diary.aliceUid.length, 1);
+    assert.equal(publicRecapMoment({
+      id: 'meet_h_0123456789abcdef0123_1', kind: 'meeting', text: 'saw bobUid', createdAt: NOW, otherUid: 'bobUid', threadId: 't_abc',
+      refs: { otherAgentId: 'bobUid', otherAgentName: 'Arjun' },
+    }), null);
+    assert.equal(publicRecapMoment({
+      id: 'meet_h_0123456789abcdef0123_1', kind: 'meeting', text: 'I met Arjun.', createdAt: NOW, uid: 'aliceUid',
+      refs: { otherAgentId: 'h_0123456789abcdef0123', otherAgentName: 'Arjun' },
+    }), null);
+    const clean = publicRecapMoment({
+      id: 'meet_h_0123456789abcdef0123_1', kind: 'meeting', text: 'I met Arjun.', createdAt: NOW, weight: 99,
+      refs: { meetingId: 'd1', otherAgentId: 'h_0123456789abcdef0123', otherAgentName: 'Arjun', threadId: 'no' },
+    });
+    assert.equal(clean.weight, 3);
+    assert.deepEqual(Object.keys(clean.refs).sort(), ['meetingId', 'otherAgentId', 'otherAgentName']);
+    assert.equal(JSON.stringify(clean).includes('threadId'), false);
+    assert.equal(JSON.stringify(clean).includes('aliceUid'), false);
+    assert.equal(clean.refs.otherAgentId, 'h_0123456789abcdef0123');
   });
 });

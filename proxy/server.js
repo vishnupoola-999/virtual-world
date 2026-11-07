@@ -24,7 +24,7 @@ import { createHash, randomBytes, createPublicKey, createSign, createVerify, X50
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
-import { EMOJI_RE, cleanInterests, publicProfile, publicCard, scrub, isTown, stripTown, townByPublicId, townCharacter, offsetFor, nearbyTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick, friendBoard, shareableStatus } from './life.js';
+import { EMOJI_RE, cleanInterests, publicProfile, publicCard, scrub, isTown, stripTown, townByPublicId, townCharacter, offsetFor, nearbyTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick, friendBoard, shareableStatus, RECAP, recapShow, publicRecapMoment } from './life.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
 import { createConnectors, ConnectHttpError } from './connectors/index.js';
 import { calendarToolContext, reviewCalendarTurn, sanitizeZone, ensureRfc3339 } from '../src/calendarWhen.js';
@@ -1176,7 +1176,8 @@ async function handleRead(req, res, ctx, id) {
 
 // GET/POST /me/chat-settings {readReceipts: bool}. Stored server-side in chatPrefs/{uid} (clients denied by the catch-all rule).
 // POST /me/usage {seconds, newSession?, screen?}: time-in-app heartbeat from the app (about every 60s while visible).
-// Stores counts and durations only in usage/{uid}: totalSeconds, sessions, lastSeenAt, screens.<chat|world>Seconds.
+// Stores counts and durations only in usage/{uid}: totalSeconds, sessions, lastSeenAt, lastSessionEndAt, screens.<chat|world>Seconds.
+// newSession copies the previous lastSeenAt to lastSessionEndAt before lastSeenAt moves to now.
 const USAGE_SCREENS = ['chat', 'world'];
 async function handleUsage(req, res, ctx) {
   if (!allowHit(ctx.chatIpHits, clientIp(req), CHAT.ipBurst, CHAT.ipWindowMs, Date.now())) throw new HttpError(429, 'rate limited');
@@ -1224,6 +1225,41 @@ async function handleMatchConsent(req, res, ctx) {
   }
   const c = await s.getMatchConsent(uid).catch(() => ({ chats: null }));
   sendJson(res, 200, { chats: c?.chats === true ? true : c?.chats === false ? false : null });
+}
+
+// GET /recap -> { show, lastSessionEndAt, moments }. Owner only. `show` is the 15-minute gate.
+// POST /recap/seen { ids } marks those owner moments seen. There is no POST /recap/reply.
+async function handleRecap(req, res, ctx) {
+  const { uid } = await chatUser(req, ctx);
+  const s = ctx.lifeStore;
+  if (!s?.listMoments || !s?.getUsage) throw new HttpError(503, 'recap not configured');
+  if (!allowHit(ctx.chatUidHits, `recap|${uid}`, 30, 60_000, Date.now())) throw new HttpError(429, 'slow down');
+  const [usage, rows] = await Promise.all([
+    s.getUsage(uid),
+    s.listMoments(uid, RECAP.listMax),
+  ]);
+  const { show, lastSessionEndAt } = recapShow(usage, Date.now());
+  const moments = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (moments.length >= RECAP.returnMax) break;
+    const pub = publicRecapMoment(row);
+    if (pub) moments.push(pub);
+  }
+  moments.sort((a, b) => a.createdAt - b.createdAt);
+  sendJson(res, 200, { show, lastSessionEndAt, moments });
+}
+
+async function handleRecapSeen(req, res, ctx) {
+  const { uid } = await chatUser(req, ctx);
+  const s = ctx.lifeStore;
+  if (!s?.markMomentsSeen) throw new HttpError(503, 'recap not configured');
+  const body = await readJson(req);
+  if (!Array.isArray(body.ids)) throw new HttpError(400, 'ids required');
+  if (body.ids.length > RECAP.seenMax) throw new HttpError(400, 'too many ids');
+  if (body.ids.some((id) => typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(id))) throw new HttpError(400, 'invalid id');
+  if (!allowHit(ctx.chatUidHits, `seen|${uid}`, 20, 60_000, Date.now())) throw new HttpError(429, 'slow down');
+  await s.markMomentsSeen(uid, body.ids, Date.now());
+  sendJson(res, 200, { ok: true });
 }
 
 // ---- POST /publish: write or refresh the caller's own publicAgents card right after they save their agent ----
@@ -1540,6 +1576,19 @@ export function createServer(options = {}) {
         else if (req.method === 'POST' && verb === '/stop') await handleStop(req, res, ctx, id);
         else if (req.method === 'POST' && verb === '/continue') await streamChat(req, res, ctx, id);
         else sendJson(res, 404, { error: 'not found' });
+        return;
+      }
+      // Before the unmatched GET catch-all, which answers text/plain "ok" (health checks, not this contract).
+      if (url.pathname === '/recap' || url.pathname.startsWith('/recap/')) {
+        if (req.method === 'GET' && url.pathname === '/recap') {
+          await handleRecap(req, res, ctx);
+          return;
+        }
+        if (req.method === 'POST' && url.pathname === '/recap/seen') {
+          await handleRecapSeen(req, res, ctx);
+          return;
+        }
+        sendJson(res, 404, { error: 'not found' });
         return;
       }
       if (req.method === 'GET') {

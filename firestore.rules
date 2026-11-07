@@ -19,6 +19,10 @@ service cloud.firestore {
       match /diary/{did} {
         allow read, delete: if request.auth != null && request.auth.uid == uid;
       }
+      // While-you-were-away moments (proxy writes with admin credentials). Owner reads and may delete, never writes.
+      match /moments/{mid} {
+        allow read, delete: if request.auth != null && request.auth.uid == uid;
+      }
       // Chat history, newest MAX_MESSAGES kept by the app. Owner-only; messages are never edited.
       match /messages/{mid} {
         allow read, delete: if request.auth != null && request.auth.uid == uid;

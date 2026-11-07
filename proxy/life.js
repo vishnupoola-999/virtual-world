@@ -244,6 +244,160 @@ export function hashId(uid, salt) {
   return 'h_' + createHash('sha256').update(`id|${salt}|${uid}`).digest('hex').slice(0, 20);
 }
 
+// While-you-were-away recap. Moments live at agents/{uid}/moments/{momentId} (not a users collection).
+// The server decides `show` from usage/{uid}.lastSessionEndAt. Generated thoughts are not written here:
+// no agreed prompt, trigger, or daily counter exists beyond "at most 3 if a plan already says so".
+export const RECAP = {
+  awayMs: 15 * 60 * 1000,
+  textMax: 140,
+  listMax: 40,
+  returnMax: 20,
+  seenMax: 20,
+  // src/usage.js does not POST /me/usage on load. The first newSession heartbeat is the 60s
+  // interval or the first hide. Auto-open GET /recap finishes before that, so lastSeenAt is
+  // still the previous visit. A lastSeenAt newer than this was just written by that heartbeat.
+  sessionFreshMs: 5 * 1000,
+  // A second tab can send newSession up to one heartbeat later. Don't move an existing end
+  // forward to that visit's own lastSeenAt.
+  heartbeatFreshMs: 90 * 1000,
+};
+export const MOMENT_WEIGHT = { thought: 1, observation: 1, question: 2, meeting: 3, friend: 5 };
+const MOMENT_KINDS = Object.keys(MOMENT_WEIGHT);
+const MOMENT_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
+const MEET_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const HASH_ID_RE = /^h_[0-9a-f]{20}$/;
+
+export function momentIdFor(kind, otherAgentId, at) {
+  if (!HASH_ID_RE.test(otherAgentId || '')) return '';
+  if (kind === 'friend') return `friend_${otherAgentId}`;
+  if (kind === 'meeting' && Number.isFinite(at)) return `meet_${otherAgentId}_${Math.floor(at)}`;
+  return '';
+}
+
+// Factual line only. The worth-meeting note is generated and stays on the diary entry.
+// Conversation lines are not copied. Empty or unsafe text is not stored.
+export function meetingMomentText(name, shared) {
+  const cleanName = scrub(String(name || '')).slice(0, 40);
+  if (!cleanName) return '';
+  const tags = (Array.isArray(shared) ? shared : []).map((t) => scrub(String(t))).filter(Boolean).slice(0, 3);
+  const base = tags.length ? `I met ${cleanName}. We both like ${tags.join(', ')}.` : `I met ${cleanName}.`;
+  return safeLine(base, RECAP.textMax);
+}
+
+export function friendMomentText(name) {
+  const cleanName = scrub(String(name || '')).slice(0, 40);
+  if (!cleanName) return '';
+  return safeLine(`${cleanName} and I are friends now.`, RECAP.textMax);
+}
+
+function cleanRefs(refs) {
+  if (!refs || typeof refs !== 'object' || Array.isArray(refs)) return null;
+  if (!HASH_ID_RE.test(refs.otherAgentId || '')) return null;
+  const otherAgentName = scrub(String(refs.otherAgentName || '')).slice(0, 40);
+  if (!otherAgentName) return null;
+  const out = { otherAgentId: refs.otherAgentId, otherAgentName };
+  if (typeof refs.meetingId === 'string' && MEET_ID_RE.test(refs.meetingId)) out.meetingId = refs.meetingId;
+  return out;
+}
+
+// API shape only. Drops seen moments, raw ids, thread ids, and any field the client does not render.
+export function publicRecapMoment(m) {
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return null;
+  if (m.seenAt) return null;
+  if (!MOMENT_KINDS.includes(m.kind)) return null;
+  const id = String(m.id || '').trim();
+  if (!MOMENT_ID_RE.test(id)) return null;
+  const text = safeLine(m.text, RECAP.textMax);
+  if (!text) return null;
+  // A stored raw id or thread id means this row is not a recap moment, even if scrub shortened the text.
+  if (m.uid || m.otherUid || m.withUid || m.threadId) return null;
+  const createdAt = typeof m.createdAt === 'number' ? m.createdAt : Date.parse(m.createdAt);
+  if (!Number.isFinite(createdAt) || createdAt <= 0) return null;
+  const source = m.source === 'generated' || m.source === 'event'
+    ? m.source
+    : (m.kind === 'meeting' || m.kind === 'friend' ? 'event' : 'generated');
+  const out = { id, kind: m.kind, text, createdAt, weight: MOMENT_WEIGHT[m.kind], source };
+  const refs = cleanRefs(m.refs);
+  if (refs) out.refs = refs;
+  return out;
+}
+
+export function buildRecapMoments({ otherAgentId, otherName, shared, at, meetingId, isNewFriend }) {
+  const name = scrub(String(otherName || '')).slice(0, 40);
+  const refs = { otherAgentId, otherAgentName: name };
+  if (typeof meetingId === 'string' && MEET_ID_RE.test(meetingId)) refs.meetingId = meetingId;
+  const createdAt = Math.floor(Number(at));
+  const out = [];
+  const meetText = meetingMomentText(name, shared);
+  const meetId = momentIdFor('meeting', otherAgentId, createdAt);
+  if (meetText && meetId) {
+    out.push({ id: meetId, kind: 'meeting', text: meetText, createdAt, weight: MOMENT_WEIGHT.meeting, source: 'event', refs: { ...refs } });
+  }
+  if (isNewFriend) {
+    const friendText = friendMomentText(name);
+    const friendId = momentIdFor('friend', otherAgentId, createdAt);
+    if (friendText && friendId) {
+      out.push({ id: friendId, kind: 'friend', text: friendText, createdAt, weight: MOMENT_WEIGHT.friend, source: 'event', refs: { ...refs } });
+    }
+  }
+  return out.map((m) => publicRecapMoment(m)).filter(Boolean);
+}
+
+// Writes idempotent event moments. A store without addMoment, or a failed write, does not throw.
+export async function captureRecapMoments(store, spec) {
+  if (typeof store?.addMoment !== 'function') return [];
+  let moments;
+  try { moments = buildRecapMoments(spec); } catch (e) {
+    console.error('recap moment', String(e.message || e).slice(0, 80));
+    return [];
+  }
+  const saved = [];
+  for (const m of moments) {
+    try {
+      await store.addMoment(spec.uid, m.id, m);
+      saved.push(m);
+    } catch (e) {
+      console.error('recap moment', String(e.message || e).slice(0, 80));
+    }
+  }
+  return saved;
+}
+
+function finiteMs(v) {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+// `show` follows the previous visit, not a stale lastSessionEndAt from the visit before that.
+// src/usage.js posts newSession on the first 60s tick or on hide, after GET /recap has already run.
+// Until that write, lastSeenAt is the previous visit. Once lastSeenAt is only sessionFreshMs old,
+// the write has landed and lastSessionEndAt is the gap it preserved.
+export function recapShow(usage, now = Date.now()) {
+  const end = finiteMs(usage?.lastSessionEndAt);
+  const seen = finiteMs(usage?.lastSeenAt);
+  const seenAge = seen == null ? null : now - seen;
+  const justWrote = seenAge != null && seenAge >= 0 && seenAge < RECAP.sessionFreshMs;
+  let clock;
+  if (seen == null) clock = end;
+  else if (seenAge >= RECAP.awayMs) clock = seen;
+  else if (justWrote) clock = end;
+  else clock = seen;
+  return { show: clock != null && now - clock >= RECAP.awayMs, lastSessionEndAt: clock };
+}
+
+// On newSession, keep the previous lastSeenAt as lastSessionEndAt. Never set that field to `now`.
+// A second newSession while this visit's lastSeenAt is still inside one heartbeat keeps the end
+// already stored, so a duplicate tab cannot hide a real absence.
+export function usageSessionUpdate(prev, now, newSession) {
+  const out = { lastSeenAt: now };
+  if (!newSession) return out;
+  const prevSeen = finiteMs(prev?.lastSeenAt);
+  const prevEnd = finiteMs(prev?.lastSessionEndAt);
+  if (prevSeen == null || now < prevSeen) return out;
+  if (prevEnd != null && now - prevSeen < RECAP.heartbeatFreshMs) return out;
+  out.lastSessionEndAt = prevSeen;
+  return out;
+}
+
 // Cap state lives on agents/{uid}.life: { day, actions, lastActionAt, ... }.
 export function capAllows(life = {}, now, cap = LIFE.dailyCap) {
   if (life.day !== dayKey(now)) return true;
@@ -692,10 +846,12 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
         status: makeStatus('meeting', { now, label: `With ${theirs.name}`, withAgentId: otherId, withName: theirs.name }) });
       touched.add(other.uid);
       const myNote = await writeNote(mine, theirs), theirNote = await writeNote(theirs, mine);
-      await store.addDiary(me.uid, { kind: 'meet', withId: otherId, withName: theirs.name, shared, lines, ...(myNote && { note: myNote }), at: now });
-      await store.addDiary(other.uid, { kind: 'meet', withId: meId, withName: mine.name, shared, lines, ...(theirNote && { note: theirNote }), at: now });
+      const myDiaryId = await store.addDiary(me.uid, { kind: 'meet', withId: otherId, withName: theirs.name, shared, lines, ...(myNote && { note: myNote }), at: now });
+      const theirDiaryId = await store.addDiary(other.uid, { kind: 'meet', withId: meId, withName: mine.name, shared, lines, ...(theirNote && { note: theirNote }), at: now });
       const mineStatus = makeStatus('meeting', { now, label: `With ${theirs.name}`, withAgentId: otherId, withName: theirs.name });
       const theirStatus = makeStatus('meeting', { now, label: `With ${mine.name}`, withAgentId: meId, withName: mine.name });
+      const mineNewFriend = !(me.friends && me.friends[otherId]);
+      const theirNewFriend = !(other.friends && other.friends[meId]);
       await store.addFriend(me.uid, otherId, { name: theirs.name, interests: theirs.interests, bio: theirs.bio, status: shareableStatus(theirStatus), note: `Met ${theirs.name}; we both like ${shared.join(', ') || 'chatting'}.`, at: now });
       await store.addFriend(other.uid, meId, { name: mine.name, interests: mine.interests, bio: mine.bio, status: shareableStatus(mineStatus), note: `Met ${mine.name}; we both like ${shared.join(', ') || 'chatting'}.`, at: now });
       if (store.patchFriendStatus) {
@@ -704,6 +860,9 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       }
       // Public "who met whom" line: names, hashed ids and shared interests only, never the conversation.
       if (store.addPublicMeet) await store.addPublicMeet({ aId: meId, aName: mine.name, bId: otherId, bName: theirs.name, shared, at: now }).catch(() => {});
+      // Real meetings only. Town meets returned above. A moment-write failure must not undo the meet or invent a line.
+      await captureRecapMoments(store, { uid: me.uid, otherAgentId: otherId, otherName: theirs.name, shared, at: now, meetingId: myDiaryId, isNewFriend: mineNewFriend });
+      await captureRecapMoments(store, { uid: other.uid, otherAgentId: meId, otherName: mine.name, shared, at: now, meetingId: theirDiaryId, isNewFriend: theirNewFriend });
       summary.meets++;
     } catch (error) {
       summary.errors++;
@@ -725,12 +884,20 @@ export function toValue(v) {
   return { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, toValue(x)])) } };
 }
 
+// Firestore REST timestamps may include nanoseconds. Keep millisecond precision.
+export function timestampMs(raw) {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  const text = String(raw ?? '').trim().replace(/(\.\d{3})\d+/, '$1');
+  const ms = Date.parse(text);
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
 export function fromValue(v = {}) {
   if ('stringValue' in v) return v.stringValue;
   if ('booleanValue' in v) return v.booleanValue;
   if ('integerValue' in v) return Number(v.integerValue);
   if ('doubleValue' in v) return v.doubleValue;
-  if ('timestampValue' in v) return Date.parse(v.timestampValue);
+  if ('timestampValue' in v) return timestampMs(v.timestampValue);
   if ('arrayValue' in v) return (v.arrayValue.values || []).map(fromValue);
   if ('mapValue' in v) return Object.fromEntries(Object.entries(v.mapValue.fields || {}).map(([k, x]) => [k, fromValue(x)]));
   return null;
@@ -796,11 +963,12 @@ export function lifeStore(admin) {
       await patch(`agents/${uid}`, fields, Object.keys(fields), updateTime);
     },
     async addDiary(uid, entry) {
-      if (!UID_RE.test(uid)) return;
+      if (!UID_RE.test(uid)) return '';
       const { at, ...rest } = entry;
       const fields = Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, toValue(v)]));
       fields.at = { timestampValue: new Date(at).toISOString() };
-      await call(`${base}/agents/${uid}/diary`, { method: 'POST', body: JSON.stringify({ fields }) });
+      const d = await call(`${base}/agents/${uid}/diary`, { method: 'POST', body: JSON.stringify({ fields }) });
+      return typeof d?.name === 'string' ? d.name.split('/').pop() : '';
     },
     // publicAgents/{hashId}: readable by any signed-in user (firestore.rules), written only here.
     async savePublic(id, card) {
@@ -877,15 +1045,82 @@ export function lifeStore(admin) {
     },
     // Time in app (admin-only usage/{uid}; clients can't read or write it). Counts and durations only, never content.
     // One atomic commit: increments add to whatever is there, so concurrent heartbeats never lose time.
+    // newSession copies the previous lastSeenAt onto lastSessionEndAt first, so this heartbeat cannot hide the recap.
     async addUsage(uid, { seconds = 0, newSession = false, screen = '', now = Date.now() } = {}) {
       if (!UID_RE.test(uid)) throw new Error('bad uid');
+      let prev = null;
+      if (newSession) prev = await getDoc(`usage/${uid}`).catch(() => null);
+      const session = usageSessionUpdate(prev, now, newSession);
+      const fields = { lastSeenAt: { timestampValue: new Date(session.lastSeenAt).toISOString() } };
+      const mask = ['lastSeenAt'];
+      if (session.lastSessionEndAt != null) {
+        fields.lastSessionEndAt = { timestampValue: new Date(session.lastSessionEndAt).toISOString() };
+        mask.push('lastSessionEndAt');
+      }
       const inc = (fieldPath, n) => ({ fieldPath, increment: { integerValue: String(n) } });
       const transforms = [inc('totalSeconds', seconds)];
       if (newSession) transforms.push(inc('sessions', 1));
       if (screen) transforms.push(inc(`screens.${screen}Seconds`, seconds));
       await call(`${base}:commit`, { method: 'POST', body: JSON.stringify({ writes: [{
-        update: { name: `projects/${projectId}/databases/${FIRESTORE_DB}/documents/usage/${uid}`, fields: { lastSeenAt: { timestampValue: new Date(now).toISOString() } } },
-        updateMask: { fieldPaths: ['lastSeenAt'] }, updateTransforms: transforms }] }) });
+        update: { name: `projects/${projectId}/databases/${FIRESTORE_DB}/documents/usage/${uid}`, fields },
+        updateMask: { fieldPaths: mask }, updateTransforms: transforms }] }) });
+    },
+    async getUsage(uid) {
+      if (!UID_RE.test(uid)) return null;
+      return getDoc(`usage/${uid}`);
+    },
+    // Create-only. A 409 means this meeting or friend moment was already stored.
+    async addMoment(uid, id, moment) {
+      if (!UID_RE.test(uid) || !MOMENT_ID_RE.test(id)) return false;
+      const pub = publicRecapMoment({
+        id, kind: moment.kind, text: moment.text, createdAt: moment.createdAt, source: moment.source, refs: moment.refs,
+      });
+      if (!pub) return false;
+      if ((pub.kind === 'meeting' || pub.kind === 'friend') && !pub.refs) return false;
+      const fields = {
+        kind: toValue(pub.kind),
+        text: toValue(pub.text),
+        weight: toValue(pub.weight),
+        source: toValue(pub.source),
+        createdAt: { timestampValue: new Date(pub.createdAt).toISOString() },
+      };
+      if (pub.refs) {
+        fields.refs = toValue({
+          ...(pub.refs.meetingId ? { meetingId: pub.refs.meetingId } : {}),
+          otherAgentId: pub.refs.otherAgentId,
+          otherAgentName: pub.refs.otherAgentName,
+        });
+      }
+      try {
+        await call(`${base}/agents/${uid}/moments?documentId=${encodeURIComponent(id)}`, { method: 'POST', body: JSON.stringify({ fields }) });
+        return true;
+      } catch (e) {
+        if (String(e.message || e).includes('409')) return false;
+        throw e;
+      }
+    },
+    async listMoments(uid, n = RECAP.listMax) {
+      if (!UID_RE.test(uid)) return [];
+      const limit = Math.min(Math.max(1, n | 0), RECAP.listMax);
+      const rows = await call(`${base}/agents/${uid}:runQuery`, { method: 'POST', body: JSON.stringify({ structuredQuery: {
+        from: [{ collectionId: 'moments' }], orderBy: [{ field: { fieldPath: 'createdAt' }, direction: 'DESCENDING' }], limit } }) });
+      return docsOf(rows);
+    },
+    // Owner moments only. Missing ids are skipped. Does not create documents.
+    async markMomentsSeen(uid, ids, now = Date.now()) {
+      if (!UID_RE.test(uid)) return 0;
+      const unique = [...new Set(ids)].filter((id) => MOMENT_ID_RE.test(id)).slice(0, RECAP.seenMax);
+      const seenAt = { timestampValue: new Date(now).toISOString() };
+      const results = await Promise.all(unique.map(async (id) => {
+        try {
+          await patch(`agents/${uid}/moments/${id}`, { seenAt }, ['seenAt']);
+          return 1;
+        } catch (e) {
+          if (/firestore (400|404|409|412)/.test(String(e.message || e))) return 0;
+          throw e;
+        }
+      }));
+      return results.reduce((n, x) => n + x, 0);
     },
     // Create-only: fails (409) if the thread already exists, so a double accept never seeds twice.
     async createThread(id, t) {
