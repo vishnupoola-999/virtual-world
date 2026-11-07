@@ -2,6 +2,7 @@
 // (publicAgents, written by the life loop at ~1 km precision) and a Feed sheet from the proxy's GET /feed.
 // The caller's own card (doc id === /feed myId) is skipped: their agent is already drawn as 'me'.
 // Anonymous users, network errors and missing config all fail quietly: no others on the map, a calm Feed message.
+import {motionSpot} from './motion.js';
 import {displayName as dn} from './names.js';
 import {friendsHtml,avatar,lookOf,fillAvatars} from './threads.js';
 const PROJ='virtual-world-8ac82',FS_DB='default'; // same as firebase.js (kept here so this module has no CDN imports)
@@ -131,14 +132,29 @@ export function setupTown({agents,living,getUser,el,actEl,dotEl,map,threads=null
       if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;const id='nb-'+p.id,ci=p.look?.colorIndex;now.add(id);
       agents.put({id,name:dn(p.name)||'Neighbour',lat,lon,look:Number.isInteger(ci)&&living.townLook?living.townLook(p.look):undefined,ownerName:dn(p.name),other:true,meta:'Neighbour'});agents.get(id)?.el.classList.add('town','nearby');}
     for(const id of nb)if(!now.has(id))agents.remove(id);nb=now;}
-  function draw(list){last=list;const keep=list.filter(d=>d&&d.id&&d.id!==myId&&Number.isFinite(d.lat)&&Number.isFinite(d.lon));const now=new Set();
+  let motRaf=0;
+  const raf=typeof requestAnimationFrame==='function'?requestAnimationFrame:()=>0;
+  const caf=typeof cancelAnimationFrame==='function'?cancelAnimationFrame:()=>{};
+  function placeOf(d,at){const spot=motionSpot(d,at);if(!spot)return {lat:d.lat,lon:d.lon,hold:false,moving:false};
+    return {lat:spot.lat,lon:spot.lon,hold:true,moving:spot.moving,t:spot.t};}
+  function armWalk(){caf(motRaf);motRaf=0;
+    if(typeof requestAnimationFrame==='function'&&last.some(d=>d&&d.id!==myId&&motionSpot(d)?.t<1))motRaf=raf(stepWalk);}
+  function stepWalk(){motRaf=0;const at=Date.now();let go=false;
+    for(const d of last){if(!d||d.id===myId||!Number.isFinite(d.lat))continue;const spot=motionSpot(d,at);
+      if(!spot||spot.t>=1)continue;go=true;agents.pin?.(d.id,spot.lon,spot.lat,spot.heading);
+      if(spot.moving&&agents.get(d.id)?.living?.kind!=='walking'){const st=cardStatus(d.status);
+        living.putOther?.({id:d.id,name:d.name||'Agent',lat:spot.lat,lon:spot.lon,look:d.look,approx:{lat:spot.lat,lon:spot.lon},status:st||undefined,other:true,hold:true,meta:'Around town · approximate area'});}}
+    if(go)motRaf=raf(stepWalk);else draw(last,at);}
+  function draw(list,at=Date.now()){last=list;const keep=list.filter(d=>d&&d.id&&d.id!==myId&&Number.isFinite(d.lat)&&Number.isFinite(d.lon));const ids=new Set();
     const off=new Map(),group=new Map();
     for(const [k,g] of groupsOf(keep)){const o=fanOut(g,spread.has(k)?SPREAD_PX:FAN_PX);for(const a of g){off.set(a.id,o.get(a.id));group.set(a.id,g.length>1&&!spread.has(k)?k:null);}}
-    for(const d of keep){const st=cardStatus(d.status);now.add(d.id);
-      living.putOther?living.putOther({id:d.id,name:d.name||'Agent',lat:d.lat,lon:d.lon,look:d.look,approx:{lat:d.lat,lon:d.lon},status:st||undefined,other:true,meta:'Around town · approximate area'})
-        :agents.put({id:d.id,name:d.name||'Agent',lat:d.lat,lon:d.lon,look:d.look,other:true});
+    for(const d of keep){const st=cardStatus(d.status),p=placeOf(d,at);ids.add(d.id);
+      const status=st&&st.kind==='walking'&&!p.moving?{...st,kind:'idle'}:st;
+      const body={id:d.id,name:d.name||'Agent',lat:p.lat,lon:p.lon,look:d.look,other:true,hold:p.hold};
+      living.putOther?living.putOther({...body,approx:{lat:p.lat,lon:p.lon},status:status||undefined,meta:'Around town · approximate area'})
+        :agents.put(body);
       const a=agents.get(d.id);if(!a)continue;a.marker.setOffset([off.get(d.id)[0],-6+off.get(d.id)[1]]);a.townGroup=group.get(d.id);hookTap(a);}
-    for(const id of drawn)if(!now.has(id))agents.remove(id);drawn=now;threads?.ring();queueClear();return keep.length;}
+    for(const id of drawn)if(!ids.has(id))agents.remove(id);drawn=ids;threads?.ring();queueClear();armWalk();return keep.length;}
   // Tapping an agent in a closed group zooms in and spreads the group instead of opening a profile.
   function hookTap(a){const e=a.el;if(!e||e.dataset.town)return;e.dataset.town='1';
     e.addEventListener('click',ev=>{if(!a.townGroup)return;ev.stopImmediatePropagation();ev.preventDefault();expand(a.townGroup,a.marker.getLngLat());},true);}
@@ -153,7 +169,7 @@ export function setupTown({agents,living,getUser,el,actEl,dotEl,map,threads=null
   if(map){setInterval(()=>{if(!document.hidden&&document.body.dataset.tab!=='chat')queueClear();},1000);map.on('moveend',queueClear);map.on('zoomend',queueClear);addEventListener('resize',queueClear);}
   async function refreshMap(user=getUser()){if(!isReal(user)){clearMap();return 0;}
     try{await ensureMyId(user);return draw(await F.fetchPublicAgents(user));}catch(e){console.warn('town',e?.message);return 0;}}
-  function clearMap(){for(const id of drawn)agents.remove(id);for(const id of nb)agents.remove(id);nb=new Set();drawn=new Set();myId=null;}
+  function clearMap(){caf(motRaf);motRaf=0;last=[];for(const id of drawn)agents.remove(id);for(const id of nb)agents.remove(id);nb=new Set();drawn=new Set();myId=null;}
   async function loadFeed(user=getUser()){if(!el)return;const n=++seq;el.innerHTML=SKELETON;el.setAttribute('aria-busy','true');
     if(!isReal(user)){el.innerHTML='<p class="fdEmpty">Sign in to see what your agent and others have been up to.</p>';el.removeAttribute('aria-busy');return;}
     try{const f=await feed(user);if(n!==seq)return;if(f.myId)myId=f.myId;el.innerHTML=feedHtml(f);}
