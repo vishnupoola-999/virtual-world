@@ -135,7 +135,8 @@ describe('POST /tick auth', () => {
     assert.equal(checkTickSecret('', undefined), false);
   });
   test('endpoint requires x-tick-secret and runs a tick', async () => {
-    const store = fakeStore([agent('a', ['tech', 'ai', 'x'])]);
+    // The server tick uses Date.now(). The shared fixture date aged out of the 14-day active window on 2026-11-07.
+    const store = fakeStore([agent('a', ['tech', 'ai', 'x'], { updatedAt: Date.now() - 3_600_000 })]);
     const server = createServer({ admin: null, memory: null, rateLimiter: { allow: async () => true }, apiKey: 'k', tickSecret: SECRET, lifeSalt: SALT, lifeStore: store, llm: async () => '{"action":"diary","text":"Nice day"}' });
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
@@ -1005,5 +1006,85 @@ describe('recap moments', () => {
     assert.equal(JSON.stringify(clean).includes('threadId'), false);
     assert.equal(JSON.stringify(clean).includes('aliceUid'), false);
     assert.equal(clean.refs.otherAgentId, 'h_0123456789abcdef0123');
+  });
+});
+
+describe('lifeStore precondition after friendStatus', () => {
+  const str = (s) => ({ stringValue: s });
+  const ints = (n) => ({ integerValue: String(n) });
+  const tags = (list) => ({ arrayValue: { values: list.map(str) } });
+  function friendMap(id, name) {
+    return { mapValue: { fields: { [id]: { mapValue: { fields: { name: str(name) } } } } } };
+  }
+  function doc(uid, name, friendId, updateTime) {
+    return {
+      name: `projects/p/databases/default/documents/agents/${uid}`,
+      updateTime,
+      fields: {
+        name: str(name),
+        interests: tags(['tech', 'music', 'art']),
+        bio: str('bio'),
+        lat: { doubleValue: 17.12 },
+        lon: { doubleValue: 78.65 },
+        updatedAt: ints(NOW - 1000),
+        life: { mapValue: { fields: {} } },
+        friends: friendMap(friendId, name === 'Ada' ? 'Bo' : 'Ada'),
+      },
+    };
+  }
+
+  test('saveLife keeps the provider status and drops addresses and bearer tokens', async () => {
+    const s = lifeStore({ projectId: 'p', accessToken: async () => 'header-token', fetchImpl: async () => ({
+      ok: false, status: 400, json: async () => ({ error: { status: 'FAILED_PRECONDITION', message: 'version mismatch a@b.co Bearer super-secret-token' } }),
+    }) });
+    await assert.rejects(
+      () => s.saveLife('alice', { actions: 1 }, { updateTime: '2026-11-07T00:00:00.000000Z', status: makeStatus('idle', { now: NOW }) }),
+      (e) => {
+        assert.match(e.message, /firestore 400/);
+        assert.match(e.message, /FAILED_PRECONDITION/);
+        assert.equal(e.message.includes('a@b.co'), false);
+        assert.equal(e.message.includes('super-secret-token'), false);
+        assert.equal(e.message.includes('header-token'), false);
+        return true;
+      },
+    );
+  });
+
+  test('a meet still saves both friends after friendStatus moves updateTime', async () => {
+    const alice = 'aliceLife01', bob = 'bobLife0001';
+    const ha = hashId(alice, SALT), hb = hashId(bob, SALT);
+    const versions = new Map([[alice, '2026-11-07T00:00:00.000001Z'], [bob, '2026-11-07T00:00:00.000002Z']]);
+    let clock = 3;
+    const lifeWrites = [];
+    const fetchImpl = async (url, init = {}) => {
+      const u = new URL(url);
+      const method = init.method || 'GET';
+      const reply = (status, body) => ({ ok: status < 300, status, json: async () => body });
+      if (method === 'GET' && u.pathname.endsWith('/agents')) {
+        return reply(200, { documents: [doc(alice, 'Ada', hb, versions.get(alice)), doc(bob, 'Bo', ha, versions.get(bob))] });
+      }
+      const who = u.pathname.match(/\/agents\/([^/]+)/);
+      if (who && method === 'PATCH') {
+        const uid = decodeURIComponent(who[1]);
+        const sent = u.searchParams.get('currentDocument.updateTime');
+        if (sent && sent !== versions.get(uid)) {
+          return reply(400, { error: { status: 'FAILED_PRECONDITION', message: 'version mismatch a@b.co Bearer super-secret-token' } });
+        }
+        const next = `2026-11-07T00:00:00.${String(++clock).padStart(6, '0')}Z`;
+        versions.set(uid, next);
+        if ((u.searchParams.getAll('updateMask.fieldPaths') || []).includes('life')) lifeWrites.push({ uid, sent, next });
+        return reply(200, { updateTime: next });
+      }
+      if (method === 'POST' && u.pathname.includes('/diary')) return reply(200, { name: `${u.pathname}/d1` });
+      return reply(200, {});
+    };
+    const store = lifeStore({ projectId: 'p', accessToken: async () => 't', fetchImpl });
+    const llm = async (p) => (p.includes('Pick ONE') ? '{"action":"meet"}' : 'A: Hi there\nB: Hello\nA: You like tech?\nB: Yes I do.');
+    const summary = await runTick({ store, llm, now: NOW, salt: SALT });
+    assert.equal(summary.errors, 0);
+    assert.equal(summary.meets, 1);
+    const ada = lifeWrites.find((w) => w.uid === alice);
+    assert.ok(ada);
+    assert.notEqual(ada.sent, '2026-11-07T00:00:00.000001Z');
   });
 });
