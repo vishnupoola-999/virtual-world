@@ -8,3 +8,5 @@ export const screenYaw=(heading,bearing)=>wrap(Math.PI-(heading-bearing));
 export const headingFromYaw=(yaw,bearing)=>wrap(Math.PI-yaw+bearing);
 // Ease a heading toward a target the shortest way round; dt in seconds (clamped by the caller).
 export const easeHeading=(now,target,dt,rate=8)=>{const d=wrap(target-now);return Math.abs(d)<.002?target:now+d*Math.min(1,dt*rate);};
+// How long a life-loop walk stays "on the way" before the next decision. The proxy imports this same constant.
+export const WALK_MS=90*60*1000;
