@@ -34,10 +34,10 @@ body.offline .ag canvas{animation-play-state:paused}
 body.v4 #tabs{left:50%;right:auto;width:232px;height:56px;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom) + 16px);border-radius:28px;background:var(--s2);border:1px solid var(--hair);display:flex;justify-content:space-around;align-items:center;padding:0 6px;gap:0}
 body.v4 #tabs .ind{display:none}
 body.v4 #tabs .tab{flex:1;height:44px;min-height:0;border-radius:22px;background:none;border:0;color:var(--tx-2);font:500 13px/1 Inter,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;gap:5px;transition:transform 80ms var(--e4)}
-body.v4 #tabs .tab[aria-selected=true]{color:#fff;font-weight:600}
+body.v4 #tabs .tab[aria-selected=true]{background:#1E2129;color:#fff;font-weight:600}
 body.dmOpen #tabs{display:none}
 /* ---- sheets (Chats, Me): #111318, radius 24 */
-body.v4 #sheet{background:var(--s1);border:0;border-radius:24px 24px 0 0;top:96px;bottom:0;left:0;right:0;max-height:none}
+body.v4 #sheet{background:var(--s1);border:0;border-radius:24px 24px 0 0;top:96px;bottom:0;left:0;right:0;width:auto;max-width:none;max-height:none}
 body.v4 #sheet .body{padding-bottom:calc(env(safe-area-inset-bottom) + 92px)}
 body.v4 #tabs{z-index:9}
 body.v4 #sheet #sheetHead b{font:600 20px/1.2 Inter,system-ui,sans-serif}
@@ -135,7 +135,7 @@ body.v4 #sheet[data-cur=me] #sheetHead b{visibility:hidden}
 #v4Me .colRow{margin:0 -4px}
 .week{margin:16px 0;padding:14px 16px;border-radius:12px;background:var(--s2);display:flex;flex-direction:column;gap:4px}.week b{font:600 14px/1.2 Inter,system-ui,sans-serif}.week small{color:var(--tx-2);font:400 13px/1.3 Inter,system-ui,sans-serif}
 #v4Me .primary{margin-top:16px}
-.meTools{display:flex;justify-content:center;gap:4px;margin-top:8px}.meTools button{background:none;border:0;min-height:44px;padding:0 12px;color:var(--tx-3);font:500 13px/1 Inter,system-ui,sans-serif}
+.meTools{display:flex;justify-content:stretch;gap:8px;margin-top:8px}.meTools button{flex:1;background:none;border:0;min-height:44px;height:44px;padding:0 8px;color:#B7BCC8;font:500 14px/1 Inter,system-ui,sans-serif;border-radius:12px}
 @keyframes v4Up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){
   #dmView,#v4Conn,#v4Arrive,.scrimV4,.v4Sheet{transition:opacity 150ms linear!important;transform:none!important}
@@ -164,3 +164,61 @@ body.v4 #sheet .body{padding-bottom:calc(var(--tabH) + 16px + env(safe-area-inse
 :root{--tabH:56px}
 
 @media (prefers-reduced-motion:reduce){.rx.pop{animation:none}}
+
+/* Sign-in is a full screen (phone) or a centered card (desktop), never a short side panel.
+   One column, about 400px: that is the width a primary button stays easy to hit and easy to read.
+   The Google action is 52px; other primaries stay 48px; icon buttons stay 40px. */
+body.v4 button.primary.g{height:52px;min-height:52px;border-radius:26px;gap:10px;padding:0 18px;font-size:16px;font-weight:600}
+body.v4 button.primary.g .gMark{width:18px;height:18px;flex:none;display:block}
+body.v4 button.primary.g:focus-visible,body.v4 #signOutBtn:focus-visible{outline:2px solid #fff;outline-offset:3px}
+.authBrand{display:flex;align-items:center;gap:10px;margin:0 0 22px;font:600 14px/1 Inter,system-ui,sans-serif;letter-spacing:-.01em;color:#F2F4F8}
+.authMark{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#5B8CFF,#9B6BFF);flex:none}
+.authLead,.authMini p{margin:0 0 28px;color:#8A90A0;font:400 16px/1.45 Inter,system-ui,sans-serif}
+.authNote{margin:14px 0 0;color:#6B7180;font:400 13px/1.45 Inter,system-ui,sans-serif}
+.authGate h2,.authScreen h1,.authMini h2{margin:0 0 10px;color:#F2F4F8;font:600 34px/1.12 Inter,system-ui,sans-serif;letter-spacing:-.03em}
+.authMini{width:min(400px,100%);margin:28px auto 0}
+.authMini p{font-size:15px;margin:0 0 20px}
+.authScreen{flex:1;display:flex;flex-direction:column;width:min(400px,100%);margin:0 auto;padding:4px 24px calc(12px + env(safe-area-inset-bottom));box-sizing:border-box}
+.authScreen .authMain{flex:1;display:flex;flex-direction:column;justify-content:center;padding-bottom:8vh}
+.authLegal,.authCol .legal{margin:12px 0 0;text-align:center;color:#8A90A0;font-size:13px;line-height:1.4}
+.authLegal a,.authCol .legal a{color:inherit;text-decoration:underline;text-underline-offset:3px;padding:10px 2px}
+#onb[data-step="2"]{background:#07080C}
+#onb[data-step="1"] .onbBottom{background:linear-gradient(to bottom,rgba(7,8,12,0),#07080C 22%);padding-top:56px}
+#onb[data-step="1"] .onbBottom h1{font-size:32px;line-height:1.12;letter-spacing:-.03em}
+.onbBottom h1 em{background:none;-webkit-background-clip:border-box;background-clip:border-box;-webkit-text-fill-color:#C4B5FD;color:#C4B5FD}
+.onbLinks{margin:4px 0 0;text-align:center;font-size:13px;line-height:1.4;color:#B7BCC8;white-space:nowrap}
+.onbLinks a{color:inherit;text-decoration:underline;text-underline-offset:3px;padding:8px 2px}
+body.onb .maplibregl-control-container{visibility:hidden}
+.meEmpty{flex:1;display:flex;flex-direction:column;justify-content:center;width:min(400px,100%);margin:0 auto;padding:12px 0 24px}
+.meEmpty h2{margin:0 0 8px;color:#F2F4F8;font:600 28px/1.15 Inter,system-ui,sans-serif;letter-spacing:-.03em}
+.meEmpty p:not(.authBrand){margin:0 0 24px;color:#8A90A0;font:400 15px/1.45 Inter,system-ui,sans-serif}
+body.v4 #sheet[data-cur="me"]:has(.meEmpty) .body{flex:1;min-height:0;display:flex;flex-direction:column}
+body.v4 #sheet[data-cur="me"]:has(.meEmpty) [data-sec="me"]{flex:1;display:flex;flex-direction:column;min-height:0}
+#v4Me:has(.meEmpty){flex:1;justify-content:center}
+#onb .onbBottom,#onb .onbPanel,.onbInt{width:min(440px,100%);margin-left:auto;margin-right:auto;box-sizing:border-box}
+body.v4 #sheet[data-cur="account"]{top:0;border-radius:0}
+body.v4 #sheet[data-cur="account"] #sheetHead{justify-content:flex-end;padding:calc(8px + env(safe-area-inset-top)) 12px 0}
+body.v4 #sheet[data-cur="account"] #sheetHead b,body.v4 #sheet[data-cur="account"] #sheetHead .grab{display:none}
+body.v4 #sheet[data-cur="account"] .body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;padding-left:24px;padding-right:24px}
+body.v4 #sheet[data-cur="account"] [data-sec="account"]{flex:1;display:flex;flex-direction:column;min-height:0}
+.authCol{flex:1;display:flex;flex-direction:column;width:min(400px,100%);margin:0 auto;min-height:0}
+.authGate{flex:1;display:flex;flex-direction:column;justify-content:center;padding:8px 0 12px}
+#userChip.acctCard{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:0;flex:1;padding-top:8px}
+.acctWho{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.acctAv{width:72px;height:72px;border-radius:50%;margin-bottom:8px;background:#1E2129;color:#F2F4F8;display:grid;place-items:center;overflow:hidden;font:600 28px/1 Inter,system-ui,sans-serif}
+.acctAv img{width:100%;height:100%;object-fit:cover}
+.acctWho b{font:600 22px/1.2 Inter,system-ui,sans-serif;letter-spacing:-.02em}
+.acctWho small{color:#8A90A0;font:400 14px/1.4 Inter,system-ui,sans-serif}
+#signOutBtn{width:100%;height:48px;margin-top:28px;background:transparent;color:#F2F4F8;border:1px solid #2A2E38}
+.installTip{margin:20px 0 0;color:#8A90A0;font-size:13px;line-height:1.45}
+#agView .row button{flex:1 1 0;min-width:0;height:48px;padding:0 10px}
+#searchF>button{flex:0 0 auto;height:48px;padding:0 16px}
+body.v4 #moveBar .row{display:flex;gap:8px}
+body.v4 #moveBar .row button{flex:1 1 0;width:auto;min-width:0;height:48px}
+body.v4 #moveBar .row .primary{flex:1.4 1 0}
+.maplibregl-ctrl-attrib-button{filter:invert(1)}
+@media (min-width:768px){
+  body.v4 #sheet{width:min(480px,calc(100% - 48px));margin-left:auto;margin-right:auto}
+  body.v4 #scrim{display:block}
+  body.v4 #sheet[data-cur="account"]{top:0;bottom:0;height:max-content;max-height:calc(100dvh - 120px);margin-top:auto;margin-bottom:auto;width:min(440px,calc(100% - 48px));border-radius:28px;border:1px solid #20232C}
+}

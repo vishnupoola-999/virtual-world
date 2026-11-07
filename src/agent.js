@@ -12,8 +12,14 @@ export function setupAgent(map,{onAgent=()=>{},onLoaded=()=>{}}={}){let user=nul
   const lk=lookEditor(l=>{if(agent&&$('agForm').dataset.edit)av.set({...agent,look:l});$('agSave').disabled=!lk?.picked();});
   const getPos=()=>new Promise((ok,no)=>navigator.geolocation?navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:true,timeout:20000}):no(new Error('Location not supported')));
   function render(){const signed=!!user;
-    for(const id of ['signInBtn','agSignIn'])$(id).hidden=signed;$('userChip').hidden=!signed;$('agentBox').hidden=!signed;
+    for(const id of ['signInBtn','agSignIn'])$(id).hidden=signed;
+    const gate=$('authGate'),wrap=$('agSignInWrap');if(gate)gate.hidden=signed;if(wrap)wrap.hidden=signed;
+    $('userChip').hidden=!signed;$('agentBox').hidden=!signed;
     $('acctBtn').innerHTML='';if(signed&&user.photoURL){const i=new Image();i.src=user.photoURL;i.referrerPolicy='no-referrer';i.alt='';$('acctBtn').append(i);}else $('acctBtn').textContent=signed?(user.displayName||user.email||'?')[0].toUpperCase():'';$('acctBtn').classList.toggle('out',!signed);
+    const av=$('userAv');
+    if(av){av.replaceChildren();
+      if(signed&&user.photoURL){const i=new Image();i.alt='';i.referrerPolicy='no-referrer';i.onerror=()=>{i.remove();av.textContent=(user.displayName||user.email||'?')[0].toUpperCase();};i.src=user.photoURL;av.append(i);}
+      else if(signed)av.textContent=(user.displayName||user.email||'?')[0].toUpperCase();}
     if(signed){$('userName').textContent=user.displayName||user.email;$('userMail').textContent=user.email||'';}
     $('agForm').hidden=!signed||!!agent&&!$('agForm').dataset.edit;$('agView').hidden=!agent||!$('agForm').hidden;
     if(agent){$('agTitle').textContent=agent.name;$('agDesc').textContent=agent.personality||'';}
