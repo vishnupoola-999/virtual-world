@@ -881,6 +881,11 @@ describe('recap moments', () => {
     assert.equal(recapShow({ lastSessionEndAt: now - RECAP.awayMs + 1 }, now).show, false);
     assert.deepEqual(recapShow({ lastSeenAt: now - RECAP.awayMs }, now), { show: true, lastSessionEndAt: now - RECAP.awayMs });
     assert.equal(recapShow({ lastSeenAt: now - 60_000 }, now).show, false);
+    // GET before the opening heartbeat: lastSeenAt is a 5 minute gap, lastSessionEndAt is the visit before that.
+    const stale = recapShow({ lastSessionEndAt: now - 5 * 3_600_000, lastSeenAt: now - 5 * 60 * 1000 }, now);
+    assert.equal(stale.show, false);
+    assert.equal(stale.lastSessionEndAt, now - 5 * 60 * 1000);
+    // The heartbeat has just written lastSeenAt. The preserved end is the real gap, not "now".
     const preserved = recapShow({ lastSessionEndAt: now - 3_600_000, lastSeenAt: now - 1000 }, now);
     assert.equal(preserved.show, true);
     assert.equal(preserved.lastSessionEndAt, now - 3_600_000);
@@ -888,7 +893,14 @@ describe('recap moments', () => {
     assert.equal(session.lastSessionEndAt, now - 20 * 60 * 1000);
     assert.equal(session.lastSeenAt, now);
     assert.notEqual(session.lastSessionEndAt, now);
-    assert.equal(usageSessionUpdate({ lastSeenAt: now - 500 }, now, true).lastSessionEndAt, undefined);
+    // No stored end yet: record the previous lastSeenAt even if it is recent. It is not "now".
+    assert.equal(usageSessionUpdate({ lastSeenAt: now - 500 }, now, true).lastSessionEndAt, now - 500);
+    // Duplicate newSession inside one client heartbeat must not move an existing end up to this visit.
+    const dup = usageSessionUpdate({ lastSeenAt: now - 30_000, lastSessionEndAt: now - 20 * 60 * 1000 }, now, true);
+    assert.equal(dup.lastSessionEndAt, undefined);
+    assert.equal(dup.lastSeenAt, now);
+    // A real later return, past one heartbeat, does move the end to that leave time.
+    assert.equal(usageSessionUpdate({ lastSeenAt: now - 5 * 60 * 1000, lastSessionEndAt: now - 5 * 3_600_000 }, now, true).lastSessionEndAt, now - 5 * 60 * 1000);
     assert.equal(usageSessionUpdate(null, now, true).lastSessionEndAt, undefined);
     assert.equal(usageSessionUpdate({ lastSeenAt: now - 3_600_000 }, now, false).lastSessionEndAt, undefined);
     assert.deepEqual(MOMENT_WEIGHT, { thought: 1, observation: 1, question: 2, meeting: 3, friend: 5 });
@@ -923,8 +935,18 @@ describe('recap moments', () => {
     assert.equal(meeting.refs.otherAgentId, other);
     assert.equal(meeting.refs.otherAgentName, 'Arjun');
     assert.equal(meeting.refs.meetingId, store.diary.aliceUid[0].id);
-    assert.equal(meeting.text, "I met Arjun, they're into tech, you two would get along.");
+    const bobMeet = store.moments.find((m) => m.uid === 'bobUid' && m.kind === 'meeting');
+    assert.equal(bobMeet.refs.meetingId, store.diary.bobUid[0].id);
+    assert.notEqual(meeting.refs.meetingId, bobMeet.refs.meetingId);
+    assert.equal(meeting.refs.meetingId, 'd0');
+    assert.equal(bobMeet.refs.meetingId, 'd1');
+    // The moment states the meet. The generated note stays on the diary and is not the card text.
+    assert.equal(meeting.text, 'I met Arjun. We both like tech.');
+    assert.equal(meeting.source, 'event');
+    assert.equal(store.diary.aliceUid[0].note, "I met Arjun, they're into tech, you two would get along.");
+    assert.equal(meeting.text.includes('get along'), false);
     assert.equal(friend.text, 'Arjun and I are friends now.');
+    assert.equal(friend.source, 'event');
     const payload = mine.map(({ uid, ...m }) => m);
     const blob = JSON.stringify(payload);
     assert.equal(blob.includes('bobUid'), false);

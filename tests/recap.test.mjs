@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { describe, test } from 'node:test';
 import { createServer } from '../proxy/server.js';
-import { buildRecapMoments, hashId, lifeStore } from '../proxy/life.js';
+import { buildRecapMoments, hashId, lifeStore, timestampMs } from '../proxy/life.js';
 
 const SALT = 'test-salt';
 const ALICE = 'aliceUid000000000001';
@@ -163,6 +163,24 @@ describe('GET /recap and POST /recap/seen', () => {
       assert.equal(first.json.show, true);
       assert.equal(first.json.lastSessionEndAt, seenAt);
     });
+    const now = Date.now();
+    const short = store();
+    short.usage.set(ALICE, { lastSessionEndAt: now - 5 * 60 * 60 * 1000, lastSeenAt: now - 5 * 60 * 1000 });
+    short.put(ALICE, moment());
+    await withApi(short, async (call) => {
+      const quiet = await call(ALICE, 'GET', '/recap');
+      assert.equal(quiet.json.show, false);
+      assert.equal(quiet.json.lastSessionEndAt, short.usage.get(ALICE).lastSeenAt);
+      assert.equal(JSON.stringify(quiet.json).includes(ALICE), false);
+    });
+    const landed = store();
+    landed.usage.set(ALICE, { lastSessionEndAt: now - 20 * 60 * 1000, lastSeenAt: now - 1000 });
+    landed.put(ALICE, moment());
+    await withApi(landed, async (call) => {
+      const open = await call(ALICE, 'GET', '/recap');
+      assert.equal(open.json.show, true);
+      assert.equal(open.json.lastSessionEndAt, landed.usage.get(ALICE).lastSessionEndAt);
+    });
   });
 
   test('recap reads are rate limited', async () => {
@@ -205,4 +223,66 @@ test('lifeStore.addMoment is create-only on agents/{uid}/moments and never store
   assert.equal(fields.refs.mapValue.fields.threadId, undefined);
   assert.equal(JSON.stringify(fields).includes(BOB), false);
   assert.equal(await s.addMoment(ALICE, friend.id, { ...friend, refs: { otherAgentId: BOB, otherAgentName: 'Priya' } }), false);
+});
+
+test('Firestore timestamps decode, and seen patches only an existing moment', async () => {
+  const leave = '2026-11-07T06:00:00.123456789Z';
+  const created = '2026-11-07T05:00:00.000000000Z';
+  assert.equal(timestampMs(leave), Date.parse('2026-11-07T06:00:00.123Z'));
+  assert.equal(timestampMs('not-a-time'), NaN);
+  const calls = [];
+  const s = lifeStore({
+    projectId: 'virtual-world-8ac82',
+    accessToken: async () => 't',
+    fetchImpl: async (u, i) => {
+      const url = String(u);
+      calls.push(url);
+      if (url.endsWith(`/usage/${ALICE}`) && i?.method !== 'POST') {
+        return { ok: true, status: 200, json: async () => ({ fields: {
+          lastSeenAt: { timestampValue: leave },
+          lastSessionEndAt: { timestampValue: '2026-11-07T01:00:00Z' },
+        } }) };
+      }
+      if (url.includes(':runQuery')) {
+        return { ok: true, status: 200, json: async () => ([{ document: {
+          name: `projects/virtual-world-8ac82/databases/default/documents/agents/${ALICE}/moments/meet_x`,
+          fields: {
+            kind: { stringValue: 'meeting' },
+            text: { stringValue: 'I met Priya.' },
+            createdAt: { timestampValue: created },
+            source: { stringValue: 'event' },
+            refs: { mapValue: { fields: {
+              meetingId: { stringValue: 'diaryOwner1' },
+              otherAgentId: { stringValue: OTHER },
+              otherAgentName: { stringValue: 'Priya' },
+              threadId: { stringValue: 't_aaaaaaaaaaaaaaaaaaaaaaaa' },
+            } } },
+          },
+        } }]) };
+      }
+      if (url.includes('/moments/missing')) return { ok: false, status: 400, json: async () => ({ error: { status: 'FAILED_PRECONDITION' } }) };
+      if (url.includes('/moments/boom')) return { ok: false, status: 500, json: async () => ({}) };
+      if (url.includes('/moments/okid')) return { ok: true, status: 200, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({}) };
+    },
+  });
+  const usage = await s.getUsage(ALICE);
+  assert.equal(usage.lastSeenAt, Date.parse('2026-11-07T06:00:00.123Z'));
+  assert.equal(usage.lastSessionEndAt, Date.parse('2026-11-07T01:00:00Z'));
+  const usageUrl = calls.find((u) => u.includes(`/usage/${ALICE}`));
+  assert.match(usageUrl, /\/databases\/default\/documents\/usage\/aliceUid000000000001$/);
+  assert.equal(usageUrl.includes('(default)'), false);
+  const rows = await s.listMoments(ALICE);
+  assert.equal(rows[0].createdAt, Date.parse('2026-11-07T05:00:00.000Z'));
+  assert.equal(rows[0].refs.meetingId, 'diaryOwner1');
+  assert.equal(rows[0].refs.otherAgentId, OTHER);
+  const queryUrl = calls.find((u) => u.includes(':runQuery'));
+  assert.match(queryUrl, /\/databases\/default\/documents\/agents\/aliceUid000000000001:runQuery$/);
+  assert.equal(await s.markMomentsSeen(ALICE, ['missing', 'okid'], 1_700_000_000_000), 1);
+  const missingUrl = calls.find((u) => u.includes('/moments/missing'));
+  assert.match(missingUrl, /\/databases\/default\/documents\/agents\/aliceUid000000000001\/moments\/missing\?/);
+  assert.match(missingUrl, /updateMask\.fieldPaths=seenAt/);
+  assert.match(missingUrl, /currentDocument\.exists=true/);
+  assert.equal(missingUrl.includes('(default)'), false);
+  await assert.rejects(() => s.markMomentsSeen(ALICE, ['boom']), /firestore 500/);
 });

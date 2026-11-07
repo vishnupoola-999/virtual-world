@@ -253,8 +253,13 @@ export const RECAP = {
   listMax: 40,
   returnMax: 20,
   seenMax: 20,
-  // A second newSession within this window is the opening heartbeat landing twice, not a new absence.
-  sessionBumpMs: 2000,
+  // src/usage.js does not POST /me/usage on load. The first newSession heartbeat is the 60s
+  // interval or the first hide. Auto-open GET /recap finishes before that, so lastSeenAt is
+  // still the previous visit. A lastSeenAt newer than this was just written by that heartbeat.
+  sessionFreshMs: 5 * 1000,
+  // A second tab can send newSession up to one heartbeat later. Don't move an existing end
+  // forward to that visit's own lastSeenAt.
+  heartbeatFreshMs: 90 * 1000,
 };
 export const MOMENT_WEIGHT = { thought: 1, observation: 1, question: 2, meeting: 3, friend: 5 };
 const MOMENT_KINDS = Object.keys(MOMENT_WEIGHT);
@@ -269,13 +274,11 @@ export function momentIdFor(kind, otherAgentId, at) {
   return '';
 }
 
-// Factual line for a meeting that already happened. The worth-meeting note is used when it survived safeLine.
-// Conversation lines are not copied, and nothing is written when the text would be empty or unsafe.
-export function meetingMomentText(name, shared, note) {
+// Factual line only. The worth-meeting note is generated and stays on the diary entry.
+// Conversation lines are not copied. Empty or unsafe text is not stored.
+export function meetingMomentText(name, shared) {
   const cleanName = scrub(String(name || '')).slice(0, 40);
   if (!cleanName) return '';
-  const noted = typeof note === 'string' ? safeLine(note, RECAP.textMax) : '';
-  if (noted) return noted;
   const tags = (Array.isArray(shared) ? shared : []).map((t) => scrub(String(t))).filter(Boolean).slice(0, 3);
   const base = tags.length ? `I met ${cleanName}. We both like ${tags.join(', ')}.` : `I met ${cleanName}.`;
   return safeLine(base, RECAP.textMax);
@@ -319,13 +322,13 @@ export function publicRecapMoment(m) {
   return out;
 }
 
-export function buildRecapMoments({ otherAgentId, otherName, shared, note, at, meetingId, isNewFriend }) {
+export function buildRecapMoments({ otherAgentId, otherName, shared, at, meetingId, isNewFriend }) {
   const name = scrub(String(otherName || '')).slice(0, 40);
   const refs = { otherAgentId, otherAgentName: name };
   if (typeof meetingId === 'string' && MEET_ID_RE.test(meetingId)) refs.meetingId = meetingId;
   const createdAt = Math.floor(Number(at));
   const out = [];
-  const meetText = meetingMomentText(name, shared, note);
+  const meetText = meetingMomentText(name, shared);
   const meetId = momentIdFor('meeting', otherAgentId, createdAt);
   if (meetText && meetId) {
     out.push({ id: meetId, kind: 'meeting', text: meetText, createdAt, weight: MOMENT_WEIGHT.meeting, source: 'event', refs: { ...refs } });
@@ -360,22 +363,38 @@ export async function captureRecapMoments(store, spec) {
   return saved;
 }
 
-// `show` is true when the preserved session end is at least 15 minutes ago.
-// If lastSessionEndAt was never written yet, a lastSeenAt that is already that old is the previous session
-// (the opening heartbeat has not landed). A fresh lastSeenAt does not hide a preserved end.
+function finiteMs(v) {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+// `show` follows the previous visit, not a stale lastSessionEndAt from the visit before that.
+// src/usage.js posts newSession on the first 60s tick or on hide, after GET /recap has already run.
+// Until that write, lastSeenAt is the previous visit. Once lastSeenAt is only sessionFreshMs old,
+// the write has landed and lastSessionEndAt is the gap it preserved.
 export function recapShow(usage, now = Date.now()) {
-  const end = typeof usage?.lastSessionEndAt === 'number' && Number.isFinite(usage.lastSessionEndAt) ? usage.lastSessionEndAt : null;
-  const seen = typeof usage?.lastSeenAt === 'number' && Number.isFinite(usage.lastSeenAt) ? usage.lastSeenAt : null;
-  const clock = end != null ? end : (seen != null && now - seen >= RECAP.awayMs ? seen : null);
+  const end = finiteMs(usage?.lastSessionEndAt);
+  const seen = finiteMs(usage?.lastSeenAt);
+  const seenAge = seen == null ? null : now - seen;
+  const justWrote = seenAge != null && seenAge >= 0 && seenAge < RECAP.sessionFreshMs;
+  let clock;
+  if (seen == null) clock = end;
+  else if (seenAge >= RECAP.awayMs) clock = seen;
+  else if (justWrote) clock = end;
+  else clock = seen;
   return { show: clock != null && now - clock >= RECAP.awayMs, lastSessionEndAt: clock };
 }
 
 // On newSession, keep the previous lastSeenAt as lastSessionEndAt. Never set that field to `now`.
+// A second newSession while this visit's lastSeenAt is still inside one heartbeat keeps the end
+// already stored, so a duplicate tab cannot hide a real absence.
 export function usageSessionUpdate(prev, now, newSession) {
   const out = { lastSeenAt: now };
   if (!newSession) return out;
-  const prevSeen = typeof prev?.lastSeenAt === 'number' && Number.isFinite(prev.lastSeenAt) ? prev.lastSeenAt : null;
-  if (prevSeen != null && now - prevSeen >= RECAP.sessionBumpMs) out.lastSessionEndAt = prevSeen;
+  const prevSeen = finiteMs(prev?.lastSeenAt);
+  const prevEnd = finiteMs(prev?.lastSessionEndAt);
+  if (prevSeen == null || now < prevSeen) return out;
+  if (prevEnd != null && now - prevSeen < RECAP.heartbeatFreshMs) return out;
+  out.lastSessionEndAt = prevSeen;
   return out;
 }
 
@@ -842,8 +861,8 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       // Public "who met whom" line: names, hashed ids and shared interests only, never the conversation.
       if (store.addPublicMeet) await store.addPublicMeet({ aId: meId, aName: mine.name, bId: otherId, bName: theirs.name, shared, at: now }).catch(() => {});
       // Real meetings only. Town meets returned above. A moment-write failure must not undo the meet or invent a line.
-      await captureRecapMoments(store, { uid: me.uid, otherAgentId: otherId, otherName: theirs.name, shared, note: myNote, at: now, meetingId: myDiaryId, isNewFriend: mineNewFriend });
-      await captureRecapMoments(store, { uid: other.uid, otherAgentId: meId, otherName: mine.name, shared, note: theirNote, at: now, meetingId: theirDiaryId, isNewFriend: theirNewFriend });
+      await captureRecapMoments(store, { uid: me.uid, otherAgentId: otherId, otherName: theirs.name, shared, at: now, meetingId: myDiaryId, isNewFriend: mineNewFriend });
+      await captureRecapMoments(store, { uid: other.uid, otherAgentId: meId, otherName: mine.name, shared, at: now, meetingId: theirDiaryId, isNewFriend: theirNewFriend });
       summary.meets++;
     } catch (error) {
       summary.errors++;
@@ -865,12 +884,20 @@ export function toValue(v) {
   return { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, toValue(x)])) } };
 }
 
+// Firestore REST timestamps may include nanoseconds. Keep millisecond precision.
+export function timestampMs(raw) {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  const text = String(raw ?? '').trim().replace(/(\.\d{3})\d+/, '$1');
+  const ms = Date.parse(text);
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
 export function fromValue(v = {}) {
   if ('stringValue' in v) return v.stringValue;
   if ('booleanValue' in v) return v.booleanValue;
   if ('integerValue' in v) return Number(v.integerValue);
   if ('doubleValue' in v) return v.doubleValue;
-  if ('timestampValue' in v) return Date.parse(v.timestampValue);
+  if ('timestampValue' in v) return timestampMs(v.timestampValue);
   if ('arrayValue' in v) return (v.arrayValue.values || []).map(fromValue);
   if ('mapValue' in v) return Object.fromEntries(Object.entries(v.mapValue.fields || {}).map(([k, x]) => [k, fromValue(x)]));
   return null;
