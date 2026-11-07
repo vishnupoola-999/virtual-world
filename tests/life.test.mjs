@@ -135,7 +135,8 @@ describe('POST /tick auth', () => {
     assert.equal(checkTickSecret('', undefined), false);
   });
   test('endpoint requires x-tick-secret and runs a tick', async () => {
-    const store = fakeStore([agent('a', ['tech', 'ai', 'x'])]);
+    // The server tick uses Date.now(). The shared fixture date aged out of the 14-day active window on 2026-11-07.
+    const store = fakeStore([agent('a', ['tech', 'ai', 'x'], { updatedAt: Date.now() - 3_600_000 })]);
     const server = createServer({ admin: null, memory: null, rateLimiter: { allow: async () => true }, apiKey: 'k', tickSecret: SECRET, lifeSalt: SALT, lifeStore: store, llm: async () => '{"action":"diary","text":"Nice day"}' });
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');

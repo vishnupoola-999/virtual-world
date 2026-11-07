@@ -40,6 +40,17 @@ const DEFAULT_MODEL = 'gemini-flash-lite-latest';
 // the request retries once on each fallback in order, ending on the life-loop model.
 export const CHAT_MODEL = 'gemini-3.8-flash';
 export const CHAT_FALLBACKS = ['gemini-flash-latest', DEFAULT_MODEL];
+
+// A fetch that never returned headers. Abort and the request deadline are not retries.
+const TRANSIENT_NET = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET', 'UND_ERR_HEADERS_TIMEOUT']);
+function transientModelFetch(err, signal) {
+  if (!err || signal?.aborted) return false;
+  const cause = err.cause;
+  if (err.name === 'AbortError' || err.name === 'TimeoutError' || cause?.name === 'AbortError' || cause?.name === 'TimeoutError') return false;
+  if (err instanceof TypeError) return true;
+  const code = cause?.code || err.code;
+  return typeof code === 'string' && TRANSIENT_NET.has(code);
+}
 export const CUT_NOTE = ' (That got long, so I stopped there. Say "go on" and I will continue.)';
 const CLOCK_SKEW_SEC = 5;
 
@@ -702,9 +713,13 @@ async function handleChat(req, res, ctx, stream = false, continueId = '') {
           signal: AbortSignal.any([AbortSignal.timeout(50_000), ctrl.signal]),
         },
       );
-    } catch {
+    } catch (err) {
       console.error('gemini fetch failed', model);
-      throw new HttpError(502, 'upstream unavailable');
+      upstream = undefined;
+      // Headers are not sent yet. A dropped connection can try the next model once.
+      // Abort, the 50s deadline, and a client stop must not start another request.
+      if (!transientModelFetch(err, ctrl.signal)) throw new HttpError(502, 'upstream unavailable');
+      continue;
     }
     if (stream && upstream.ok) break;
     try {
@@ -717,7 +732,7 @@ async function handleChat(req, res, ctx, stream = false, continueId = '') {
     // Only "this key can't use this model / config" moves on to the next model. Quota and 5xx fail fast.
     if (![400, 403, 404].includes(upstream.status)) break;
   }
-  if (!upstream.ok) throw new HttpError(502, 'upstream unavailable');
+  if (!upstream?.ok) throw new HttpError(502, 'upstream unavailable');
   if (ctx.chatModel !== model) ctx.chatModel = model; // remember the first model that worked
   // Saved replies carry the request so a stopped one can be continued.
   const keep = (text, partial) => rememberReply(ctx, messageId, { uid, text, partial, agent: body.agent, tools: body.tools, timeZone: body.timeZone,

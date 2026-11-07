@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { describe, test } from 'node:test';
-import { createServer, CHAT_MODEL, pendingAction, streamErrorCode, linkOut } from '../proxy/server.js';
+import { createServer, CHAT_MODEL, CHAT_FALLBACKS, pendingAction, streamErrorCode, linkOut } from '../proxy/server.js';
 
 const ORIGIN = 'https://vishnupoola-999.github.io';
 const UID = 'ownerUid000000000001';
@@ -202,6 +202,69 @@ describe('POST /agent/chat (SSE)', () => {
     const fetchImpl = async (u) => { urls.push(u); return u.includes(CHAT_MODEL) ? new Response('{}', { status: 404 }) : geminiSse([{ text: 'ok' }]); };
     await run({ fetchImpl }, async (url) => assert.equal(events(await (await post(url)).text()).at(-1).data.text, 'ok'));
     assert.match(urls[1], /gemini-flash-latest:streamGenerateContent/);
+  });
+
+  test('a fetch TypeError before any bytes tries the next model once', async () => {
+    const urls = [];
+    const fetchImpl = async (u) => {
+      urls.push(u);
+      if (u.includes(CHAT_MODEL)) throw new TypeError('fetch failed');
+      return geminiSse([{ text: 'ok' }]);
+    };
+    await run({ fetchImpl }, async (url) => {
+      const parsed = events(await (await post(url)).text());
+      assert.equal(parsed.filter((e) => e.data.text === 'ok').length, 1);
+      assert.equal(parsed.at(-1).event, 'done');
+    });
+    assert.equal(urls.length, 2);
+    assert.match(urls[1], /gemini-flash-latest:streamGenerateContent/);
+  });
+
+  test('an aborted or non-network fetch does not walk the fallback chain', async () => {
+    const cases = [
+      () => new DOMException('AbortError', 'AbortError'),
+      () => new DOMException('TimeoutError', 'TimeoutError'),
+      () => Object.assign(new TypeError('fetch failed'), { cause: new DOMException('aborted', 'AbortError') }),
+      () => new Error('bug'),
+    ];
+    for (const make of cases) {
+      const urls = [];
+      const fetchImpl = async (u) => { urls.push(u); throw make(); };
+      await run({ fetchImpl }, async (url) => {
+        const r = await post(url);
+        assert.equal(r.status, 502);
+        assert.equal(events(await r.text()).at(-1).data.code, 'failed');
+      });
+      assert.equal(urls.length, 1);
+    }
+  });
+
+  test('a socket reset before headers tries the next model once', async () => {
+    const urls = [];
+    const fetchImpl = async (u) => {
+      urls.push(u);
+      if (urls.length === 1) throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+      return geminiSse([{ text: 'ok' }]);
+    };
+    await run({ fetchImpl }, async (url) => {
+      const parsed = events(await (await post(url)).text());
+      assert.equal(parsed.filter((e) => e.event === 'done').length, 1);
+      assert.equal(parsed.at(-1).data.text, 'ok');
+    });
+    assert.equal(urls.length, 2);
+  });
+
+  test('every model failing the fetch yields one error and stops after the chain', async () => {
+    const urls = [];
+    const fetchImpl = async (u) => { urls.push(u); throw new TypeError('fetch failed'); };
+    await run({ fetchImpl }, async (url) => {
+      const r = await post(url);
+      assert.equal(r.status, 502);
+      const parsed = events(await r.text());
+      assert.equal(parsed.length, 1);
+      assert.equal(parsed[0].data.code, 'failed');
+    });
+    assert.deepEqual(urls.map((u) => u.split('/models/')[1].split(':')[0]), [CHAT_MODEL, ...CHAT_FALLBACKS]);
   });
 
   test('errors: 401 stays JSON; upstream failure, rate limit and empty reply are error events with a code', async () => {
