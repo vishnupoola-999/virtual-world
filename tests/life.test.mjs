@@ -1016,7 +1016,7 @@ describe('lifeStore precondition after friendStatus', () => {
   function friendMap(id, name) {
     return { mapValue: { fields: { [id]: { mapValue: { fields: { name: str(name) } } } } } };
   }
-  function doc(uid, name, friendId, updateTime) {
+  function doc(uid, name, friendId, updateTime, extraFields = {}) {
     return {
       name: `projects/p/databases/default/documents/agents/${uid}`,
       updateTime,
@@ -1028,63 +1028,174 @@ describe('lifeStore precondition after friendStatus', () => {
         lon: { doubleValue: 78.65 },
         updatedAt: ints(NOW - 1000),
         life: { mapValue: { fields: {} } },
-        friends: friendMap(friendId, name === 'Ada' ? 'Bo' : 'Ada'),
+        friends: friendId ? friendMap(friendId, name === 'Ada' ? 'Bo' : 'Ada') : { mapValue: { fields: {} } },
+        ...extraFields,
       },
     };
   }
 
-  test('saveLife keeps the provider status and drops addresses and bearer tokens', async () => {
+  const LEAK = 'version mismatch a@b.co Bearer super-secret-token ya29.secret-token AIzaSySecretKeyValue agents/aliceLife01 {"bio":"SECRET_BIO"}';
+
+  test('saveLife keeps the provider status and drops payload, tokens and addresses', async () => {
     const s = lifeStore({ projectId: 'p', accessToken: async () => 'header-token', fetchImpl: async () => ({
-      ok: false, status: 400, json: async () => ({ error: { status: 'FAILED_PRECONDITION', message: 'version mismatch a@b.co Bearer super-secret-token' } }),
+      ok: false, status: 400, json: async () => ({
+        error: { status: 'FAILED_PRECONDITION', message: LEAK },
+        fields: { bio: { stringValue: 'SECRET_BIO' } },
+      }),
     }) });
     await assert.rejects(
       () => s.saveLife('alice', { actions: 1 }, { updateTime: '2026-11-07T00:00:00.000000Z', status: makeStatus('idle', { now: NOW }) }),
       (e) => {
         assert.match(e.message, /firestore 400/);
         assert.match(e.message, /FAILED_PRECONDITION/);
-        assert.equal(e.message.includes('a@b.co'), false);
-        assert.equal(e.message.includes('super-secret-token'), false);
-        assert.equal(e.message.includes('header-token'), false);
+        for (const secret of ['a@b.co', 'super-secret-token', 'header-token', 'ya29.secret-token', 'AIzaSySecretKeyValue', 'aliceLife01', 'SECRET_BIO']) {
+          assert.equal(e.message.includes(secret), false);
+        }
         return true;
       },
     );
   });
 
-  test('a meet still saves both friends after friendStatus moves updateTime', async () => {
+  // friends: 'both' | 'none'. activity puts alice on a walk or a task and takes bob out of the due set.
+  // foreign bumps alice after the list, as if the owner wrote. blankTime makes a successful friendStatus
+  // response omit updateTime after the stored version has moved.
+  function harness({ friends = 'both', activity = '', foreign = false, blankTime = false } = {}) {
     const alice = 'aliceLife01', bob = 'bobLife0001';
     const ha = hashId(alice, SALT), hb = hashId(bob, SALT);
-    const versions = new Map([[alice, '2026-11-07T00:00:00.000001Z'], [bob, '2026-11-07T00:00:00.000002Z']]);
+    const original = { alice: '2026-11-07T00:00:00.000001Z', bob: '2026-11-07T00:00:00.000002Z' };
+    const versions = new Map([[alice, original.alice], [bob, original.bob]]);
     let clock = 3;
-    const lifeWrites = [];
-    const fetchImpl = async (url, init = {}) => {
+    const writes = [];
+    const committed = [];
+    const fetchImpl = async (url) => {
+      const u = new URL(url);
+      const reply = (status, body) => ({ ok: status < 300, status, json: async () => body });
+      if (u.pathname.endsWith('/agents') && !u.pathname.includes('/agents/')) {
+        if (foreign) versions.set(alice, '2026-11-07T00:00:00.999999Z');
+        const extra = {};
+        if (activity === 'walk') {
+          extra.status = { mapValue: { fields: {
+            kind: str('walking'), label: str('Heading to tech spot'),
+            since: { timestampValue: new Date(NOW - 1000).toISOString() },
+            destination: { mapValue: { fields: { name: str('tech spot'), lngLat: { arrayValue: { values: [{ doubleValue: 78.7 }, { doubleValue: 17.2 }] } } } } },
+          } } };
+        }
+        if (activity === 'work') {
+          extra.status = { mapValue: { fields: {
+            kind: str('working'), label: str('Sketching'),
+            since: { timestampValue: new Date(NOW - 1000).toISOString() },
+            progress: { mapValue: { fields: { done: ints(1), total: ints(4) } } },
+          } } };
+        }
+        const bobLife = activity ? { mapValue: { fields: { lastActionAt: ints(NOW) } } } : { mapValue: { fields: {} } };
+        const aDoc = doc(alice, 'Ada', friends === 'both' ? hb : '', original.alice, extra);
+        const bDoc = doc(bob, 'Bo', friends === 'both' ? ha : '', original.bob);
+        bDoc.fields.life = bobLife;
+        return reply(200, { documents: [aDoc, bDoc] });
+      }
+      return reply(200, {});
+    };
+    const realFetch = async (url, init = {}) => {
       const u = new URL(url);
       const method = init.method || 'GET';
+      if (method === 'GET') return fetchImpl(url);
       const reply = (status, body) => ({ ok: status < 300, status, json: async () => body });
-      if (method === 'GET' && u.pathname.endsWith('/agents')) {
-        return reply(200, { documents: [doc(alice, 'Ada', hb, versions.get(alice)), doc(bob, 'Bo', ha, versions.get(bob))] });
-      }
       const who = u.pathname.match(/\/agents\/([^/]+)/);
       if (who && method === 'PATCH') {
         const uid = decodeURIComponent(who[1]);
         const sent = u.searchParams.get('currentDocument.updateTime');
+        const mask = u.searchParams.getAll('updateMask.fieldPaths');
+        writes.push({ uid, sent, mask });
+        const friendWrite = mask.some((m) => m.startsWith('friendStatus'));
         if (sent && sent !== versions.get(uid)) {
-          return reply(400, { error: { status: 'FAILED_PRECONDITION', message: 'version mismatch a@b.co Bearer super-secret-token' } });
+          return reply(400, { error: { status: 'FAILED_PRECONDITION', message: LEAK }, fields: { bio: { stringValue: 'SECRET_BIO' } } });
         }
         const next = `2026-11-07T00:00:00.${String(++clock).padStart(6, '0')}Z`;
         versions.set(uid, next);
-        if ((u.searchParams.getAll('updateMask.fieldPaths') || []).includes('life')) lifeWrites.push({ uid, sent, next });
+        if (friendWrite && blankTime) return reply(200, {});
+        committed.push({ uid, mask, sent });
         return reply(200, { updateTime: next });
       }
       if (method === 'POST' && u.pathname.includes('/diary')) return reply(200, { name: `${u.pathname}/d1` });
       return reply(200, {});
     };
-    const store = lifeStore({ projectId: 'p', accessToken: async () => 't', fetchImpl });
-    const llm = async (p) => (p.includes('Pick ONE') ? '{"action":"meet"}' : 'A: Hi there\nB: Hello\nA: You like tech?\nB: Yes I do.');
-    const summary = await runTick({ store, llm, now: NOW, salt: SALT });
+    return { alice, bob, original, writes, committed, store: lifeStore({ projectId: 'p', accessToken: async () => 'header-token', fetchImpl: realFetch }) };
+  }
+
+  const meetLlm = async (p) => (p.includes('Pick ONE') ? '{"action":"meet"}' : 'A: Hi there\nB: Hello\nA: You like tech?\nB: Yes I do.');
+
+  test('already-friends meet sends the friendStatus version on the second life save', async () => {
+    const h = harness();
+    const summary = await runTick({ store: h.store, llm: meetLlm, now: NOW, salt: SALT });
     assert.equal(summary.errors, 0);
     assert.equal(summary.meets, 1);
-    const ada = lifeWrites.find((w) => w.uid === alice);
-    assert.ok(ada);
-    assert.notEqual(ada.sent, '2026-11-07T00:00:00.000001Z');
+    const status = h.writes.find((w) => w.mask.some((m) => m.startsWith('friendStatus')));
+    assert.equal(status.uid, h.alice);
+    assert.equal(status.sent, h.original.alice);
+    const ada = h.writes.find((w) => w.uid === h.alice && w.mask.includes('life'));
+    assert.notEqual(ada.sent, h.original.alice);
+  });
+
+  test('a first meeting does not need a friendStatus version before either life save', async () => {
+    const h = harness({ friends: 'none' });
+    const summary = await runTick({ store: h.store, llm: meetLlm, now: NOW, salt: SALT });
+    assert.equal(summary.errors, 0);
+    assert.equal(summary.meets, 1);
+    const lives = h.writes.filter((w) => w.mask.includes('life'));
+    assert.equal(lives.length, 2);
+    assert.equal(lives.find((w) => w.uid === h.alice).sent, h.original.alice);
+    assert.equal(lives.find((w) => w.uid === h.bob).sent, h.original.bob);
+  });
+
+  test('a walk and a task still precondition the actor life save and the friend copy', async () => {
+    for (const activity of ['walk', 'work']) {
+      const h = harness({ activity });
+      const summary = await runTick({ store: h.store, llm: async () => '{"action":"rest"}', now: NOW, salt: SALT });
+      assert.equal(summary.errors, 0);
+      if (activity === 'walk') assert.equal(summary.moves, 1);
+      else assert.equal(summary.works, 1);
+      const lives = h.writes.filter((w) => w.mask.includes('life'));
+      assert.equal(lives.length, 1);
+      assert.equal(lives[0].uid, h.alice);
+      assert.equal(lives[0].sent, h.original.alice);
+      const status = h.writes.find((w) => w.mask.some((m) => m.startsWith('friendStatus')));
+      assert.equal(status.uid, h.bob);
+      assert.equal(status.sent, h.original.bob);
+    }
+  });
+
+  test('a friendStatus response with no updateTime keeps the old life precondition', async () => {
+    const h = harness({ blankTime: true });
+    const summary = await runTick({ store: h.store, llm: meetLlm, now: NOW, salt: SALT });
+    assert.equal(summary.meets, 0);
+    assert.ok(summary.errors >= 1);
+    const ada = h.writes.find((w) => w.uid === h.alice && w.mask.includes('life'));
+    assert.equal(ada.sent, h.original.alice);
+    assert.equal(h.committed.some((w) => w.uid === h.alice && w.mask.includes('life')), false);
+  });
+
+  test('a foreign write before friendStatus still rejects the life save', async () => {
+    const h = harness({ foreign: true });
+    const logs = [];
+    const orig = console.error;
+    console.error = (...parts) => logs.push(parts.join(' '));
+    let summary;
+    try {
+      summary = await runTick({ store: h.store, llm: meetLlm, now: NOW, salt: SALT });
+    } finally {
+      console.error = orig;
+    }
+    assert.equal(summary.meets, 0);
+    assert.ok(summary.errors >= 1);
+    const status = h.writes.find((w) => w.uid === h.alice && w.mask.some((m) => m.startsWith('friendStatus')));
+    assert.equal(status.sent, h.original.alice);
+    const ada = h.writes.find((w) => w.uid === h.alice && w.mask.includes('life'));
+    assert.equal(ada.sent, h.original.alice);
+    assert.equal(h.committed.some((w) => w.uid === h.alice && w.mask.includes('life')), false);
+    const text = logs.join('\n');
+    assert.match(text, /FAILED_PRECONDITION/);
+    for (const secret of ['a@b.co', 'super-secret-token', 'ya29.secret-token', 'AIzaSySecretKeyValue', 'aliceLife01', 'SECRET_BIO', 'header-token']) {
+      assert.equal(text.includes(secret), false);
+    }
   });
 });

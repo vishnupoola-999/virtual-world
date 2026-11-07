@@ -709,8 +709,9 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       const other = byHash.get(fid);
       if (!other || isTown(other.uid) || other.uid === from.uid) return;
       try {
-        const savedAt = await store.patchFriendStatus(other.uid, meId, snap);
-        // This write moves the friend's updateTime. Later saves in this tick must send the new one.
+        // Precondition on the version we read. A blind write would move updateTime past someone
+        // else's life save, and the next preconditioned save would overwrite it.
+        const savedAt = await store.patchFriendStatus(other.uid, meId, snap, other.updateTime || undefined);
         if (savedAt) other.updateTime = savedAt;
       } catch (e) { console.error('friend status', String(e.message || e).slice(0, 160)); }
     }));
@@ -915,7 +916,15 @@ export function fromValue(v = {}) {
 // Provider status and a short scrubbed reason for server logs. Never the request body or a credential.
 function firestoreError(status, body) {
   const code = typeof body?.error?.status === 'string' ? body.error.status.replace(/[^A-Z_]/g, '').slice(0, 40) : '';
-  const detail = scrub(String(body?.error?.message || '')).replace(/bearer\s+\S+/gi, '').slice(0, 120);
+  // status plus a short reason. The rest of the provider body (fields, tokens, paths) is not logged.
+  const raw = String(body?.error?.message || '')
+    .replace(/\{[\s\S]*\}/g, '')
+    .replace(/bearer\s+\S+/gi, '')
+    .replace(/\bya29\.[A-Za-z0-9._-]+/gi, '')
+    .replace(/\bAIza[0-9A-Za-z_-]{10,}/g, '')
+    .replace(/projects\/\S+/g, '')
+    .replace(/\bagents\/[A-Za-z0-9_-]+/g, '');
+  const detail = scrub(raw).slice(0, 120);
   const extra = [code, detail].filter(Boolean).join(': ');
   return new Error(extra ? `firestore ${status} ${extra}` : `firestore ${status}`);
 }
@@ -1186,9 +1195,9 @@ export function lifeStore(admin) {
       await patch(`agents/${uid}`, { friends: { mapValue: { fields: { [friendId]: toValue(fact) } } } }, [`friends.${friendId}`]);
     },
     // Live status of someone you met, keyed by their public id. Owner can read it; only this proxy writes it.
-    async patchFriendStatus(uid, friendId, status) {
+    async patchFriendStatus(uid, friendId, status, updateTime) {
       if (!UID_RE.test(uid) || !/^h_[0-9a-f]{20}$/.test(friendId) || !status) return;
-      const d = await patch(`agents/${uid}`, { friendStatus: { mapValue: { fields: { [friendId]: toValue(status) } } } }, [`friendStatus.${friendId}`]);
+      const d = await patch(`agents/${uid}`, { friendStatus: { mapValue: { fields: { [friendId]: toValue(status) } } } }, [`friendStatus.${friendId}`], updateTime || undefined);
       return d?.updateTime || '';
     },
     async getMatchConsent(uid) {
