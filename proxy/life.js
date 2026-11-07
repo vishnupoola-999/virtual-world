@@ -708,10 +708,20 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
     await Promise.all([...ids].map(async (fid) => {
       const other = byHash.get(fid);
       if (!other || isTown(other.uid) || other.uid === from.uid) return;
-      try { await store.patchFriendStatus(other.uid, meId, snap); } catch (e) { console.error('friend status', String(e.message || e).slice(0, 80)); }
+      try {
+        // Precondition on the version we read. A blind write would move updateTime past someone
+        // else's life save, and the next preconditioned save would overwrite it.
+        const savedAt = await store.patchFriendStatus(other.uid, meId, snap, other.updateTime || undefined);
+        if (savedAt) other.updateTime = savedAt;
+      } catch (e) { console.error('friend status', String(e.message || e).slice(0, 160)); }
     }));
   };
-  const save = async (agent, life, opts) => { await store.saveLife(agent.uid, life, opts); await publish(agent, opts?.status); if (opts?.status) await notify(agent, opts.status); };
+  const save = async (agent, life, opts) => {
+    const savedAt = await store.saveLife(agent.uid, life, opts);
+    if (savedAt) agent.updateTime = savedAt;
+    await publish(agent, opts?.status);
+    if (opts?.status) await notify(agent, opts.status);
+  };
   // Consented chat topics are tags for matching only. Raw lines never enter a prompt, diary or public card.
   let topicReads = 0;
   const enriched = new Map();
@@ -742,7 +752,7 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
         if (cont.status.kind === 'walking') summary.moves++; else summary.works++;
       } catch (error) {
         summary.errors++;
-        console.error('tick agent failed', String(error.message || error).slice(0, 120));
+        console.error('tick agent failed', String(error.message || error).slice(0, 160));
       }
       continue;
     }
@@ -866,7 +876,7 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       summary.meets++;
     } catch (error) {
       summary.errors++;
-      console.error('tick agent failed', String(error.message || error).slice(0, 120));
+      console.error('tick agent failed', String(error.message || error).slice(0, 160));
     }
   }
   return summary;
@@ -903,6 +913,22 @@ export function fromValue(v = {}) {
   return null;
 }
 
+// Provider status and a short scrubbed reason for server logs. Never the request body or a credential.
+function firestoreError(status, body) {
+  const code = typeof body?.error?.status === 'string' ? body.error.status.replace(/[^A-Z_]/g, '').slice(0, 40) : '';
+  // status plus a short reason. The rest of the provider body (fields, tokens, paths) is not logged.
+  const raw = String(body?.error?.message || '')
+    .replace(/\{[\s\S]*\}/g, '')
+    .replace(/bearer\s+\S+/gi, '')
+    .replace(/\bya29\.[A-Za-z0-9._-]+/gi, '')
+    .replace(/\bAIza[0-9A-Za-z_-]{10,}/g, '')
+    .replace(/projects\/\S+/g, '')
+    .replace(/\bagents\/[A-Za-z0-9_-]+/g, '');
+  const detail = scrub(raw).slice(0, 120);
+  const extra = [code, detail].filter(Boolean).join(': ');
+  return new Error(extra ? `firestore ${status} ${extra}` : `firestore ${status}`);
+}
+
 // Only fields the loop needs are read; memory, ownerName and messages are never fetched.
 const READ_FIELDS = ['name', 'interests', 'bio', 'approx', 'lat', 'lon', 'updatedAt', 'life', 'isTest', 'look', 'status', 'friends', 'friendStatus', 'matchConsent'];
 
@@ -912,8 +938,10 @@ export function lifeStore(admin) {
   const base = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${FIRESTORE_DB}/documents`;
   const call = async (url, init = {}) => {
     const r = await fetchImpl(url, { ...init, headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(8000) });
-    if (!r.ok) throw new Error(`firestore ${r.status}`);
-    return r.json();
+    const body = typeof r.json === 'function' ? await r.json().catch(() => null) : null;
+    if (!r.ok) throw firestoreError(r.status, body);
+    if (!body || typeof body !== 'object') throw new Error(`firestore ${r.status}`);
+    return body;
   };
   const patch = (path, fields, mask, updateTime) => call(`${base}/${path}?${mask.map((m) => `updateMask.fieldPaths=${encodeURIComponent(m)}`).join('&')}&${updateTime ? `currentDocument.updateTime=${encodeURIComponent(updateTime)}` : 'currentDocument.exists=true'}`,
     { method: 'PATCH', body: JSON.stringify({ fields }) });
@@ -960,7 +988,8 @@ export function lifeStore(admin) {
         fields.status = v;
       }
       // life and status go in one patch so they can't disagree.
-      await patch(`agents/${uid}`, fields, Object.keys(fields), updateTime);
+      const d = await patch(`agents/${uid}`, fields, Object.keys(fields), updateTime);
+      return d?.updateTime || '';
     },
     async addDiary(uid, entry) {
       if (!UID_RE.test(uid)) return '';
@@ -1166,9 +1195,10 @@ export function lifeStore(admin) {
       await patch(`agents/${uid}`, { friends: { mapValue: { fields: { [friendId]: toValue(fact) } } } }, [`friends.${friendId}`]);
     },
     // Live status of someone you met, keyed by their public id. Owner can read it; only this proxy writes it.
-    async patchFriendStatus(uid, friendId, status) {
+    async patchFriendStatus(uid, friendId, status, updateTime) {
       if (!UID_RE.test(uid) || !/^h_[0-9a-f]{20}$/.test(friendId) || !status) return;
-      await patch(`agents/${uid}`, { friendStatus: { mapValue: { fields: { [friendId]: toValue(status) } } } }, [`friendStatus.${friendId}`]);
+      const d = await patch(`agents/${uid}`, { friendStatus: { mapValue: { fields: { [friendId]: toValue(status) } } } }, [`friendStatus.${friendId}`], updateTime || undefined);
+      return d?.updateTime || '';
     },
     async getMatchConsent(uid) {
       if (!UID_RE.test(uid)) return { chats: null };
