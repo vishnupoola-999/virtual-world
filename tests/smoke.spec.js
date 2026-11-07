@@ -349,3 +349,45 @@ test('character canvases render at DPR capped at 2 (v4), map at 2x, with antiali
   expect(hero.w).toBe(hero.cssW * hero.pr);
   await context.close();
 });
+
+// Sign-in is a centered column with a full-width Google button, not a short side panel.
+test('sign-in is a centered column, not a short side panel', async ({ page }) => {
+  const viewport = page.viewportSize();
+  await page.route(/^https:\/\/ntfy\.sh\//, (r) => r.fulfill({ status: 200, contentType: 'text/event-stream', body: '' }));
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await page.locator('#onbGo').click();
+  const sign = page.locator('#onbSign');
+  await expect(sign).toBeVisible();
+  await expect(sign).toContainText('Continue with Google');
+  await expect(page.locator('.authLegal a').first()).toHaveAttribute('href', 'privacy.html');
+  const box = await sign.boundingBox();
+  expect(box.height).toBeGreaterThanOrEqual(52);
+  expect(box.width).toBeGreaterThanOrEqual(280);
+  expect(box.width).toBeLessThanOrEqual(420);
+  expect(Math.abs(box.x + box.width / 2 - viewport.width / 2)).toBeLessThan(24);
+  expect(box.y).toBeGreaterThan(viewport.height * 0.22);
+  expect(box.y + box.height).toBeLessThan(viewport.height * 0.82);
+
+  await page.goto('/?onb=0', { waitUntil: 'domcontentloaded' });
+  await page.waitForFunction(() => globalThis.__vw?.openSheet);
+  await page.evaluate(() => globalThis.__vw.openSheet('account'));
+  await expect(page.locator('#signInBtn')).toBeVisible();
+  await page.waitForFunction(() => {
+    const t = getComputedStyle(document.getElementById('sheet')).transform;
+    return t === 'none' || t === 'matrix(1, 0, 0, 1, 0, 0)';
+  });
+  const sheet = await page.locator('#sheet').boundingBox();
+  const btn = await page.locator('#signInBtn').boundingBox();
+  expect(btn.height).toBeGreaterThanOrEqual(52);
+  expect(btn.width).toBeGreaterThanOrEqual(280);
+  expect(btn.width).toBeLessThanOrEqual(420);
+  expect(Math.abs(btn.x + btn.width / 2 - viewport.width / 2)).toBeLessThan(24);
+  if (viewport.width >= 768) {
+    expect(sheet.x).toBeGreaterThan(80);
+    expect(sheet.width).toBeGreaterThan(360);
+    expect(sheet.width).toBeLessThan(520);
+  } else {
+    expect(sheet.width).toBeGreaterThan(viewport.width - 2);
+    expect(sheet.y).toBeLessThan(2);
+  }
+});

@@ -45,20 +45,20 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
       const c=map.getCenter();map.jumpTo({center:[c.lng+6*dt,c.lat]});};globeRaf=requestAnimationFrame(f);}
   function stopGlobe(){cancelAnimationFrame(globeRaf);globeRaf=0;}
   function s1(){chrome(1,{skip:'Skip intro'});startGlobe();
-    body.append(el('div','onbBottom',`<span class="cap">Virtual World</span><h1>Your agent is waiting to be <em>born.</em></h1><p>It lives where you live, makes friends, and gets things done for you.</p><button class="primary big" id="onbGo">Get started</button><button class="ghost" id="onbHave" type="button">I already have an agent</button><p class="onbLegal">Virtual World is a 3D map where your AI agent lives, meets friends and, with your OK, helps with Google Drive, Calendar and Gmail. <a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms</a></p>`));
+    body.append(el('div','onbBottom',`<span class="cap">Virtual World</span><h1>Your agent is waiting to be <em>born.</em></h1><p>It lives where you live, makes friends, and gets things done for you.</p><button class="primary big" id="onbGo">Get started</button><button class="ghost" id="onbHave" type="button">I already have an agent</button><p class="onbLegal">Virtual World is a 3D map where your AI agent lives, meets friends and, with your OK, helps with Google Drive, Calendar and Gmail.</p><p class="onbLinks"><a href="privacy.html">Privacy Policy</a><span aria-hidden="true"> · </span><a href="terms.html">Terms</a></p>`));
     $('onbGo').onclick=()=>show(2);$('onbHave').onclick=()=>show(2);}
 
   // ---- 2. sign in (then the system location prompt, no explainer)
-  function s2(){chrome(2,{back:true});startGlobe();
-    body.append(el('div','onbBottom',`<h2>Virtual World</h2><p>One tap and we'll get your agent ready.</p><button class="primary big g" id="onbSign"><span class="gl">G</span> Continue with Google</button><small class="fine">We only use your name and photo. <a href="#" tabindex="-1">Terms</a> · <a href="#" tabindex="-1">Privacy</a></small>`));
-    const b=$('onbSign');b.onclick=async()=>{track('signin_tap');b.disabled=true;b.lastChild.textContent=' Signing in…';
+  function s2(){chrome(2,{back:true});stopGlobe();
+    body.append(el('div','authScreen',`<div class="authMain"><p class="authBrand"><span class="authMark" aria-hidden="true"></span>Virtual World</p><h1>Sign in</h1><p class="authLead">One Google account. Your agent lives here, and you can change its look later.</p><button class="primary big g" id="onbSign" type="button"><svg class="gMark" viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3.1l5.7-5.7C34.2 6.1 29.4 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 8 3.1l5.7-5.7C34.2 6.1 29.4 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-1.9 13.4-5.1l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.3 0-9.8-3.4-11.4-8.1l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.3 4.2-4.1 5.6l.1.1 6.2 5.2C39.2 37.1 44 31.5 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg><span class="lbl">Continue with Google</span></button><p class="authNote">We use your name and photo to show who is signed in. Nothing runs until you approve it.</p></div><p class="authLegal"><a href="privacy.html">Privacy Policy</a> · <a href="terms.html">Terms of Service</a></p>`));
+    const b=$('onbSign'),label=b.querySelector('.lbl');b.onclick=async()=>{track('signin_tap');b.disabled=true;b.setAttribute('aria-busy','true');label.textContent='Signing in…';
       try{if(!navigator.onLine)throw Object.assign(new Error('offline'),{code:'auth/network-request-failed'});
         await signIn();if(!currentUser())throw Object.assign(new Error('no user'),{code:'auth/popup-closed-by-user'});
         track('signin_success',{provider:'google'});/* onUser → agent load → afterSignIn() decides */}
       catch(e){const code=String(e?.code||e?.message||'unknown');
         if(CANCEL.has(code)||/cancel/i.test(code))track('signin_cancel');
         else{track('signin_error',{code});toast("Couldn't sign in. Check your connection and try again.",6000);}
-        if(step===2){b.disabled=false;b.lastChild.textContent=' Continue with Google';}}};}
+        if(step===2){b.disabled=false;b.removeAttribute('aria-busy');label.textContent='Continue with Google';}}};}
   // Called once the signed-in user's agent load finished and there is no agent yet.
   function afterSignIn(){if(!active)open(3);locP||=locate();show(3);}
 

@@ -1,16 +1,43 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><link rel="icon" href="favicon.svg"><title>Join the Virtual World</title>
-<style>body{font-family:system-ui;max-width:520px;margin:30px auto;padding:0 16px}button{font-size:18px;padding:10px 18px;margin:6px 0}#stopB{background:#e53935;color:#fff}.note{background:#f3f3f3;padding:8px 12px;border-radius:8px;font-size:13px}</style></head><body>
-<h2>👪 Join the family layer</h2>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="favicon.svg"><title>Join the family · Virtual World</title>
+<link rel="stylesheet" href="src/ui-v2.css">
+<style>
+ body{margin:0;min-height:100dvh;background:#07080C;color:#F2F4F8}
+ main{box-sizing:border-box;width:min(440px,100%);margin:0 auto;padding:calc(28px + env(safe-area-inset-top)) 24px calc(32px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:16px}
+ .joinBrand{display:flex;align-items:center;gap:10px;margin:0;font:600 14px/1 Inter,system-ui,sans-serif;color:#F2F4F8}
+ .joinBrand i{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#5B8CFF,#9B6BFF);display:block;flex:none}
+ h1{margin:0;font:600 32px/1.15 Inter,system-ui,sans-serif;letter-spacing:-.03em}
+ p,label{margin:0;color:#B7BCC8;font:400 15px/1.5 Inter,system-ui,sans-serif}
+ .note{background:#111318;border:1px solid #20232C;border-radius:16px;padding:14px 16px;color:#B7BCC8;font-size:13px;line-height:1.45}
+ .note b{color:#F2F4F8}
+ code{color:#F2F4F8;overflow-wrap:anywhere}
+ label.name{display:flex;flex-direction:column;gap:8px;color:#F2F4F8;font-weight:500}
+ input[type=text]{box-sizing:border-box;width:100%;height:48px;border-radius:14px;border:1px solid #20232C;background:#111318;color:#F2F4F8;padding:0 14px;font:400 16px/1 Inter,system-ui,sans-serif}
+ input[type=checkbox]{width:20px;height:20px;margin:2px 10px 0 0;accent-color:#7B7CFF;flex:none}
+ label.ok{display:flex;align-items:flex-start;color:#F2F4F8}
+ .acts{display:flex;gap:8px}
+ button{flex:1;height:48px;min-height:48px;border-radius:24px;border:1px solid #20232C;background:#16181F;color:#F2F4F8;font:600 15px/1 Inter,system-ui,sans-serif;padding:0 16px}
+ #startB{background:#fff;color:#07080C;border:0}
+ #stopB{background:transparent;color:#FF5A6A;border-color:#FF5A6A}
+ button:disabled{opacity:.4}
+ #st{color:#F2F4F8}
+ a{color:#C4B5FD}
+ .warn{background:#2A2418;border:1px solid #5A4A1A;color:#FFE2A3;border-radius:14px;padding:12px 14px;font-size:14px;line-height:1.45}
+</style></head><body>
+<main>
+<p class="joinBrand"><i aria-hidden="true"></i>Virtual World</p>
+<h1>Join the family</h1>
 <p>If you agree, this page shares <b>your location</b> with the family's Virtual World <b>every 5 seconds while this page is open</b>. Press <b>Stop sharing</b> any time and your avatar is removed right away. If the page closes, you disappear after 2 minutes.</p>
-<div class="note"><b>Privacy:</b> nothing runs in the background or without this page open. Your name, position and time go through a free public relay (ntfy.sh) under the family code <code id="roomc"></code>. Anyone who knows that code could see them, so share the link only with family. No other data is collected, and nothing is kept after you stop.</div>
-<p><label>Your name: <input id="nm" placeholder="Your first name" maxlength="24"></label></p>
-<p><label><input type="checkbox" id="ok"> I agree to share my live location with my family's world, and I know I can stop at any time.</label></p>
-<button id="startB">Start sharing</button> <button id="stopB" disabled>Stop sharing</button>
-<p id="st">Not sharing.</p><p><small id="conn">connecting…</small></p>
+<div class="note"><b>Privacy.</b> Nothing runs in the background or without this page open. Your name, position and time go through a public relay (ntfy.sh) under the family code <code id="roomc"></code>. Anyone who knows that code could see them, so share the link only with family. No other data is collected, and nothing is kept after you stop.</div>
+<label class="name">Your name<input id="nm" type="text" placeholder="Your first name" maxlength="24" autocomplete="given-name"></label>
+<label class="ok"><input type="checkbox" id="ok"> I agree to share my live location with my family's world, and I know I can stop at any time.</label>
+<div class="acts"><button id="startB" type="button">Start sharing</button><button id="stopB" type="button" disabled>Stop sharing</button></div>
+<p id="st">Not sharing.</p><p><small id="conn">Connecting…</small></p>
+<p><a href="./">Back to Virtual World</a></p>
+</main>
 <script type="module">
 import {connect,roomFromUrl} from './src/family.js';
 const $=i=>document.getElementById(i);const name=$('nm'),start=$('startB'),stop=$('stopB'),ok=$('ok'),st=$('st'),conn=$('conn'),roomc=$('roomc');
-if(!new URLSearchParams(location.search).get('room')&&!localStorage.getItem('vw-room')){document.body.insertAdjacentHTML('afterbegin','<p style="background:#ffe0b2;padding:8px;border-radius:8px">⚠️ Open this page from the <b>Share join link</b> your family sent you, otherwise you will be in an empty room.</p>');}
+if(!new URLSearchParams(location.search).get('room')&&!localStorage.getItem('vw-room')){document.querySelector('main').insertAdjacentHTML('afterbegin','<p class="warn">Open this page from the join link your family sent you, otherwise you will be in an empty room.</p>');}
 const room=roomFromUrl();roomc.textContent=room;
 const fam=connect(room,{onStatus:s=>conn.textContent='relay: '+s});
 const id=localStorage.getItem('vw-me')||crypto.randomUUID().slice(0,12);localStorage.setItem('vw-me',id);
@@ -19,10 +46,10 @@ let watch=null,timer=null,last=null;
 const send=()=>{if(last)fam.publish(id,{name:name.value.trim()||'Family member',lat:last.lat,lon:last.lon,acc:last.acc,ts:Date.now()});};
 start.onclick=()=>{if(!ok.checked){st.textContent='Please tick the consent box first.';return;}if(!navigator.geolocation){st.textContent='Location is not supported in this browser.';return;}
  localStorage.setItem('vw-name',name.value);
- watch=navigator.geolocation.watchPosition(p=>{const first=!last;last={lat:p.coords.latitude,lon:p.coords.longitude,acc:Math.round(p.coords.accuracy)};if(first)send();st.textContent=`✅ Sharing as ${name.value||'Family member'}: ${last.lat.toFixed(5)}, ${last.lon.toFixed(5)} (±${last.acc} m)`;},
+ watch=navigator.geolocation.watchPosition(p=>{const first=!last;last={lat:p.coords.latitude,lon:p.coords.longitude,acc:Math.round(p.coords.accuracy)};if(first)send();st.textContent=`Sharing as ${name.value||'Family member'}: ${last.lat.toFixed(5)}, ${last.lon.toFixed(5)} (±${last.acc} m)`;},
    e=>st.textContent='Location error: '+e.message,{enableHighAccuracy:true,maximumAge:5000});
  timer=setInterval(send,5000);start.disabled=true;stop.disabled=false;};
-stop.onclick=()=>{if(watch!==null)navigator.geolocation.clearWatch(watch);clearInterval(timer);watch=timer=null;last=null;fam.clear(id);st.textContent='⛔ Stopped. Your avatar was removed.';start.disabled=false;stop.disabled=true;};
+stop.onclick=()=>{if(watch!==null)navigator.geolocation.clearWatch(watch);clearInterval(timer);watch=timer=null;last=null;fam.clear(id);st.textContent='Stopped. Your avatar was removed.';start.disabled=false;stop.disabled=true;};
 addEventListener('pagehide',()=>{if(watch!==null)fam.clear(id);});
 window.__vw={fam,id};
 </script></body></html>
