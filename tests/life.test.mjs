@@ -1198,4 +1198,65 @@ describe('lifeStore precondition after friendStatus', () => {
       assert.equal(text.includes(secret), false);
     }
   });
+
+  test('a provider version mismatch keeps the numeric versions and drops a bearer token', async () => {
+    const s = lifeStore({ projectId: 'p', accessToken: async () => 'header-token', fetchImpl: async () => ({
+      ok: false, status: 400, json: async () => ({ error: { status: 'FAILED_PRECONDITION', message: 'the stored version (1730999999999999) does not match the required base version (1730888888888888) Bearer super-secret-token' } }),
+    }) });
+    await assert.rejects(() => s.saveLife('alice', { actions: 1 }, { updateTime: 'T0', status: makeStatus('idle', { now: NOW }) }), (e) => {
+      assert.match(e.message, /1730999999999999/);
+      assert.match(e.message, /1730888888888888/);
+      assert.equal(e.message.includes('super-secret-token'), false);
+      assert.equal(e.message.includes('()'), false);
+      return true;
+    });
+  });
+
+  test('saving the matched partner updates the listed version used for friendStatus', async () => {
+    const alice = 'aliceLife01', bob = 'bobLife0001';
+    const ha = hashId(alice, SALT), hb = hashId(bob, SALT);
+    const versions = new Map([[alice, 'T0a'], [bob, 'T0b']]);
+    let n = 0;
+    const writes = [];
+    const str = (s) => ({ stringValue: s });
+    const ints = (v) => ({ integerValue: String(v) });
+    const person = (uid, name, friendId, updateTime, idle) => ({
+      name: `projects/p/databases/default/documents/agents/${uid}`, updateTime, fields: {
+        name: str(name), interests: { arrayValue: { values: ['tech', 'music', 'art'].map((t) => str(t)) } },
+        bio: str('bio'), lat: { doubleValue: 17.1 }, lon: { doubleValue: 78.6 }, updatedAt: ints(NOW - 1000),
+        life: { mapValue: { fields: idle ? { lastActionAt: ints(NOW) } : {} } },
+        friends: { mapValue: { fields: { [friendId]: { mapValue: { fields: { name: str(name) } } } } } },
+      },
+    });
+    const fetchImpl = async (url, init = {}) => {
+      const u = new URL(url);
+      const method = init.method || 'GET';
+      const reply = (status, body) => ({ ok: status < 300, status, json: async () => body });
+      if (method === 'GET' && u.pathname.endsWith('/agents')) {
+        return reply(200, { documents: [person(alice, 'Ada', hb, 'T0a', false), person(bob, 'Bo', ha, 'T0b', true)] });
+      }
+      const who = u.pathname.match(/\/agents\/([^/]+)/);
+      if (who && method === 'PATCH') {
+        const uid = decodeURIComponent(who[1]);
+        const sent = u.searchParams.get('currentDocument.updateTime');
+        const mask = u.searchParams.getAll('updateMask.fieldPaths');
+        writes.push({ uid, sent, mask });
+        if (sent && sent !== versions.get(uid)) return reply(400, { error: { status: 'FAILED_PRECONDITION', message: 'the stored version (1730999999999999) does not match the required base version (1730888888888888)' } });
+        const next = `T${++n}`;
+        versions.set(uid, next);
+        return reply(200, { updateTime: next });
+      }
+      return reply(200, method === 'POST' ? { name: `${u.pathname}/d1` } : {});
+    };
+    const store = lifeStore({ projectId: 'p', accessToken: async () => 't', fetchImpl });
+    const llm = async (p) => (p.includes('Pick ONE') ? '{"action":"meet"}' : 'A: Hi there\nB: Hello\nA: You like tech?\nB: Yes I do.');
+    const summary = await runTick({ store, llm, now: NOW, salt: SALT });
+    assert.equal(summary.due, 1);
+    assert.equal(summary.meets, 1);
+    assert.equal(summary.errors, 0);
+    const stale = writes.filter((w) => w.sent && w.sent !== 'T0a' && w.sent !== 'T0b' && w.sent !== versions.get(w.uid) && !String(w.sent).startsWith('T'));
+    assert.equal(writes.some((w) => w.uid === bob && w.mask.some((m) => m.startsWith('friendStatus')) && w.sent === 'T0b'), false);
+    assert.equal(stale.length, 0);
+    assert.equal(summary.published, 2);
+  });
 });

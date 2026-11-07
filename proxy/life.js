@@ -718,7 +718,12 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
   };
   const save = async (agent, life, opts) => {
     const savedAt = await store.saveLife(agent.uid, life, opts);
-    if (savedAt) agent.updateTime = savedAt;
+    if (savedAt) {
+      agent.updateTime = savedAt;
+      // Match selection copies the agent. Friend-status writes read the list object, so both must move together.
+      const listed = agents.find((a) => a.uid === agent.uid);
+      if (listed && listed !== agent) listed.updateTime = savedAt;
+    }
     await publish(agent, opts?.status);
     if (opts?.status) await notify(agent, opts.status);
   };
@@ -924,7 +929,10 @@ function firestoreError(status, body) {
     .replace(/\bAIza[0-9A-Za-z_-]{10,}/g, '')
     .replace(/projects\/\S+/g, '')
     .replace(/\bagents\/[A-Za-z0-9_-]+/g, '');
-  const detail = scrub(raw).slice(0, 120);
+  // scrub() treats a long digit run as a phone number. Firestore puts the two update versions in parentheses.
+  const versions = [];
+  const shielded = raw.replace(/\(\d{6,}\)/g, (m) => { versions.push(m); return `(__V${versions.length - 1}__)`; });
+  const detail = scrub(shielded).replace(/\(__V(\d+)__\)/g, (_, i) => versions[Number(i)] || '').slice(0, 160);
   const extra = [code, detail].filter(Boolean).join(': ');
   return new Error(extra ? `firestore ${status} ${extra}` : `firestore ${status}`);
 }
