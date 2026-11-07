@@ -254,6 +254,75 @@ describe('POST /agent/chat (SSE)', () => {
     assert.equal(urls.length, 2);
   });
 
+  test('the 50s deadline is one timer for the whole fallback chain', async () => {
+    const real = AbortSignal.timeout.bind(AbortSignal);
+    const made = [];
+    AbortSignal.timeout = (ms) => { const s = real(ms); made.push(ms); return s; };
+    const urls = [];
+    try {
+      const fetchImpl = async (u) => {
+        urls.push(u);
+        if (u.includes(CHAT_MODEL)) throw new TypeError('fetch failed');
+        return geminiSse([{ text: 'ok' }]);
+      };
+      await run({ fetchImpl }, async (url) => {
+        assert.equal(events(await (await post(url)).text()).at(-1).data.text, 'ok');
+      });
+    } finally {
+      AbortSignal.timeout = real;
+    }
+    assert.equal(urls.length, 2);
+    assert.deepEqual(made.filter((ms) => ms === 50_000), [50_000]);
+  });
+
+  test('a deadline on the fallback model does not start a third request', async () => {
+    const urls = [];
+    const fetchImpl = async (u) => {
+      urls.push(u);
+      if (urls.length === 1) throw new TypeError('fetch failed');
+      throw new DOMException('TimeoutError', 'TimeoutError');
+    };
+    await run({ fetchImpl }, async (url) => {
+      const r = await post(url);
+      assert.equal(r.status, 502);
+      assert.equal(events(await r.text()).length, 1);
+    });
+    assert.equal(urls.length, 2);
+  });
+
+  test('a client abort while the first model is in flight does not try another', async () => {
+    const urls = [];
+    const fetchImpl = async (u, init) => {
+      urls.push(u);
+      await new Promise((resolve, reject) => {
+        if (init.signal.aborted) reject(new DOMException('aborted', 'AbortError'));
+        else init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+      });
+    };
+    await run({ fetchImpl }, async (url) => {
+      const ctrl = new AbortController();
+      const pending = post(url, { signal: ctrl.signal });
+      setTimeout(() => ctrl.abort(), 40);
+      await assert.rejects(pending);
+    });
+    assert.equal(urls.length, 1);
+  });
+
+  test('a successful stream is not requested from a second model', async () => {
+    const urls = [];
+    const fetchImpl = async (u) => {
+      urls.push(u);
+      if (urls.length > 1) throw new Error('second model');
+      return geminiSse([{ text: 'once' }]);
+    };
+    await run({ fetchImpl }, async (url) => {
+      const parsed = events(await (await post(url)).text());
+      assert.equal(parsed.filter((e) => e.event === 'done').length, 1);
+      assert.equal(parsed.at(-1).data.text, 'once');
+    });
+    assert.equal(urls.length, 1);
+  });
+
   test('every model failing the fetch yields one error and stops after the chain', async () => {
     const urls = [];
     const fetchImpl = async (u) => { urls.push(u); throw new TypeError('fetch failed'); };

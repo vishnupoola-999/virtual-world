@@ -692,6 +692,8 @@ async function handleChat(req, res, ctx, stream = false, continueId = '') {
   const messageId = stream ? 'm_' + randomBytes(9).toString('hex') : '';
   const ctrl = new AbortController();
   const live = { uid, ctrl, stopped: false, text: '' };
+  // One deadline for the whole chain. A fallback must not start another 50s.
+  const deadline = AbortSignal.timeout(50_000);
   if (stream) {
     ctx.live.set(messageId, live);
     res.on('close', () => { ctx.live.delete(messageId); if (!res.writableFinished) { live.stopped = true; ctrl.abort(); } });
@@ -710,7 +712,7 @@ async function handleChat(req, res, ctx, stream = false, continueId = '') {
             generationConfig: chatGenerationConfig(model),
             ...(prepared.tools ? { tools } : {}),
           }),
-          signal: AbortSignal.any([AbortSignal.timeout(50_000), ctrl.signal]),
+          signal: AbortSignal.any([deadline, ctrl.signal]),
         },
       );
     } catch (err) {
