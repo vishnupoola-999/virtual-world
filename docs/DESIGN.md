@@ -237,6 +237,9 @@ Layers offers Night only; no "Later" style tiles. Apps: working apps first, then
 ## Agent motion (2026-10-28)
 Agents walk with an ease-in-out from wherever they are drawn, at a steady pace (600 ms to 4 s), and face where they are going. Their heading is fixed in the world: turning the map lets you walk around them and see their back and sides. Turns ease over about 300 ms the short way round. Reduced motion still snaps. No new DOM animation.
 
+## Other agents follow public card.motion (v68)
+A public card's `lat`/`lon` stays the ~1 km anchor. While `motion` is `{east, north, ms, since}` (metres, same encoding as the proxy's `cardMotion`), that other agent is drawn along the offset: `t = 0` at `since`, `t = 1` at `since + ms`. The place does not use camera bearing. Heading faces the step they just took, in world space. The walk cycle plays only while `0 < t < 1`. A missing, invalid, oversized (over 900 m), not-yet-started, or stale hint (finished for more than 15 minutes) leaves them on the anchor. A still-valid finished walk holds at the end until that grace passes, then eases back with the existing walk. Reduced motion snaps to the clock's place and does not glide. The map camera is not moved. Tapping the agent and opening chat keep working while the marker moves.
+
 ## Me: Talk to your agent first (v64)
 - The first element on Me is "Talk to <agent name>" (name is dynamic, e.g. Boss): full width, 52px, 16px radius, #FFFFFF fill, #0A0B10 16px/600 label, 20px chat-bubble icon, 8px gap, 24px below it to the hero.
 - Pressed: transform scale(.97), 120ms. No blur, no shadow. Focus ring 2px white, 3px offset.

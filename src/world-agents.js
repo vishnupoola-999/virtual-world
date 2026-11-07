@@ -44,10 +44,17 @@ function create(map){
       a.marker=new maplibregl.Marker({element:a.el,anchor:'bottom',offset:[0,-6]}).setLngLat([d.lon,d.lat]).addTo(map);all.set(d.id,a);
       if(a.mine)a.anim='wave',a.waveUntil=performance.now()+2300;}
     else{const moved=a.lat!==d.lat||a.lon!==d.lon;const from=[a.lon,a.lat];Object.assign(a,d,{look,state:d.state||a.state});
-      if(moved)walkTo(a,from,[d.lon,d.lat]);}
+      if(moved){if(d.hold)pinTo(a,[d.lon,d.lat]);else walkTo(a,from,[d.lon,d.lat]);}}
     a.el.classList.toggle('far',!near());paint(a);syncSource();kick();return a;}
   // Agents walk from where they are drawn right now (not the last target, which made a mid-walk update snap back),
   // eased in and out at a steady pace, facing their travel direction in world space. Only very long jumps (>3 km) teleport.
+  // Time-correct public walk: the marker is already where the clock says, so do not ease or restart.
+  function pinTo(a,to){cancelAnimationFrame(a.walkRaf);a.walkRaf=0;const cur=a.marker.getLngLat();
+    const dist=Math.hypot((to[0]-cur.lng)*Math.cos(to[1]*Math.PI/180),to[1]-cur.lat)*111320;
+    if(dist>.5)a.heading=travelHeading([cur.lng,cur.lat],to);
+    a.marker.setLngLat(to);}
+  function pin(id,lon,lat,heading){const a=all.get(id);if(!a||!Number.isFinite(lon)||!Number.isFinite(lat))return;a.hold=true;a.lon=lon;a.lat=lat;
+    if(typeof heading==='number')a.heading=heading;pinTo(a,[lon,lat]);syncSource();kick();}
   function walkTo(a,_from,to){cancelAnimationFrame(a.walkRaf);const cur=a.marker.getLngLat(),from=[cur.lng,cur.lat];
     const dist=Math.hypot((to[0]-from[0])*Math.cos(to[1]*Math.PI/180),to[1]-from[1])*111320;if(dist<.3){a.marker.setLngLat(to);return;}
     a.heading=travelHeading(from,to);
@@ -150,7 +157,7 @@ function create(map){
   // One portrait frame of an agent into a 2D canvas (the away-card header avatar); loads the shared renderer if needed.
   function portrait(id,cv,anim,dt){const a=all.get(id);if(!a)return false;if(!R){loadR();return false;}const src=R.draw(a.id,a.look,anim||'idle',dt||0,'portrait');
     const g=cv.getContext('2d');g.clearRect(0,0,cv.width,cv.height);g.drawImage(src,0,0,src.width,src.width,0,0,cv.width,cv.height);a.drawnKey=null;kick();return true;}
-  return {get renderInfo(){return R?{size:R.size,pixelRatio:R.pixelRatio,antialias:R.antialias}:null;},put,remove,setState,setOffset,setLiving,portrait,openProfile,closeProfile,showFriends,get(id){return all.get(id);},configure(h){Object.assign(hooks,h);},
+  return {get renderInfo(){return R?{size:R.size,pixelRatio:R.pixelRatio,antialias:R.antialias}:null;},put,pin,remove,setState,setOffset,setLiving,portrait,openProfile,closeProfile,showFriends,get(id){return all.get(id);},configure(h){Object.assign(hooks,h);},
     // Your own agent, used by agent.js in place of the old full-screen 3D layer.
     mine:{set(a){if(!a){remove('me');return;}put({id:'me',mine:true,name:a.name||'My agent',lat:a.lat,lon:a.lon,look:a.look,ownerName:a.ownerName,meta:a.meta,status:a.status});},
       play(n){const a=all.get('me');if(!a)return;if(n==='walk'){a.state='walking';paint(a);setTimeout(()=>{if(a.state==='walking'){a.state='online';paint(a);}},900);}
