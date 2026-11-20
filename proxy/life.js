@@ -4,6 +4,7 @@
 const FIRESTORE_DB = encodeURIComponent(process.env.FIRESTORE_DATABASE_ID || 'default');
 import { timingSafeEqual, createHash } from 'node:crypto';
 import { WALK_MS } from '../src/motion.js';
+import { localClock, pushDeviceFromDoc } from './push.js';
 
 export { WALK_MS };
 
@@ -274,6 +275,13 @@ export function momentIdFor(kind, otherAgentId, at) {
   return '';
 }
 
+// One town card per character per local day, so a returning user sees the visit without a new card every tick.
+export function townMomentId(otherAgentId, at, timeZone = 'Asia/Kolkata') {
+  if (!HASH_ID_RE.test(otherAgentId || '') || !Number.isFinite(at)) return '';
+  const id = `town_${otherAgentId}_${localClock(at, timeZone).day}`;
+  return MOMENT_ID_RE.test(id) ? id : '';
+}
+
 // Factual line only. The worth-meeting note is generated and stays on the diary entry.
 // Conversation lines are not copied. Empty or unsafe text is not stored.
 export function meetingMomentText(name, shared) {
@@ -322,18 +330,18 @@ export function publicRecapMoment(m) {
   return out;
 }
 
-export function buildRecapMoments({ otherAgentId, otherName, shared, at, meetingId, isNewFriend }) {
+export function buildRecapMoments({ otherAgentId, otherName, shared, at, meetingId, isNewFriend, town = false, timeZone } = {}) {
   const name = scrub(String(otherName || '')).slice(0, 40);
   const refs = { otherAgentId, otherAgentName: name };
   if (typeof meetingId === 'string' && MEET_ID_RE.test(meetingId)) refs.meetingId = meetingId;
   const createdAt = Math.floor(Number(at));
   const out = [];
   const meetText = meetingMomentText(name, shared);
-  const meetId = momentIdFor('meeting', otherAgentId, createdAt);
+  const meetId = town ? townMomentId(otherAgentId, createdAt, timeZone) : momentIdFor('meeting', otherAgentId, createdAt);
   if (meetText && meetId) {
     out.push({ id: meetId, kind: 'meeting', text: meetText, createdAt, weight: MOMENT_WEIGHT.meeting, source: 'event', refs: { ...refs } });
   }
-  if (isNewFriend) {
+  if (isNewFriend && !town) {
     const friendText = friendMomentText(name);
     const friendId = momentIdFor('friend', otherAgentId, createdAt);
     if (friendText && friendId) {
@@ -673,7 +681,7 @@ export function parseNote(text, themName, shared) {
 // One tick. store: listAgents() -> [{uid, updateTime?, ...}], saveLife(uid, life, {updateTime}) (must reject if the doc
 // changed since updateTime), addDiary(uid, entry), addFriend(uid, friendId, fact). llm(prompt, maxTokens) -> text.
 // Budget: at most maxCalls model calls and deadlineMs per tick; every model call (rest included) counts toward the daily cap.
-export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(), maxCalls = LIFE.maxCallsPerTick, deadlineMs = LIFE.tickDeadlineMs, clock = Date.now, shard = 0, of = 1, town = true, company = false }) {
+export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(), maxCalls = LIFE.maxCallsPerTick, deadlineMs = LIFE.tickDeadlineMs, clock = Date.now, shard = 0, of = 1, town = true, company = false, pushOut = null }) {
   if (!salt) throw new Error('LIFE_SALT missing');
   const started = clock();
   // Agents born before the interests step (#26) have none; give them a neutral default so they still live instead of being skipped forever.
@@ -847,10 +855,11 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       };
       const otherLife = countAction(other.life, now);
       if (match.town) {
-        // Town agents have no doc: only our side of the meeting is saved.
+        // Town agents have no doc: only our side of the meeting is saved. One recap card per character per day.
         await save(me, { ...life, activity: 'meet', status: `Chatting with ${theirs.name}`, met: { ...(me.life?.met || {}), [otherId]: now } }, { updateTime: me.updateTime,
           status: makeStatus('meeting', { now, label: `With ${theirs.name}`, withAgentId: otherId, withName: theirs.name, town: true }) });
-        await store.addDiary(me.uid, { kind: 'meet', withId: otherId, withName: theirs.name, shared, lines, town: true, at: now });
+        const diaryId = await store.addDiary(me.uid, { kind: 'meet', withId: otherId, withName: theirs.name, shared, lines, town: true, at: now });
+        await captureRecapMoments(store, { uid: me.uid, otherAgentId: otherId, otherName: theirs.name, shared, at: now, meetingId: typeof diaryId === 'string' ? diaryId : '', town: true });
         summary.townMeets++;
         continue;
       }
@@ -875,9 +884,15 @@ export async function runTick({ store, llm, now = Date.now(), salt = lifeSalt(),
       }
       // Public "who met whom" line: names, hashed ids and shared interests only, never the conversation.
       if (store.addPublicMeet) await store.addPublicMeet({ aId: meId, aName: mine.name, bId: otherId, bName: theirs.name, shared, at: now }).catch(() => {});
-      // Real meetings only. Town meets returned above. A moment-write failure must not undo the meet or invent a line.
-      await captureRecapMoments(store, { uid: me.uid, otherAgentId: otherId, otherName: theirs.name, shared, at: now, meetingId: myDiaryId, isNewFriend: mineNewFriend });
-      await captureRecapMoments(store, { uid: other.uid, otherAgentId: meId, otherName: mine.name, shared, at: now, meetingId: theirDiaryId, isNewFriend: theirNewFriend });
+      // A moment-write failure must not undo the meet or invent a line. Town meets returned above.
+      const mineMoments = await captureRecapMoments(store, { uid: me.uid, otherAgentId: otherId, otherName: theirs.name, shared, at: now, meetingId: myDiaryId, isNewFriend: mineNewFriend });
+      const theirMoments = await captureRecapMoments(store, { uid: other.uid, otherAgentId: meId, otherName: mine.name, shared, at: now, meetingId: theirDiaryId, isNewFriend: theirNewFriend });
+      if (Array.isArray(pushOut)) {
+        const mineMeet = mineMoments.find((m) => m.kind === 'meeting');
+        const theirMeet = theirMoments.find((m) => m.kind === 'meeting');
+        pushOut.push({ uid: me.uid, agentName: mine.name, otherName: theirs.name, shared, momentId: mineMeet?.id || '', meetingId: mineMeet?.refs?.meetingId || '', at: now });
+        pushOut.push({ uid: other.uid, agentName: theirs.name, otherName: mine.name, shared, momentId: theirMeet?.id || '', meetingId: theirMeet?.refs?.meetingId || '', at: now });
+      }
       summary.meets++;
     } catch (error) {
       summary.errors++;
@@ -1144,6 +1159,42 @@ export function lifeStore(admin) {
       return docsOf(rows);
     },
     // Owner moments only. Missing ids are skipped. Does not create documents.
+    async getPush(uid) {
+      if (!UID_RE.test(uid)) return null;
+      const doc = await getDoc(`pushDevices/${uid}`);
+      return doc ? pushDeviceFromDoc(uid, doc) : null;
+    },
+    async savePush(uid, device) {
+      if (!UID_RE.test(uid) || !device) return;
+      const tokens = (Array.isArray(device.tokens) ? device.tokens : []).slice(0, 5).map((t) => ({ token: t.token, platform: t.platform, updatedAt: Number(t.updatedAt) || 0 }));
+      const fields = {
+        enabled: toValue(device.enabled === true),
+        timeZone: toValue(String(device.timeZone || 'Asia/Kolkata').slice(0, 64)),
+        tokens: toValue(tokens),
+        day: toValue(String(device.day || '')),
+        sent: toValue(Number(device.sent) || 0),
+        lastLiveAt: toValue(Number(device.lastLiveAt) || 0),
+        dailySentOn: toValue(String(device.dailySentOn || '')),
+      };
+      const mask = Object.keys(fields).map((m) => `updateMask.fieldPaths=${encodeURIComponent(m)}`).join('&');
+      await call(`${base}/pushDevices/${uid}?${mask}`, { method: 'PATCH', body: JSON.stringify({ fields }) });
+    },
+    async listPush() {
+      const out = [];
+      let token = '';
+      do {
+        const q = `${base}/pushDevices?pageSize=300${token ? `&pageToken=${encodeURIComponent(token)}` : ''}`;
+        const json = await call(q);
+        for (const d of json.documents || []) {
+          const uid = d.name.split('/').pop();
+          const fields = Object.fromEntries(Object.entries(d.fields || {}).map(([k, v]) => [k, fromValue(v)]));
+          const device = pushDeviceFromDoc(uid, fields);
+          if (device) out.push(device);
+        }
+        token = json.nextPageToken || '';
+      } while (token && out.length < 5000);
+      return out;
+    },
     async markMomentsSeen(uid, ids, now = Date.now()) {
       if (!UID_RE.test(uid)) return 0;
       const unique = [...new Set(ids)].filter((id) => MOMENT_ID_RE.test(id)).slice(0, RECAP.seenMax);

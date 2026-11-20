@@ -25,6 +25,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { allowHit, createUidRateLimiter } from './rate-limit.js';
 import { EMOJI_RE, cleanInterests, publicProfile, publicCard, scrub, isTown, stripTown, townByPublicId, townCharacter, offsetFor, nearbyTown, safeLine, checkTickSecret, geminiLlm, hashId, lifeSalt, lifeStore, maxCallsFromEnv, runTick, friendBoard, shareableStatus, RECAP, recapShow, publicRecapMoment } from './life.js';
+import { dispatchPushes, removeToken, sendFcm, upsertToken, validPlatform, validToken } from './push.js';
 import { TOOL_DECLARATIONS, TOOLS_PROMPT, parseModelReply } from './tools.js';
 import { createConnectors, ConnectHttpError } from './connectors/index.js';
 import { calendarToolContext, reviewCalendarTurn, sanitizeZone, ensureRfc3339 } from '../src/calendarWhen.js';
@@ -134,11 +135,13 @@ export function cleanFacts(text) {
 }
 
 const UID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const DATASTORE_SCOPE = 'https://www.googleapis.com/auth/datastore';
+export const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
 
 // One Firebase admin client for this process: service-account JWT, cached access token,
 // project id. Agent memory and the per-uid rate-limit counters both use this object.
 // Returns null when FIREBASE_SERVICE_ACCOUNT is missing or invalid.
-export function firebaseAdmin(env = process.env, fetchImpl = fetch, now = () => Date.now()) {
+export function firebaseAdmin(env = process.env, fetchImpl = fetch, now = () => Date.now(), scope = DATASTORE_SCOPE) {
   let sa;
   try {
     sa = env.FIREBASE_SERVICE_ACCOUNT ? JSON.parse(env.FIREBASE_SERVICE_ACCOUNT) : null;
@@ -153,7 +156,7 @@ export function firebaseAdmin(env = process.env, fetchImpl = fetch, now = () => 
     if (cached && cached.expires > now() + 60_000) return cached.token;
     const iat = Math.floor(now() / 1000);
     const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-    const input = `${enc({ alg: 'RS256', typ: 'JWT' })}.${enc({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/datastore', aud: 'https://oauth2.googleapis.com/token', iat, exp: iat + 3600 })}`;
+    const input = `${enc({ alg: 'RS256', typ: 'JWT' })}.${enc({ iss: sa.client_email, scope, aud: 'https://oauth2.googleapis.com/token', iat, exp: iat + 3600 })}`;
     const signature = createSign('RSA-SHA256').update(input).sign(sa.private_key).toString('base64url');
     const response = await fetchImpl('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -1246,6 +1249,50 @@ async function handleMatchConsent(req, res, ctx) {
 
 // GET /recap -> { show, lastSessionEndAt, moments }. Owner only. `show` is the 15-minute gate.
 // POST /recap/seen { ids } marks those owner moments seen. There is no POST /recap/reply.
+function publicPush(device) {
+  const tokens = Array.isArray(device?.tokens) ? device.tokens : [];
+  return {
+    enabled: device?.enabled === true,
+    timeZone: device?.timeZone || 'Asia/Kolkata',
+    count: tokens.length,
+    platforms: [...new Set(tokens.map((t) => t.platform))],
+  };
+}
+
+async function sendFcmNote(ctx, token, note) {
+  return sendFcm({
+    fetchImpl: ctx.fetchImpl, projectId: ctx.fcm.projectId, accessToken: ctx.fcm.accessToken,
+    token, title: note.title, body: note.body, data: note.data,
+  });
+}
+
+// GET/POST/DELETE /me/push. Owner only. The token is stored, never returned. enabled is the opt-in flag.
+async function handlePush(req, res, ctx) {
+  const { uid } = await chatUser(req, ctx);
+  const s = ctx.lifeStore;
+  if (!s?.getPush || !s?.savePush) throw new HttpError(503, 'push not configured');
+  if (!allowHit(ctx.chatUidHits, `push|${uid}`, 10, 60_000, Date.now())) throw new HttpError(429, 'slow down');
+  const current = await s.getPush(uid).catch(() => null);
+  if (req.method === 'GET') {
+    sendJson(res, 200, publicPush(current));
+    return;
+  }
+  const body = await readJson(req);
+  if (!validToken(body.token)) throw new HttpError(400, 'invalid token');
+  if (req.method === 'DELETE') {
+    const next = removeToken(current || { tokens: [], enabled: false, timeZone: 'Asia/Kolkata' }, body.token);
+    await s.savePush(uid, { ...next, enabled: current?.enabled === true, timeZone: current?.timeZone || 'Asia/Kolkata' });
+    sendJson(res, 200, publicPush(next));
+    return;
+  }
+  const platform = validPlatform(body.platform);
+  if (!platform) throw new HttpError(400, 'platform must be web or android');
+  if (typeof body.enabled !== 'boolean') throw new HttpError(400, 'enabled must be boolean');
+  const next = upsertToken(current, { token: body.token, platform, enabled: body.enabled, timeZone: body.timeZone, now: Date.now() });
+  await s.savePush(uid, next);
+  sendJson(res, 200, publicPush(next));
+}
+
 async function handleRecap(req, res, ctx) {
   const { uid } = await chatUser(req, ctx);
   const s = ctx.lifeStore;
@@ -1401,7 +1448,23 @@ async function handleTick(req, res, ctx) {
     const url = new URL(req.url || '/', 'http://127.0.0.1');
     const of = Math.min(16, Math.max(1, Math.floor(Number(url.searchParams.get('of'))) || 1));
     const shard = Math.min(of - 1, Math.max(0, Math.floor(Number(url.searchParams.get('shard'))) || 0));
-    const run = () => runTick({ store: ctx.lifeStore, llm, now: Date.now(), salt: ctx.lifeSalt, maxCalls: ctx.maxCalls, shard, of, company: true });
+    const live = [];
+    const run = async () => {
+      const sum = await runTick({ store: ctx.lifeStore, llm, now: Date.now(), salt: ctx.lifeSalt, maxCalls: ctx.maxCalls, shard, of, company: true, pushOut: live });
+      if (ctx.fcm && ctx.lifeStore?.savePush) {
+        await dispatchPushes({
+          now: Date.now(),
+          live,
+          getDevice: (uid) => ctx.lifeStore.getPush ? ctx.lifeStore.getPush(uid).catch(() => null) : null,
+          listDevices: () => ctx.lifeStore.listPush ? ctx.lifeStore.listPush().catch(() => []) : [],
+          momentsFor: (uid) => ctx.lifeStore.listMoments ? ctx.lifeStore.listMoments(uid).catch(() => []) : [],
+          agentName: async (uid) => (await ctx.lifeStore.getAgent?.(uid).catch(() => null))?.name || '',
+          send: (token, note) => sendFcmNote(ctx, token, note),
+          save: (uid, device) => ctx.lifeStore.savePush(uid, device),
+        }).catch((error) => console.error('push', String(error?.message || error).slice(0, 80)));
+      }
+      return sum;
+    };
     // ?async=1 (cron-job.org, 30 s request timeout): answer 202 at once and finish the tick in the background.
     if (url.searchParams.get('async') === '1') {
       sendJson(res, 202, { started: true });
@@ -1491,6 +1554,8 @@ export function createServer(options = {}) {
   const fetchImpl = options.fetchImpl || fetch;
   // One admin client per process, shared by memory and the uid rate limiter.
   const admin = options.admin !== undefined ? options.admin : firebaseAdmin(process.env, fetchImpl);
+  // Same service account, messaging scope only. No extra secret. Web clients still need the public VAPID key locally.
+  const fcm = options.fcm !== undefined ? options.fcm : (options.admin === undefined ? firebaseAdmin(process.env, fetchImpl, undefined, FCM_SCOPE) : null);
   const uidHits = new Map();
   const ctx = {
     verifyIdToken: options.verifyIdToken || ((token) => verifyFirebaseIdToken(token, options)),
@@ -1505,6 +1570,7 @@ export function createServer(options = {}) {
     live: new Map(),
     replies: new Map(),
     admin,
+    fcm,
     rateLimiter: options.rateLimiter || createUidRateLimiter({
       admin,
       uidHits,
@@ -1596,6 +1662,10 @@ export function createServer(options = {}) {
         return;
       }
       // Before the unmatched GET catch-all, which answers text/plain "ok" (health checks, not this contract).
+      if (url.pathname === '/me/push' && (req.method === 'GET' || req.method === 'POST' || req.method === 'DELETE')) {
+        await handlePush(req, res, ctx);
+        return;
+      }
       if (url.pathname === '/recap' || url.pathname.startsWith('/recap/')) {
         if (req.method === 'GET' && url.pathname === '/recap') {
           await handleRecap(req, res, ctx);

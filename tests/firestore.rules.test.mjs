@@ -505,6 +505,17 @@ describe('rate limit counter rules', { concurrency: false }, () => {
     await assertFails(setDoc(doc(db(ALICE), 'usage', ALICE), { lastSessionEndAt: Timestamp.now() }));
     await assertFails(deleteDoc(doc(db(ALICE), 'usage', ALICE)));
   });
+
+  test('push device tokens are closed to every client', async () => {
+    await testEnv.withSecurityRulesDisabled(async (c) => {
+      await setDoc(doc(c.firestore(), 'pushDevices', ALICE), { enabled: true, tokens: [{ token: 'x'.repeat(20), platform: 'web' }] });
+    });
+    for (const d of [db(ALICE), db(BOB), db(null)]) {
+      await assertFails(getDoc(doc(d, 'pushDevices', ALICE)));
+      await assertFails(setDoc(doc(d, 'pushDevices', ALICE), { enabled: false }));
+      await assertFails(deleteDoc(doc(d, 'pushDevices', ALICE)));
+    }
+  });
 });
 
 function omit(data, key) {

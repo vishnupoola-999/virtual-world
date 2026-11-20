@@ -958,7 +958,7 @@ describe('recap moments', () => {
     assert.equal(buildRecapMoments({ otherAgentId: 'not-a-hash', otherName: 'Arjun', at: NOW, isNewFriend: true }).length, 0);
   });
 
-  test('an existing friend gets a meeting moment only, and a town meet gets none', async () => {
+  test('an existing friend gets a meeting moment only, and a town meet is one card per character per day', async () => {
     const hb = hashId('bobUid', SALT);
     const ha = hashId('aliceUid', SALT);
     const store = momentStore([
@@ -969,13 +969,19 @@ describe('recap moments', () => {
     await runTick({ store, llm: async () => (++n === 1 ? '{"action":"meet"}' : CONVO), now: NOW, salt: SALT });
     assert.deepEqual(store.moments.map((m) => m.kind).sort(), ['meeting', 'meeting']);
     const town = momentStore([agent('solo', ['tech', 'ai'], { name: 'Priya' })]);
-    let called = 0;
-    town.addMoment = async () => { called++; };
     let t = 0;
     const r = await runTick({ store: town, llm: async () => (++t === 1 ? '{"action":"meet"}' : CONVO), now: NOW, salt: SALT });
     assert.equal(r.townMeets, 1);
     assert.equal(r.errors, 0);
-    assert.equal(called, 0);
+    assert.equal(town.moments.length, 1);
+    assert.equal(town.moments[0].kind, 'meeting');
+    assert.match(town.moments[0].id, /^town_h_[0-9a-f]{20}_\d{4}-\d{2}-\d{2}$/);
+    assert.equal(town.moments[0].text.startsWith('I met '), true);
+    assert.equal(town.moments[0].text.includes('solo'), false);
+    assert.equal(JSON.stringify(town.moments[0].refs).includes('solo'), false);
+    const other = town.moments[0].refs.otherAgentId;
+    await captureRecapMoments(town, { uid: 'solo', otherAgentId: other, otherName: 'Coder Arjun', shared: ['tech'], at: NOW + 60_000, meetingId: 'd9', town: true });
+    assert.equal(town.moments.length, 1);
   });
 
   test('a moment write failure does not fail the meet or invent a line', async () => {
