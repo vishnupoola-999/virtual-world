@@ -125,6 +125,10 @@ service cloud.firestore {
     match /connectorPending/{nonce} {
       allow read, write: if false;
     }
+    // Device tokens and push caps. The proxy writes them with admin credentials. Clients never read or write them.
+    match /pushDevices/{uid} {
+      allow read, write: if false;
+    }
     match /{document=**} { allow read, write: if false; }
   }
 }
