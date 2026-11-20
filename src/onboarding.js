@@ -20,7 +20,7 @@ const CANCEL=new Set(['auth/popup-closed-by-user','auth/cancelled-popup-request'
 const el=(tag,cls,html)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriends=()=>{},onInterests=()=>{}}={}){
+export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriends=()=>{},onInterests=()=>{},onClose=()=>{}}={}){
   const root=$('onb');let step=0,stepT=0,spot=null,locP=null,base=null,acc='none',cards=null,globeRaf=0,active=false,timers=[];
   const later=(fn,ms)=>{const t=setTimeout(fn,ms);timers.push(t);return t;};
   const clearTimers=()=>{for(const t of timers)clearTimeout(t);timers=[];};
@@ -32,7 +32,7 @@ export function setupOnboarding(map,{onDone=()=>{},onCreated=()=>{},onFindFriend
     clearTimers();stopGlobe();if(step===4&&n!==4)disposeCards();step=n;stepT=performance.now();track('onboarding_step_view',{step:n});
     root.dataset.step=n;body.innerHTML='';[null,s1,s2,s3,s4,s5,s6][n]();}
   function open(n=1){if(active)return;active=true;root.hidden=false;document.body.classList.add('onb');show(n);}
-  function close(){active=false;clearTimers();stopGlobe();disposeCards();root.hidden=true;document.body.classList.remove('onb');}
+  function close(){active=false;clearTimers();stopGlobe();disposeCards();root.hidden=true;document.body.classList.remove('onb');onClose();}
   $('onbBack').onclick=()=>{if(step===2)show(1,'back');else if(step===4)show(2,'back');};
   $('onbSkip').onclick=()=>{if(step===1)show(2,'skip');else if(step===3)landNow();else if(step===5)skipInterests();};
   // ---- offline pill

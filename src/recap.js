@@ -5,6 +5,7 @@ import { avatar, fillAvatars, lookOf } from './threads.js';
 import { sendConnect, hiDraft, connectError } from './town.js';
 import { flyTo } from './map.js';
 import { toast } from './ui.js';
+import { cleanPushId, deckForMeeting } from './push.js';
 
 const BASE = 'https://virtual-world-ai.onrender.com';
 export const AWAY_MS = 15 * 60 * 1000;
@@ -161,7 +162,7 @@ function secondaryLabel(m, last) {
   return 'Next';
 }
 
-export function setupRecap({ getUser, getAgent, agents, map, town, threads, tabs, closeSheet, goChat, openQuote, setNews }) {
+export function setupRecap({ getUser, getAgent, agents, map, town, threads, tabs, closeSheet, goChat, openQuote, setNews, onFinished }) {
   const root = document.createElement('div');
   root.id = 'recap';
   root.hidden = true;
@@ -171,6 +172,7 @@ export function setupRecap({ getUser, getAgent, agents, map, town, threads, tabs
   document.body.append(root);
 
   let cached = [];
+  let fetched = [];
   let view = null;
   let seq = 0;
   let touchY = null;
@@ -189,6 +191,7 @@ export function setupRecap({ getUser, getAgent, agents, map, town, threads, tabs
   function publishNews() { setNews?.(unseen().length > 0); }
   function applyServer(res) {
     const seen = readSet(seenKey());
+    fetched = (res.moments || []).map(normMoment).filter(Boolean);
     cached = pickMoments(res.moments).filter((m) => !seen.has(m.id));
     publishNews();
   }
@@ -275,6 +278,7 @@ export function setupRecap({ getUser, getAgent, agents, map, town, threads, tabs
     if (view) noteSeen(view.moments.map((m) => m.id));
     close();
     landOnMap();
+    onFinished?.();
   }
   function skip() {
     close();
@@ -392,6 +396,24 @@ export function setupRecap({ getUser, getAgent, agents, map, town, threads, tabs
     return present(force ? list : fresh);
   }
 
+  // Daily tap opens the recap. A meeting tap starts at that moment (meetingId or moment id).
+  async function openPush(target = {}) {
+    closeSheet?.();
+    const user = getUser();
+    if (!user || user.isAnonymous || !getAgent()) return false;
+    const res = await load(user);
+    if (res.ok) applyServer(res);
+    const meetingId = target?.type === 'meeting' ? cleanPushId(target.meetingId) : '';
+    let list = unseen();
+    if (meetingId) {
+      const hit = fetched.find((m) => m.meetingId === meetingId || m.id === meetingId);
+      if (hit && !list.some((m) => m.id === hit.id)) list = [hit, ...list];
+    }
+    list = deckForMeeting(list, meetingId);
+    if (!list.length) return false;
+    return present(list);
+  }
+
   async function fromMe() {
     closeSheet?.();
     const user = getUser();
@@ -405,7 +427,7 @@ export function setupRecap({ getUser, getAgent, agents, map, town, threads, tabs
     return present(list);
   }
 
-  function reset() { close(); cached = []; setNews?.(false); }
+  function reset() { close(); cached = []; fetched = []; setNews?.(false); }
   // Open one card for a screenshot or a test, without a network call.
   function preview(moments, index = 0) {
     const list = pickMoments(moments);
@@ -419,5 +441,5 @@ export function setupRecap({ getUser, getAgent, agents, map, town, threads, tabs
     return true;
   }
 
-  return { maybe, fromMe, reset, preview, pick: pickMoments, get open() { return !!view; } };
+  return { maybe, fromMe, openPush, reset, preview, pick: pickMoments, get open() { return !!view; } };
 }

@@ -16,4 +16,6 @@ ext {
     // @capacitor-firebase/authentication only packages play-services-auth when this is true.
     // Without it, GoogleSignIn is compileOnly and missing from the APK.
     rgcfaIncludeGoogle = true
+    // @capacitor/push-notifications reads this. 23.3.1 is that plugin's own default.
+    firebaseMessagingVersion = '23.3.1'
 }

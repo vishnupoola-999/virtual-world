@@ -61,8 +61,13 @@ export async function signIn(){
   try{return await signInWithPopup(auth,provider());}
   catch(e){if(e.code==='auth/popup-blocked'||e.code==='auth/operation-not-supported-in-environment'){sessionStorage.setItem('vw-redirect','1');return signInWithRedirect(auth,provider());}throw e;}
   finally{busy=false;}}
+let beforeSignOut=async()=>{};
+// Push token delete runs while the Firebase user can still mint an ID token.
+export function onBeforeSignOut(fn){beforeSignOut=typeof fn==='function'?fn:async()=>{};}
 export async function logOut(){
-  try{const u=auth.currentUser;if(u)localStorage.removeItem('vw-agent:'+u.uid);}catch(e){}
+  const u=auth.currentUser;
+  try{await beforeSignOut(u);}catch(e){console.warn('beforeSignOut',e?.message||e);}
+  try{if(u)localStorage.removeItem('vw-agent:'+u.uid);}catch(e){}
   const cap=nativeCap();
   if(cap&&typeof cap.nativePromise==='function'){
     try{await cap.nativePromise('FirebaseAuthentication','signOut',{});}
