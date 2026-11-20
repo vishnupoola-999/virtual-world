@@ -7,12 +7,15 @@ import {
   SNOOZE_MS,
   classifyPushResponse,
   createPushClient,
-  deckForMeeting,
+  deckForPush,
   mountPushStub,
   pushTarget,
+  registerBody,
   shouldOfferPush,
-  tokenBody,
 } from '../src/push.js';
+
+const TOKEN = 'fcm:android-token-0001';
+const STATE = { enabled: true, timeZone: 'Asia/Kolkata', count: 1, platforms: ['android'] };
 
 function storage() {
   const bag = new Map();
@@ -49,11 +52,22 @@ function bridge() {
   };
 }
 
-function http(status = 200) {
+function http(status = 200, json = STATE) {
   const calls = [];
-  const fetchImpl = async (url, init) => {
-    calls.push({ url, method: init.method, headers: init.headers, body: JSON.parse(init.body) });
-    return { status };
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({
+      url,
+      method: init.method || 'GET',
+      headers: init.headers || {},
+      body: init.body ? JSON.parse(init.body) : null,
+    });
+    return {
+      status,
+      json: async () => {
+        if (typeof json === 'string') throw new Error('not json');
+        return json;
+      },
+    };
   };
   return { calls, fetchImpl };
 }
@@ -78,6 +92,7 @@ function client(extra = {}) {
       return true;
     },
     blocked: extra.blocked || (() => false),
+    timeZone: () => 'Asia/Kolkata',
     onOffer: () => { offers.push(1); },
   });
   return { api, store, native, net, opened, offers };
@@ -152,14 +167,15 @@ describe('push registration', () => {
     }]);
     assert.equal(store.getItem('vw-push-enabled:user-1'), '1');
     assert.equal(net.calls.length, 0);
-    native.emit('registration', { value: 'fcm-1' });
+    native.emit('registration', { value: TOKEN });
     await settled();
     assert.equal(net.calls.length, 1);
     assert.equal(net.calls[0].url, PUSH_URL);
     assert.equal(net.calls[0].method, 'POST');
     assert.equal(net.calls[0].headers.Authorization, 'Bearer id.user-1');
-    assert.deepEqual(net.calls[0].body, { token: 'fcm-1', platform: 'android' });
-    assert.equal(store.getItem('vw-push-token:user-1'), 'fcm-1');
+    assert.deepEqual(net.calls[0].body, { token: TOKEN, platform: 'android', enabled: true, timeZone: 'Asia/Kolkata' });
+    assert.equal(typeof net.calls[0].body.enabled, 'boolean');
+    assert.equal(store.getItem('vw-push-token:user-1'), TOKEN);
   });
 
   test('a token before Turn on is not sent', async () => {
@@ -174,11 +190,11 @@ describe('push registration', () => {
     const { api, native, net } = client({ getUser: () => user() });
     api.onAuth(user(), { restored: false });
     await api.enablePush();
-    native.emit('registration', { value: 'fcm-1' });
-    native.emit('registration', { value: 'fcm-1' });
-    native.emit('registration', { value: 'fcm-2' });
+    native.emit('registration', { value: TOKEN });
+    native.emit('registration', { value: TOKEN });
+    native.emit('registration', { value: 'fcm:android-token-0002' });
     await settled();
-    assert.deepEqual(net.calls.map((c) => c.body.token), ['fcm-1', 'fcm-2']);
+    assert.deepEqual(net.calls.map((c) => c.body.token), [TOKEN, 'fcm:android-token-0002']);
   });
 
   test('a missing route is ignored and the token is kept for a later try', async () => {
@@ -186,10 +202,10 @@ describe('push registration', () => {
     const { api, native, store } = client({ net, getUser: () => user() });
     api.onAuth(user(), { restored: false });
     await api.enablePush();
-    native.emit('registration', { value: 'fcm-1' });
+    native.emit('registration', { value: TOKEN });
     await settled();
     assert.equal(net.calls.length, 1);
-    assert.equal(store.getItem('vw-push-token:user-1'), 'fcm-1');
+    assert.equal(store.getItem('vw-push-token:user-1'), TOKEN);
     assert.equal(store.getItem('vw-push-enabled:user-1'), '1');
   });
 
@@ -200,7 +216,7 @@ describe('push registration', () => {
     });
     api.onAuth(user(), { restored: false });
     assert.deepEqual(await api.enablePush(), { ok: true, reason: 'granted' });
-    native.emit('registration', { value: 'fcm-1' });
+    native.emit('registration', { value: TOKEN });
     await settled();
     assert.equal(store.getItem('vw-push-enabled:user-1'), '1');
     assert.equal(store.getItem('vw-push-token:user-1'), null);
@@ -244,13 +260,13 @@ describe('push registration', () => {
     const u = user();
     api.onAuth(u, { restored: false });
     await api.enablePush();
-    native.emit('registration', { value: 'fcm-1' });
+    native.emit('registration', { value: TOKEN });
     await settled();
     await api.forget(u);
     const del = net.calls.find((c) => c.method === 'DELETE');
     assert.equal(del.url, PUSH_URL);
     assert.equal(del.headers.Authorization, 'Bearer id.user-1');
-    assert.deepEqual(del.body, { token: 'fcm-1', platform: 'android' });
+    assert.deepEqual(del.body, { token: TOKEN });
     assert.equal(native.calls.includes('unregister'), true);
     assert.equal(store.getItem('vw-push-token:user-1'), null);
     assert.equal(store.getItem('vw-push-enabled:user-1'), '1');
@@ -260,7 +276,7 @@ describe('push registration', () => {
       net: { fetchImpl: async () => { throw new Error('offline'); } },
       storage: (() => {
         const s = storage();
-        s.setItem('vw-push-token:user-2', 'fcm-2');
+        s.setItem('vw-push-token:user-2', 'fcm:android-token-0002');
         s.setItem('vw-push-enabled:user-2', '1');
         return s;
       })(),
@@ -272,47 +288,78 @@ describe('push registration', () => {
 });
 
 describe('push tap', () => {
-  test('recap and meeting payloads, and junk, are classified', () => {
-    assert.deepEqual(pushTarget({ type: 'recap' }), { type: 'recap' });
-    assert.deepEqual(pushTarget({ notification: { data: { type: 'meeting', meetingId: 'meet_1' } } }), {
-      type: 'meeting', meetingId: 'meet_1',
+  test('live and daily payloads open from momentId, then the url', () => {
+    const url = 'https://vishnupoola-999.github.io/virtual-world/?recap=1&moment=town_h_abc_2026-11-20';
+    assert.deepEqual(pushTarget({ notification: { data: { type: 'live', momentId: 'meet_1', meetingId: 'd1', url } } }), {
+      type: 'live', momentId: 'meet_1', meetingId: 'd1', url,
     });
-    assert.deepEqual(pushTarget({ type: 'meeting', momentId: 'moment_9' }), { type: 'meeting', meetingId: 'moment_9' });
-    assert.deepEqual(pushTarget({ type: 'meeting' }), { type: 'recap' });
-    assert.equal(pushTarget({ type: 'other' }), null);
-    assert.equal(pushTarget('{"type":"recap"}').type, 'recap');
-    assert.equal(tokenBody('  fcm  ', 'android').token, 'fcm');
-    assert.equal(tokenBody('fcm', 'ios'), null);
+    assert.deepEqual(pushTarget({ type: 'daily', momentId: '', meetingId: '', url }), {
+      type: 'daily', momentId: 'town_h_abc_2026-11-20', meetingId: '', url,
+    });
+    assert.deepEqual(pushTarget({ type: 'daily' }), { type: 'daily', momentId: '', meetingId: '', url: '' });
+    assert.equal(pushTarget({ type: 'recap' }), null);
+    assert.equal(pushTarget({ type: 'meeting', meetingId: 'meet_1' }), null);
+    assert.equal(pushTarget({ type: 'live', url: 'https://example.com/?moment=meet_1' }).momentId, '');
+    assert.equal(registerBody(TOKEN, { platform: 'android', enabled: true, timeZone: 'Asia/Kolkata' }).enabled, true);
+    assert.equal(registerBody(TOKEN, { enabled: 'true' }), null);
+    assert.equal(registerBody('short', { enabled: true }), null);
     assert.equal(classifyPushResponse(204), 'ok');
     assert.equal(classifyPushResponse(405), 'pending');
     assert.equal(classifyPushResponse(401), 'auth');
     assert.equal(classifyPushResponse(500), 'error');
   });
 
-  test('a meeting tap opens at that card and waits until the app can show it', () => {
+  test('a live tap opens at that moment and waits until the app can show it', () => {
     const moments = [
       { id: 'a', meetingId: 'm-a' },
       { id: 'b', meetingId: 'm-b' },
       { id: 'c', meetingId: 'm-c' },
     ];
-    assert.deepEqual(deckForMeeting(moments, 'm-b').map((m) => m.id), ['b', 'c']);
-    assert.equal(deckForMeeting(moments, 'missing').length, 3);
-    assert.equal(deckForMeeting(moments, '../x').length, 3);
+    assert.deepEqual(deckForPush(moments, { momentId: 'b' }).map((m) => m.id), ['b', 'c']);
+    assert.deepEqual(deckForPush(moments, { meetingId: 'm-b' }).map((m) => m.id), ['b', 'c']);
+    assert.equal(deckForPush(moments, { momentId: 'missing' }).length, 3);
+    assert.equal(deckForPush(moments, { momentId: '../x' }).length, 3);
 
     const held = client({ ready: false, getUser: () => user() });
     held.api.onAuth(user(), { restored: true });
-    held.native.emit('pushNotificationActionPerformed', { notification: { data: { type: 'meeting', meetingId: 'm-b' } } });
+    held.native.emit('pushNotificationActionPerformed', {
+      notification: { data: { type: 'live', momentId: 'b', meetingId: 'm-b', url: '' } },
+    });
     assert.equal(held.opened.length, 0);
     held.api.flush();
     assert.equal(held.opened.length, 0);
     const ready = client({ getUser: () => user() });
     ready.api.onAuth(user(), { restored: true });
-    ready.native.emit('pushNotificationActionPerformed', { type: 'recap' });
-    assert.deepEqual(ready.opened, [{ type: 'recap' }]);
+    ready.native.emit('pushNotificationActionPerformed', { type: 'daily', momentId: 'b', meetingId: 'm-b' });
+    assert.deepEqual(ready.opened, [{ type: 'daily', momentId: 'b', meetingId: 'm-b', url: '' }]);
+  });
+
+  test('GET /me/push fills the row, a plain ok does not, and anonymous is not called', async () => {
+    const { api, net } = client({ getUser: () => user() });
+    api.onAuth(user(), { restored: true });
+    const state = await api.refreshStatus();
+    assert.equal(state.enabled, true);
+    assert.equal(net.calls[0].method, 'GET');
+    assert.equal(net.calls[0].url, PUSH_URL);
+    assert.equal(net.calls[0].headers.Authorization, 'Bearer id.user-1');
+    assert.equal(net.calls[0].body, null);
+
+    const plain = http(200, 'ok');
+    const early = client({ net: plain, getUser: () => user() });
+    early.api.onAuth(user(), { restored: true });
+    const pending = await early.api.refreshStatus();
+    assert.equal(pending.enabled, false);
+    assert.equal(pending.pending, true);
+
+    const anon = client({ getUser: () => user('anon', { isAnonymous: true }) });
+    anon.api.onAuth(user('anon', { isAnonymous: true }), { restored: false });
+    await anon.api.refreshStatus();
+    await anon.api.enablePush();
+    assert.equal(anon.net.calls.length, 0);
   });
 
   test('the stub Turn on registers and Not now only snoozes', async () => {
-    const { api, native, store } = client({ getUser: () => user() });
+    const { api, native, store, net } = client({ getUser: () => user() });
     api.onAuth(user(), { restored: false });
     const buttons = [];
     const dialog = {
@@ -350,6 +397,7 @@ describe('push tap', () => {
     later.listeners.click[0]();
     assert.equal(dialog.open, false);
     assert.equal(native.calls.includes('request'), false);
+    assert.equal(net.calls.length, 0);
     assert.ok(Number(store.getItem('vw-push-not-now-until:user-1')) > 0);
     store.removeItem('vw-push-not-now-until:user-1');
     turnOn.listeners.click[0]();

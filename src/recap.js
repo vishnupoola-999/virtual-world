@@ -5,7 +5,7 @@ import { avatar, fillAvatars, lookOf } from './threads.js';
 import { sendConnect, hiDraft, connectError } from './town.js';
 import { flyTo } from './map.js';
 import { toast } from './ui.js';
-import { cleanPushId, deckForMeeting } from './push.js';
+import { cleanPushId, deckForPush, momentFromUrl } from './push.js';
 
 const BASE = 'https://virtual-world-ai.onrender.com';
 export const AWAY_MS = 15 * 60 * 1000;
@@ -396,20 +396,21 @@ export function setupRecap({ getUser, getAgent, agents, map, town, threads, tabs
     return present(force ? list : fresh);
   }
 
-  // Daily tap opens the recap. A meeting tap starts at that moment (meetingId or moment id).
+  // type live|daily. Open at momentId, then meetingId, then the url's moment param, otherwise the plain recap.
   async function openPush(target = {}) {
     closeSheet?.();
     const user = getUser();
     if (!user || user.isAnonymous || !getAgent()) return false;
     const res = await load(user);
     if (res.ok) applyServer(res);
-    const meetingId = target?.type === 'meeting' ? cleanPushId(target.meetingId) : '';
+    const momentId = cleanPushId(target.momentId) || momentFromUrl(target.url);
+    const meetingId = cleanPushId(target.meetingId);
     let list = unseen();
-    if (meetingId) {
-      const hit = fetched.find((m) => m.meetingId === meetingId || m.id === meetingId);
-      if (hit && !list.some((m) => m.id === hit.id)) list = [hit, ...list];
-    }
-    list = deckForMeeting(list, meetingId);
+    const found = (momentId && fetched.find((m) => m.id === momentId))
+      || (meetingId && fetched.find((m) => m.meetingId === meetingId || m.id === meetingId))
+      || null;
+    if (found && !list.some((m) => m.id === found.id)) list = [found, ...list];
+    list = deckForPush(list, { momentId, meetingId });
     if (!list.length) return false;
     return present(list);
   }

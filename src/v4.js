@@ -95,7 +95,8 @@ export function setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAg
     fillAvatars(box);const row=$('meCol');const paint=()=>{const c=toLook(getAgent()?.look).color||null;for(const b of row.querySelectorAll('.swc[data-col]'))b.classList.toggle('on',(b.dataset.col||null)===c),b.setAttribute('aria-checked',String((b.dataset.col||null)===c));const cu=row.querySelector('.cust');const custom=!!c&&!BODY_SWATCHES.includes(c);cu.classList.toggle('on',custom);if(custom)cu.style.setProperty('--c',c);};paint();
     const setC=async c=>{await window.__vw.agent.setColor(cleanColor(c));paint();const img=box.querySelector('.meHero img');img.removeAttribute('src');img.parentElement.dataset.look=JSON.stringify(toLook(getAgent().look));fillAvatars(box);};
     for(const b of row.querySelectorAll('button.swc'))b.onclick=()=>setC(b.dataset.col);let tt=0;row.querySelector('input').oninput=e=>{clearTimeout(tt);const v=e.target.value;tt=setTimeout(()=>setC(v),160);};
-    $('meEdit').onclick=()=>{openSheet('agent');$('agEdit')?.click();};$('meTalk').onclick=()=>{closeSheet();goChat();};if($('meNews'))$('meNews').onclick=()=>onNews?.();if($('mePush'))$('mePush').onclick=()=>{window.__vw.push?.enablePush?.();};
+    $('meEdit').onclick=()=>{openSheet('agent');$('agEdit')?.click();};$('meTalk').onclick=()=>{closeSheet();goChat();};if($('meNews'))$('meNews').onclick=()=>onNews?.();
+    if($('mePush')){const paint=st=>{const on=st?.enabled===true;$('mePush').setAttribute('aria-pressed',String(on));$('mePush').dataset.enabled=String(on);};paint(window.__vw.push.status?.());window.__vw.push.refreshStatus?.().then(paint).catch(()=>{});$('mePush').onclick=()=>{window.__vw.push?.enablePush?.();};}
     $('meAdd').onclick=()=>{closeSheet();$('chatInterests')?.click();};
     for(const b of box.querySelectorAll('.meTools button'))b.onclick=()=>openSheet(b.dataset.go);
     connect?.mount($('meApps')); // Apps section (hidden unless GET /apps exists)

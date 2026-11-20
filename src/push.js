@@ -2,7 +2,10 @@
 // (the opt-in sheet's Turn on, or the Me Notifications row). Diggy owns the sheet;
 // mountPushStub is a marked placeholder. Web push is not registered here.
 
-export const PUSH_URL = 'https://virtual-world-ai.onrender.com/push/token';
+export const PUSH_URL = 'https://virtual-world-ai.onrender.com/me/push';
+export const DEFAULT_ZONE = 'Asia/Kolkata';
+// Same shape proxy/push.js accepts. Shorter or odd tokens are a 400, so they are not sent.
+const TOKEN_RE = /^[A-Za-z0-9_:.-]{20,4096}$/;
 export const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 export const CHANNEL_ID = 'virtual_world_default';
 export const NOT_NOW_PREFIX = 'vw-push-not-now-until';
@@ -35,15 +38,28 @@ export function cleanPushId(value) {
   return ID_RE.test(s) ? s : '';
 }
 
-// Deck shown for a meeting tap: that moment first, then whatever follows it.
-// Earlier cards stay unseen. No meeting id leaves the list as it was.
-export function deckForMeeting(list, meetingId) {
+// Open at the moment card. momentId wins; meetingId is the fallback. No match leaves the deck as it was.
+export function deckForPush(list, { momentId = '', meetingId = '' } = {}) {
   const items = Array.isArray(list) ? list.filter(Boolean) : [];
-  const id = cleanPushId(meetingId);
-  if (!id) return items;
-  const i = items.findIndex((m) => m.meetingId === id || m.id === id);
-  if (i < 0) return items;
-  return items.slice(i);
+  const moment = cleanPushId(momentId);
+  const meeting = cleanPushId(meetingId);
+  if (moment) {
+    const at = items.findIndex((m) => m.id === moment);
+    if (at >= 0) return items.slice(at);
+  }
+  if (meeting) {
+    const at = items.findIndex((m) => m.meetingId === meeting || m.id === meeting);
+    if (at >= 0) return items.slice(at);
+  }
+  return items;
+}
+
+export function deviceTimeZone(intl = globalThis.Intl) {
+  try {
+    const zone = intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (typeof zone === 'string' && zone.trim()) return zone.trim();
+  } catch { /* Intl missing */ }
+  return DEFAULT_ZONE;
 }
 
 // Platform is separate: Diggy can ask on the web, and this client only shows its stub on Android.
@@ -53,13 +69,29 @@ export function shouldOfferPush({ signedIn, anonymous, enabled, notNowUntil, now
   return true;
 }
 
-export function tokenBody(token, platform) {
+export function registerBody(token, { platform = 'android', enabled = true, timeZone = DEFAULT_ZONE } = {}) {
   if (platform !== 'android' && platform !== 'web') return null;
-  if (typeof token !== 'string') return null;
-  const value = token.trim();
-  if (!value || value.length > 4096) return null;
-  for (let i = 0; i < value.length; i += 1) if (value.charCodeAt(i) < 32) return null;
-  return { token: value, platform };
+  if (typeof enabled !== 'boolean') return null;
+  if (typeof token !== 'string' || !TOKEN_RE.test(token)) return null;
+  const zone = typeof timeZone === 'string' && timeZone.trim() ? timeZone.trim() : DEFAULT_ZONE;
+  return { token, platform, enabled, timeZone: zone };
+}
+
+export function unregisterBody(token) {
+  if (typeof token !== 'string' || !TOKEN_RE.test(token)) return null;
+  return { token };
+}
+
+// GET /me/push. A missing boolean means the catch-all "ok" or a route that is not live yet.
+export function readPushState(json) {
+  if (!json || typeof json !== 'object' || typeof json.enabled !== 'boolean') return null;
+  const platforms = Array.isArray(json.platforms) ? json.platforms.filter((p) => p === 'web' || p === 'android') : [];
+  return {
+    enabled: json.enabled,
+    timeZone: typeof json.timeZone === 'string' && json.timeZone ? json.timeZone : DEFAULT_ZONE,
+    count: Number.isFinite(Number(json.count)) ? Number(json.count) : 0,
+    platforms,
+  };
 }
 
 // 404/405 means Buildy has not shipped the route yet. The app keeps going.
@@ -81,18 +113,30 @@ function coerceData(raw) {
   return raw;
 }
 
-// {type:'recap'} opens the recap. {type:'meeting', meetingId} opens it at that meeting.
-// A meeting with no usable id still opens the recap. Anything else is ignored.
+// Pull momentId out of the proxy's recap url. Other hosts are ignored.
+export function momentFromUrl(url) {
+  if (typeof url !== 'string' || !url) return '';
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== 'vishnupoola-999.github.io') return '';
+    const path = parsed.pathname.replace(/\/$/, '');
+    if (path !== '/virtual-world') return '';
+    return cleanPushId(parsed.searchParams.get('moment'));
+  } catch {
+    return '';
+  }
+}
+
+// Proxy data is strings: type live|daily, momentId, meetingId, url.
+// momentId opens that card. The url's moment param is the fallback. Otherwise the plain recap.
 export function pushTarget(raw) {
   const data = coerceData(raw);
   if (!data) return null;
   const type = typeof data.type === 'string' ? data.type.trim() : '';
-  if (type === 'recap') return { type: 'recap' };
-  if (type === 'meeting') {
-    const meetingId = cleanPushId(data.meetingId || data.momentId);
-    return meetingId ? { type: 'meeting', meetingId } : { type: 'recap' };
-  }
-  return null;
+  if (type !== 'live' && type !== 'daily') return null;
+  const momentId = cleanPushId(data.momentId) || momentFromUrl(data.url);
+  const meetingId = cleanPushId(data.meetingId);
+  return { type, momentId, meetingId, url: typeof data.url === 'string' ? data.url : '' };
 }
 
 function memoryStorage() {
@@ -145,6 +189,7 @@ export function createPushClient({
   bridge = null,
   openRecap = () => true,
   url = PUSH_URL,
+  timeZone = deviceTimeZone,
   blocked = () => false,
   onOffer = () => {},
 } = {}) {
@@ -153,6 +198,7 @@ export function createPushClient({
   let recapOffer = false;
   let listening = false;
   let posted = null;
+  let remote = null;
   let pendingTarget = null;
   let postChain = Promise.resolve();
   const supports = () => bridge?.platform === 'android';
@@ -179,9 +225,28 @@ export function createPushClient({
     });
   }
 
+  function zone() {
+    try {
+      const value = typeof timeZone === 'function' ? timeZone() : timeZone;
+      return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_ZONE;
+    } catch {
+      return DEFAULT_ZONE;
+    }
+  }
+
+  async function readResponse(res) {
+    const kind = classifyPushResponse(res?.status);
+    if (kind !== 'ok') return { kind, status: res?.status };
+    let json;
+    try { json = typeof res.json === 'function' ? await res.json() : null; } catch { json = null; }
+    const state = readPushState(json);
+    if (!state) return { kind: 'pending', status: res?.status };
+    return { kind: 'ok', status: res?.status, state };
+  }
+
   async function postToken(token) {
     const u = account();
-    const body = tokenBody(token, 'android');
+    const body = registerBody(token, { platform: 'android', enabled: true, timeZone: zone() });
     if (!u || u.isAnonymous || !body || !readEnabled(u)) return { kind: 'skipped' };
     if (posted?.token === body.token && posted.kind === 'ok' && posted.uid === u.uid) return { kind: 'ok', skipped: true };
     let res;
@@ -195,17 +260,18 @@ export function createPushClient({
     } catch {
       return { kind: 'error' };
     }
-    const kind = classifyPushResponse(res?.status);
-    if (kind === 'ok' || kind === 'pending') safeSet(storage, tokenKey(u), body.token);
-    posted = { token: body.token, kind, uid: u.uid };
-    return { kind, status: res?.status };
+    const parsed = await readResponse(res);
+    if (parsed.kind === 'ok' || parsed.kind === 'pending') safeSet(storage, tokenKey(u), body.token);
+    if (parsed.state) remote = parsed.state;
+    posted = { token: body.token, kind: parsed.kind, uid: u.uid };
+    return parsed;
   }
 
   async function deleteToken(u) {
     const key = tokenKey(u);
     const token = u ? safeGet(storage, key) : null;
     if (u && token && !u.isAnonymous) {
-      const body = tokenBody(token, 'android');
+      const body = unregisterBody(token);
       if (body) {
         try {
           const idToken = await u.getIdToken();
@@ -219,9 +285,42 @@ export function createPushClient({
     }
     if (u) safeRemove(storage, key);
     posted = null;
+    remote = null;
     if (supports() && token) {
       try { await bridge.unregister(); } catch { /* the server delete is the one that stops sends */ }
     }
+  }
+
+  function status() {
+    const local = readEnabled();
+    const known = remote && remote.pending !== true && typeof remote.enabled === 'boolean';
+    return {
+      enabled: known ? remote.enabled || local : local,
+      timeZone: remote?.timeZone || '',
+      count: remote?.count || 0,
+      platforms: remote?.platforms || [],
+      pending: remote?.pending === true,
+    };
+  }
+
+  async function refreshStatus() {
+    const u = account();
+    if (!u || u.isAnonymous) return status();
+    let res;
+    try {
+      const idToken = await u.getIdToken();
+      res = await fetchImpl(url, { headers: { Authorization: 'Bearer ' + idToken } });
+    } catch {
+      return status();
+    }
+    const parsed = await readResponse(res);
+    if (parsed.kind === 'ok' && parsed.state) {
+      remote = parsed.state;
+      if (parsed.state.enabled) safeSet(storage, enabledKey(u), '1');
+    } else if (parsed.kind === 'pending') {
+      remote = { ...(remote || {}), pending: true };
+    }
+    return status();
   }
 
   function onToken(token) {
@@ -363,6 +462,8 @@ export function createPushClient({
     onRecapEnd,
     forget,
     flush,
+    status,
+    refreshStatus,
     supported: supports,
   };
 }
