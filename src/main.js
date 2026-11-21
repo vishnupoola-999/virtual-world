@@ -9,7 +9,7 @@ import {setupChat} from './chat.js';
 import {setupConnect} from './connect.js';
 import {chatHero} from './chat-hero.js';
 import {setupTabs} from './tabs.js';
-import {currentUser,onUser,loadDiary,publishCard} from './firebase.js';
+import {currentUser,onUser,loadDiary,publishCard,onBeforeSignOut} from './firebase.js';
 import {setupLiving,readStatus} from './living.js';
 import {setupAway,markVisit,lastVisit} from './away.js';
 import {setupTown} from './town.js';
@@ -18,6 +18,7 @@ import {setupV4} from './v4.js';
 import {setupRecap} from './recap.js';
 import {track} from './onboarding.js';
 import {setupUsage} from './usage.js';
+import {installPush} from './push.js';
 import {setupUI,toast,closeSheet,openSheet,dragToClose} from './ui.js';
 const $=id=>document.getElementById(id);
 setupUI();
@@ -78,7 +79,8 @@ const goChatQuote=(text)=>{chatFrom=document.querySelector('#tabs [aria-selected
 const ob=setupOnboarding(map,{onCreated:(a,saved)=>window.__vw.agent.adopt(a,saved),
   onInterests:p=>window.__vw.agent.setProfile(p),
   onDone:w=>{if(w==='move'){tabs.set('world');window.__vw.agent.startMove('onboarding');}else goChat();},
-  onFindFriends:()=>{tabs.set('world');openSheet('family');}});
+  onFindFriends:()=>{tabs.set('world');openSheet('family');},
+  onClose:()=>{if(!window.__vw?.recap?.open)window.__vw?.push?.maybeOffer();}});
 window.__vw.onb=ob;
 onUser(u=>{if(!u&&!noOnb)ob.open(1);});
 // Chat header: Show on map, and More (also ＋ in the composer) opens the agent sheet with Move my agent, Customise and live sharing.
@@ -106,7 +108,13 @@ const living=LIVING_MAP?setupLiving(map,{hintEl:$('liveHint')}):{showOwn:a=>read
 const threads=setupThreads({getUser:currentUser,agents,getMe:()=>window.__vw.agent?.agent});window.__vw.threads=threads;
 const town=setupTown({agents,living,map,threads,getUser:currentUser,el:$('feedList'),actEl:$('agentChats'),dotEl:$('agentDot')});window.__vw.town=town;
 const v4=setupV4({map,agents,town,threads,tabs,openSheet,closeSheet,getAgent:()=>window.__vw.agent?.agent,getUser:currentUser,goChat,connect:apps,onNews:()=>window.__vw.recap?.fromMe()});window.__vw.v4=v4;
-const recap=setupRecap({getUser:chatUser,getAgent:()=>window.__vw.agent?.agent,agents,map,town,threads,tabs,closeSheet,goChat,openQuote:goChatQuote,setNews:on=>v4.setNews(on)});window.__vw.recap=recap;
+const recap=setupRecap({getUser:chatUser,getAgent:()=>window.__vw.agent?.agent,agents,map,town,threads,tabs,closeSheet,goChat,openQuote:goChatQuote,setNews:on=>v4.setNews(on),onFinished:()=>window.__vw?.push?.onRecapEnd()});window.__vw.recap=recap;
+// Permission is never requested here. enablePush() is the only prompt, from the stub or the Me row.
+const push=installPush({getUser:()=>currentUser(),openRecap:target=>{
+  if(!window.__vw?.agent?.agent||typeof window.__vw?.recap?.openPush!=='function')return false;
+  window.__vw.recap.openPush(target);return true;},blocked:()=>!!(ob.active||window.__vw?.recap?.open)});
+window.__vw.push=push;onBeforeSignOut(u=>push.forget(u));
+let pushBooted=false;onUser(u=>{const restored=!pushBooted;pushBooted=true;push.onAuth(u,{restored});});
 // Ambient creatures across the world's cities (client-only, deterministic, no names).
 import('./ambient.js').then(m=>{window.__vw.ambient=m.setupAmbient(map,agents);}).catch(e=>console.warn('ambient',e?.message));
 onUser(u=>{apps.refresh();if(u&&!u.isAnonymous){town.refreshMap(u);town.checkUnread(u);v4.refreshHud();}else{town.clearMap();v4.forget();recap.reset();}});setInterval(()=>{if(!document.hidden)town.refreshMap();},120000);
@@ -118,8 +126,9 @@ $('railAgent').addEventListener('click',()=>town.loadActivity());
 addEventListener('pagehide',()=>markVisit());document.addEventListener('visibilitychange',()=>{if(document.hidden&&!away.open)markVisit();});
 const showLife=(u,a)=>{living.showOwn(a);if(!u||!a||ob.active)return;const since=lastVisit();
   const arrive=()=>loadDiary(u.uid).then(entries=>v4.arrive({entries})).catch(e=>{console.warn('diary',e?.code||e?.message);v4.arrive({});});
-  recap.maybe({user:u,since}).then(shown=>{if(!shown)arrive();}).catch(arrive);};
+  recap.maybe({user:u,since}).then(shown=>{if(!shown){arrive();if(!ob.active)push.maybeOffer();}}).catch(()=>{arrive();if(!ob.active)push.maybeOffer();});};
 window.__vw.agent=setupAgent(map,{onLoaded:(u,a)=>{
+  push.flush();
   // Ask for interests whenever a signed-in agent has fewer than 3 tags stored in Firestore.
   // ?onb=0 still skips the first-time tour, but not this prompt. Don't interrupt onboarding past sign-in.
   const returningMidIntro=!!(u&&a&&ob.active&&ob.step<=2);
